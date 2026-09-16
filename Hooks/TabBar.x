@@ -44,6 +44,7 @@ static const CGFloat kLGTabBarLandscapeHighlightHeight = 46.0;
 static const CGFloat kLGTabBarPortraitLensWidth = 94.0;
 static const CGFloat kLGTabBarPortraitLensHeight = 72.0;
 static const CGFloat kLGTabBarLandscapeHeight = 52.0;
+static const NSTimeInterval kLGTabBarLumaInterval = 1.0;
 
 static const void *kLGTabBarVibranceKey = &kLGTabBarVibranceKey;
 
@@ -651,7 +652,7 @@ static void LGSampleTabBarLuma(UITabBar *bar) {
 static void LGStartTabBarLumaSampling(UITabBar *bar) {
     if (objc_getAssociatedObject(bar, kLGTabBarLumaTimerKey)) return;
     __weak UITabBar *weakBar = bar;
-    NSTimer *timer = [NSTimer timerWithTimeInterval:0.35 repeats:YES block:^(__unused NSTimer *unused) {
+    NSTimer *timer = [NSTimer timerWithTimeInterval:kLGTabBarLumaInterval repeats:YES block:^(__unused NSTimer *unused) {
         UITabBar *strongBar = weakBar;
         if (strongBar && LGTabBarAllowed()) LGSampleTabBarLuma(strongBar);
     }];
