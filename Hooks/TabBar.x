@@ -1888,22 +1888,6 @@ static void LGScheduleTabBarDump(UITabBar *bar, NSString *reason) {
 
 - (void)viewDidAppear:(BOOL)animated {
     %orig;
-    if (!LGTabBarAllowed()) return;
-
-    NSArray<UIViewController *> *vcs = self.viewControllers;
-    if (vcs.count <= 1) return;
-
-    for (NSUInteger i = 0; i < vcs.count; i++) {
-        UIViewController *vc = vcs[i];
-        if (!vc.isViewLoaded) {
-            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)((0.4 * (i + 1)) * NSEC_PER_SEC)),
-                           dispatch_get_main_queue(), ^{
-                if (!vc.isViewLoaded) {
-                    (void)vc.view;
-                }
-            });
-        }
-    }
 }
 
 - (void)tabBar:(UITabBar *)tabBar didSelectItem:(UITabBarItem *)item {
