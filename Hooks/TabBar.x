@@ -239,6 +239,7 @@ static void LGPositionTabBarBlueOverlay(UITabBar *bar,
                                         LGLiveBackdropView *lens);
 static UIView *LGTabBarBlueOverlay(UITabBar *bar, BOOL create);
 static void LGStartTabBarLumaSampling(UITabBar *bar);
+static void LGStopTabBarLumaSampling(UITabBar *bar);
 static void LGFinalizeTabBarSelection(UITabBar *bar,
                                       LGLiveBackdropView *lens,
                                       LGTabBarMotionState *state);
@@ -515,10 +516,7 @@ static void LGRemoveTabBarInjection(UITabBar *bar) {
         objc_getAssociatedObject(bar, kLGTabBarSelectionGlassKey) ||
         objc_getAssociatedObject(bar, kLGTabBarBlueOverlayKey);
     if (!injected) return;
-    NSTimer *lumaTimer = objc_getAssociatedObject(bar, kLGTabBarLumaTimerKey);
-    [lumaTimer invalidate];
-    objc_setAssociatedObject(bar, kLGTabBarLumaTimerKey, nil,
-                             OBJC_ASSOCIATION_ASSIGN);
+    LGStopTabBarLumaSampling(bar);
 
     LGTabBarMotionState *state = LGTabBarMotionStateForBar(bar, NO);
     [state stop];
@@ -654,12 +652,21 @@ static void LGStartTabBarLumaSampling(UITabBar *bar) {
     __weak UITabBar *weakBar = bar;
     NSTimer *timer = [NSTimer timerWithTimeInterval:kLGTabBarLumaInterval repeats:YES block:^(__unused NSTimer *unused) {
         UITabBar *strongBar = weakBar;
-        if (strongBar && LGTabBarAllowed()) LGSampleTabBarLuma(strongBar);
+        if (!strongBar || !strongBar.window || strongBar.hidden || strongBar.alpha < 0.01 ||
+            !LGTabBarAllowed()) return;
+        LGSampleTabBarLuma(strongBar);
     }];
     [[NSRunLoop mainRunLoop] addTimer:timer forMode:NSRunLoopCommonModes];
     objc_setAssociatedObject(bar, kLGTabBarLumaTimerKey, timer,
                              OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     LGSampleTabBarLuma(bar);
+}
+
+static void LGStopTabBarLumaSampling(UITabBar *bar) {
+    NSTimer *timer = objc_getAssociatedObject(bar, kLGTabBarLumaTimerKey);
+    [timer invalidate];
+    objc_setAssociatedObject(bar, kLGTabBarLumaTimerKey, nil,
+                             OBJC_ASSOCIATION_ASSIGN);
 }
 
 static BOOL LGTabBarButtonGeometryIsConstraintManaged(UIView *button) {
@@ -1844,6 +1851,8 @@ static void LGScheduleTabBarDump(UITabBar *bar, NSString *reason) {
         LGConfigureTabBarAppearance(self);
         LGStyleStockTabBar(self);
         LGScheduleTabBarDump(self, @"didMoveToWindow");
+    } else {
+        LGStopTabBarLumaSampling(self);
     }
 }
 
