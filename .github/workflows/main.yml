@@ -108,6 +108,7 @@ jobs:
       - name: upload package (${{ matrix.scheme }})
         uses: actions/upload-artifact@v4
         with:
+          retention-days: 7
           name: ${{ matrix.scheme }}-package
           path: packages/*.deb
 
