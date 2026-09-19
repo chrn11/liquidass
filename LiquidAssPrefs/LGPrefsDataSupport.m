@@ -2,6 +2,7 @@
 #import "LGPRootListController.h"
 #import "LGPrefsLiquidSlider.h"
 #import "LGPrefsLiquidSwitch.h"
+#import "LGPrefsSurfaceCatalog.h"
 #import "../Shared/LGSharedSupport.h"
 #import "../Shared/LGHostRegistry.h"
 #import <notify.h>
@@ -37,6 +38,7 @@ static NSArray<NSString *> *LGExportablePreferenceKeys(void) {
     NSMutableOrderedSet<NSString *> *orderedKeys = [NSMutableOrderedSet orderedSet];
     NSArray<NSArray<NSDictionary *> *> *sources = @[
         LGAllSurfaceItems(),
+        LGPrefsSurfaceItems(LGPrefsSurfaceAppearance),
         LGMoreOptionsItems(),
         LGPrefsSettingsItems()
     ];
@@ -360,6 +362,57 @@ void LGRemovePreference(NSString *key) {
     [sLGPendingPreferenceRemovals addObject:key];
     LGLog(@"[prefs-pending] staged removal %@", key);
 }
+
+static void LGStageAppearanceNumber(NSMutableDictionary *values, NSString *key, double value) {
+    if (key.length) values[key] = @(value);
+}
+
+static void LGStageAppearanceBool(NSMutableDictionary *values, NSString *key, BOOL value) {
+    if (key.length) values[key] = @(value);
+}
+
+static void LGStageAppearanceHost(NSMutableDictionary *values, NSString *prefix,
+                                  BOOL dispersion, double strength, BOOL specular) {
+    LGStageAppearanceBool(values, [prefix stringByAppendingString:@".DispersionEnabled"], dispersion);
+    LGStageAppearanceNumber(values, [prefix stringByAppendingString:@".DispersionStrength"], strength);
+    LGStageAppearanceBool(values, [prefix stringByAppendingString:@".SpecularEnabled"], specular);
+}
+
+void LGStageAppearancePreset(NSString *preset) {
+    if (![preset isKindOfClass:NSString.class] || !preset.length) preset = @"auto";
+    NSMutableDictionary *values = [NSMutableDictionary dictionary];
+    if ([preset isEqualToString:@"high"]) {
+        LGStageAppearanceNumber(values, @"Global.Quality", 1.0);
+        LGStageAppearanceHost(values, @"CoverSheet", YES, 1.0, YES);
+        LGStageAppearanceHost(values, @"Clock", NO, 0.0, YES);
+        LGStageAppearanceHost(values, @"Keyboard", NO, 0.0, YES);
+        LGStageAppearanceHost(values, @"Notification", NO, 0.0, YES);
+    } else if ([preset isEqualToString:@"battery"]) {
+        LGStageAppearanceNumber(values, @"Global.Quality", 0.55);
+        LGStageAppearanceHost(values, @"CoverSheet", NO, 0.0, NO);
+        LGStageAppearanceHost(values, @"Clock", NO, 0.0, YES);
+        LGStageAppearanceHost(values, @"Keyboard", NO, 0.0, NO);
+        LGStageAppearanceHost(values, @"Notification", NO, 0.0, NO);
+    } else if ([preset isEqualToString:@"balanced"]) {
+        LGStageAppearanceNumber(values, @"Global.Quality", 0.78);
+        LGStageAppearanceHost(values, @"CoverSheet", YES, 0.35, YES);
+        LGStageAppearanceHost(values, @"Clock", NO, 0.0, YES);
+        LGStageAppearanceHost(values, @"Keyboard", NO, 0.0, YES);
+        LGStageAppearanceHost(values, @"Notification", NO, 0.0, YES);
+    } else {
+        LGStageAppearanceNumber(values, @"Global.Quality", 0.90);
+        LGStageAppearanceHost(values, @"CoverSheet", NO, 0.0, YES);
+        LGStageAppearanceHost(values, @"Clock", NO, 0.0, YES);
+        LGStageAppearanceHost(values, @"Keyboard", NO, 0.0, YES);
+        LGStageAppearanceHost(values, @"Notification", NO, 0.0, YES);
+    }
+    [values enumerateKeysAndObjectsUsingBlock:^(NSString *key, id value, BOOL *stop) {
+        (void)stop; LGWritePreferenceObject(key, value);
+    }];
+    LGWritePreferenceObject(@"Appearance.Preset", preset);
+    LGWritePreferenceObject(@"Appearance.SimpleMode", @YES);
+}
+
 
 NSDictionary *LGSwitchSetting(NSString *key, NSString *title, NSString *subtitle, BOOL fallback) {
     return @{

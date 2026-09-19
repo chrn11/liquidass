@@ -199,3 +199,19 @@
 /* TODO: Translate synced English fallback strings. */
 "prefs.control.clock_fps_limit" = "FPS Limit";
 "prefs.subtitle.clock_fps_limit" = "Limits clock animation updates.";
+"prefs.surface.appearance.title" = "外观";
+"prefs.surface.appearance.subtitle" = "简洁的液态玻璃风格预设。";
+"prefs.appearance.preset.title" = "外观预设";
+"prefs.appearance.preset.subtitle" = "选择整体观感；高级渲染参数默认隐藏。";
+"prefs.appearance.preset.auto" = "自动";
+"prefs.appearance.preset.high" = "高还原";
+"prefs.appearance.preset.balanced" = "均衡";
+"prefs.appearance.preset.battery" = "省电";
+"prefs.appearance.simple.title" = "简洁设置";
+"prefs.appearance.simple.subtitle" = "隐藏底层玻璃参数。";
+"prefs.appearance.focus.title" = "重点组件";
+"prefs.appearance.focus.subtitle" = "调整最常看到的玻璃界面。";
+"prefs.appearance.keyboard.subtitle" = "键盘液态玻璃。";
+"prefs.appearance.clock.subtitle" = "锁屏玻璃时钟。";
+"prefs.appearance.control_center.subtitle" = "控制中心玻璃。";
+"prefs.appearance.notification.subtitle" = "通知可读性和玻璃效果。";

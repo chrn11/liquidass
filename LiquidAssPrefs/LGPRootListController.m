@@ -33,6 +33,7 @@
     UIView *mainSection = [self rootSectionViewWithTitle:LGLocalized(@"prefs.section.main.title")
                                                 subtitle:nil];
     UIButton *surfacesButton = (UIButton *)[self navCardWithTitle:LGPrefsSurfaceTitle(LGPrefsSurfaceSurfaces) subtitle:LGPrefsSurfaceSubtitle(LGPrefsSurfaceSurfaces) color:LGPrefsSurfaceTintColor(LGPrefsSurfaceSurfaces) symbolName:LGPrefsSurfaceSymbolName(LGPrefsSurfaceSurfaces) action:@selector(openSurfaces)];
+    UIButton *appearanceButton = (UIButton *)[self navCardWithTitle:LGPrefsSurfaceTitle(LGPrefsSurfaceAppearance) subtitle:LGPrefsSurfaceSubtitle(LGPrefsSurfaceAppearance) color:LGPrefsSurfaceTintColor(LGPrefsSurfaceAppearance) symbolName:@"paintpalette.fill" action:@selector(openAppearance)];
     UIButton *moreOptionsButton = (UIButton *)[self navCardWithTitle:LGPrefsSurfaceTitle(LGPrefsSurfaceMoreOptions) subtitle:LGPrefsSurfaceSubtitle(LGPrefsSurfaceMoreOptions) color:LGPrefsSurfaceTintColor(LGPrefsSurfaceMoreOptions) symbolName:LGPrefsSurfaceSymbolName(LGPrefsSurfaceMoreOptions) action:@selector(handleAboutPressed)];
     UIView *miscSection = [self rootSectionViewWithTitle:LGLocalized(@"prefs.section.misc.title")
                                                 subtitle:nil];
@@ -44,7 +45,7 @@
     self.lg_menuButtons = @[surfacesButton];
     [self.lg_stackView addArrangedSubview:mainSection];
     [self.lg_stackView addArrangedSubview:[self globalToggleCard]];
-    [self.lg_stackView addArrangedSubview:[self groupedRootNavPanelForButtons:@[surfacesButton]]];
+    [self.lg_stackView addArrangedSubview:[self groupedRootNavPanelForButtons:@[appearanceButton, surfacesButton]]];
     [self.lg_stackView addArrangedSubview:miscSection];
     [self.lg_stackView addArrangedSubview:[self groupedRootNavPanelForButtons:@[moreOptionsButton, respringButton, safeModeButton, aboutButton]]];
     [self.lg_stackView addArrangedSubview:[self groupedRootNavPanelForButtons:@[supportButton]]];
@@ -98,6 +99,7 @@
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.12 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
         if (self.navigationController.topViewController != self) return;
         if ([surface isEqualToString:@"Surfaces"]) [self openSurfaces];
+        else if ([surface isEqualToString:@"Appearance"]) [self openAppearance];
         else if ([surface isEqualToString:@"Homescreen"]) [self openHomescreen];
         else if ([surface isEqualToString:@"Lockscreen"]) [self openLockscreen];
         else if ([surface isEqualToString:@"AppLibrary"]) [self openAppLibrary];
@@ -527,6 +529,7 @@
 - (void)openLockscreen { [self pushSurfaceWithIdentifier:LGPrefsSurfaceLockscreen]; }
 - (void)openAppLibrary { [self pushSurfaceWithIdentifier:LGPrefsSurfaceAppLibrary]; }
 - (void)openSurfaces { [self pushSurfaceWithIdentifier:LGPrefsSurfaceSurfaces]; }
+- (void)openAppearance { [self pushSurfaceWithIdentifier:LGPrefsSurfaceAppearance]; }
 - (void)openPrefsSettings { [self pushSurfaceWithIdentifier:LGPrefsSurfaceSettings]; }
 - (void)openMoreOptions { [self pushSurfaceWithIdentifier:LGPrefsSurfaceMoreOptions]; }
 - (void)handleAboutPressed { [self openMoreOptions]; }

@@ -37,6 +37,7 @@ void LGWritePreferenceAndMaybeRequireRespring(NSString *key, NSNumber *value);
 id LGReadPreferenceObject(NSString *key, id fallback);
 void LGWritePreferenceObject(NSString *key, id value);
 void LGRemovePreference(NSString *key);
+void LGStageAppearancePreset(NSString *preset);
 
 NSDictionary *LGSwitchSetting(NSString *key, NSString *title, NSString *subtitle, BOOL fallback);
 NSDictionary *LGSectionSetting(NSString *title, NSString *subtitle);

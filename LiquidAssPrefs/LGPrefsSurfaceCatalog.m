@@ -6,6 +6,7 @@ NSString * const LGPrefsSurfaceHomescreen = @"Homescreen";
 NSString * const LGPrefsSurfaceLockscreen = @"Lockscreen";
 NSString * const LGPrefsSurfaceAppLibrary = @"AppLibrary";
 NSString * const LGPrefsSurfaceSurfaces = @"Surfaces";
+NSString * const LGPrefsSurfaceAppearance = @"Appearance";
 NSString * const LGPrefsSurfaceDock = @"Dock";
 NSString * const LGPrefsSurfaceFolderIcons = @"FolderIcons";
 NSString * const LGPrefsSurfaceAppIcons = @"AppIcons";
@@ -38,6 +39,7 @@ BOOL LGPrefsSurfaceIsKnown(NSString *identifier) {
            [identifier isEqualToString:LGPrefsSurfaceLockscreen] ||
            [identifier isEqualToString:LGPrefsSurfaceAppLibrary] ||
            [identifier isEqualToString:LGPrefsSurfaceSurfaces] ||
+           [identifier isEqualToString:LGPrefsSurfaceAppearance] ||
            [identifier isEqualToString:LGPrefsSurfaceDock] ||
            [identifier isEqualToString:LGPrefsSurfaceFolderIcons] ||
            [identifier isEqualToString:LGPrefsSurfaceAppIcons] ||
@@ -71,6 +73,7 @@ NSString *LGPrefsSurfaceTitle(NSString *identifier) {
     if ([identifier isEqualToString:LGPrefsSurfaceLockscreen]) return LGLocalized(@"prefs.surface.lockscreen.title");
     if ([identifier isEqualToString:LGPrefsSurfaceAppLibrary]) return LGLocalized(@"prefs.surface.app_library.title");
     if ([identifier isEqualToString:LGPrefsSurfaceSurfaces]) return LGLocalized(@"prefs.surface.surfaces.title");
+    if ([identifier isEqualToString:LGPrefsSurfaceAppearance]) return LGLocalized(@"prefs.surface.appearance.title");
     if ([identifier isEqualToString:LGPrefsSurfaceDock]) return LGLocalized(@"prefs.section.dock.title");
     if ([identifier isEqualToString:LGPrefsSurfaceFolderIcons]) return LGLocalized(@"prefs.section.folder_icons.title");
     if ([identifier isEqualToString:LGPrefsSurfaceAppIcons]) return LGLocalized(@"prefs.section.app_icons.title");
@@ -106,6 +109,7 @@ NSString *LGPrefsSurfaceSubtitle(NSString *identifier) {
     if ([identifier isEqualToString:LGPrefsSurfaceLockscreen]) return LGLocalized(@"prefs.surface.lockscreen.subtitle");
     if ([identifier isEqualToString:LGPrefsSurfaceAppLibrary]) return LGLocalized(@"prefs.surface.app_library.subtitle");
     if ([identifier isEqualToString:LGPrefsSurfaceSurfaces]) return LGLocalized(@"prefs.surface.surfaces.subtitle");
+    if ([identifier isEqualToString:LGPrefsSurfaceAppearance]) return LGLocalized(@"prefs.surface.appearance.subtitle");
     if ([identifier isEqualToString:LGPrefsSurfaceAssistiveTouch]) return LGLocalized(@"prefs.surface.assistive_touch.subtitle");
     if ([identifier isEqualToString:LGPrefsSurfaceVolumeHUD]) return LGLocalized(@"prefs.surface.volume_hud.subtitle");
     if ([identifier isEqualToString:LGPrefsSurfacePillHUD]) return LGLocalized(@"prefs.surface.pill_hud.subtitle");
@@ -164,7 +168,45 @@ NSString *LGPrefsSurfaceSymbolName(NSString *identifier) {
 }
 
 NSArray<NSDictionary *> *LGPrefsSurfaceItems(NSString *identifier) {
-    if ([identifier isEqualToString:LGPrefsSurfaceSurfaces]) return @[
+    if ([identifier isEqualToString:LGPrefsSurfaceAppearance]) return @[
+        LGMenuSetting(@"Appearance.Preset",
+                      LGLocalized(@"prefs.appearance.preset.title"),
+                      LGLocalized(@"prefs.appearance.preset.subtitle"),
+                      @"auto",
+                      @[
+                          @{ @"value": @"auto", @"title": LGLocalized(@"prefs.appearance.preset.auto") },
+                          @{ @"value": @"high", @"title": LGLocalized(@"prefs.appearance.preset.high") },
+                          @{ @"value": @"balanced", @"title": LGLocalized(@"prefs.appearance.preset.balanced") },
+                          @{ @"value": @"battery", @"title": LGLocalized(@"prefs.appearance.preset.battery") },
+                      ]),
+        LGSwitchSetting(@"Appearance.SimpleMode",
+                        LGLocalized(@"prefs.appearance.simple.title"),
+                        LGLocalized(@"prefs.appearance.simple.subtitle"), YES),
+        LGSectionSetting(LGLocalized(@"prefs.appearance.focus.title"),
+                         LGLocalized(@"prefs.appearance.focus.subtitle")),
+        LGSwitchSetting(@"Keyboard.Enabled", LGPrefsSurfaceTitle(LGPrefsSurfaceKeyboard),
+                        LGLocalized(@"prefs.appearance.keyboard.subtitle"), YES),
+        LGSwitchSetting(@"Clock.Enabled", LGPrefsSurfaceTitle(LGPrefsSurfaceClock),
+                        LGLocalized(@"prefs.appearance.clock.subtitle"), YES),
+        LGSwitchSetting(@"ControlCenter.Enabled", LGPrefsSurfaceTitle(LGPrefsSurfaceControlCenter),
+                        LGLocalized(@"prefs.appearance.control_center.subtitle"), YES),
+        LGSwitchSetting(@"Notification.Enabled", LGPrefsSurfaceTitle(LGPrefsSurfaceNotifications),
+                        LGLocalized(@"prefs.appearance.notification.subtitle"), YES),
+    ];
+    if ([identifier isEqualToString:LGPrefsSurfaceSurfaces]) {
+        BOOL simple = [LGReadPreference(@"Appearance.SimpleMode", @YES) boolValue];
+        if (simple) return @[
+            LGSectionSetting(LGLocalized(@"prefs.surface.simple.group.title"),
+                             LGLocalized(@"prefs.surface.simple.group.subtitle")),
+            @{ @"type": @"nav", @"title": LGPrefsSurfaceTitle(LGPrefsSurfaceHomescreen), @"surface_identifier": LGPrefsSurfaceHomescreen },
+            @{ @"type": @"nav", @"title": LGPrefsSurfaceTitle(LGPrefsSurfaceLockscreen), @"surface_identifier": LGPrefsSurfaceLockscreen },
+            @{ @"type": @"nav", @"title": LGPrefsSurfaceTitle(LGPrefsSurfaceAppLibrary), @"surface_identifier": LGPrefsSurfaceAppLibrary },
+            @{ @"type": @"nav", @"title": LGPrefsSurfaceTitle(LGPrefsSurfaceKeyboard), @"surface_identifier": LGPrefsSurfaceKeyboard },
+            @{ @"type": @"nav", @"title": LGPrefsSurfaceTitle(LGPrefsSurfaceControlCenter), @"surface_identifier": LGPrefsSurfaceControlCenter },
+            @{ @"type": @"nav", @"title": LGPrefsSurfaceTitle(LGPrefsSurfaceTabBar), @"surface_identifier": LGPrefsSurfaceTabBar },
+            @{ @"type": @"nav", @"title": LGPrefsSurfaceTitle(LGPrefsSurfaceGlobalControls), @"surface_identifier": LGPrefsSurfaceGlobalControls },
+        ];
+        return @[
         LGGlassQualitySetting(@"Global.Quality", 1.0, 0.1, 1.0, 2),
         LGSectionSetting(LGLocalized(@"prefs.surface.group.home.title"), LGLocalized(@"prefs.surface.group.home.subtitle")),
         @{ @"type": @"nav", @"title": LGPrefsSurfaceTitle(LGPrefsSurfaceDock), @"surface_identifier": LGPrefsSurfaceDock },
@@ -195,6 +237,7 @@ NSArray<NSDictionary *> *LGPrefsSurfaceItems(NSString *identifier) {
         @{ @"type": @"nav", @"title": LGPrefsSurfaceTitle(LGPrefsSurfaceVolumeHUD), @"surface_identifier": LGPrefsSurfaceVolumeHUD },
         @{ @"type": @"nav", @"title": LGPrefsSurfaceTitle(LGPrefsSurfacePillHUD), @"surface_identifier": LGPrefsSurfacePillHUD },
     ];
+    }
     if ([identifier isEqualToString:LGPrefsSurfaceDock]) return LGDockItems();
     if ([identifier isEqualToString:LGPrefsSurfaceFolderIcons]) return LGRendererItemsForHostPrefix(@"FolderIcon");
     if ([identifier isEqualToString:LGPrefsSurfaceAppIcons]) return LGAppIconItems();

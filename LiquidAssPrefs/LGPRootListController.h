@@ -6,6 +6,7 @@
 - (void)openLockscreen;
 - (void)openAppLibrary;
 - (void)openSurfaces;
+- (void)openAppearance;
 - (void)openMoreOptions;
 
 @end

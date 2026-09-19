@@ -1264,7 +1264,11 @@ static void LGRestartAssistiveTouchDaemon(void) {
                 LGSetCurrentPrefsLanguageCode(value);
                 selectedValue = [LGCurrentPrefsLanguageCode() copy];
             } else {
-                LGWritePreferenceObject(item[@"key"], value);
+                if ([item[@"key"] isEqualToString:@"Appearance.Preset"]) {
+                    LGStageAppearancePreset(value);
+                } else {
+                    LGWritePreferenceObject(item[@"key"], value);
+                }
                 selectedValue = [value copy];
             }
             applyMenuSelectionTitle(title);
