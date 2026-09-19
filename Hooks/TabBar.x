@@ -532,11 +532,13 @@ static void LGRemoveTabBarInjection(UITabBar *bar) {
         bar.standardAppearance = savedStandard == NSNull.null ? nil : savedStandard;
         objc_setAssociatedObject(bar, kLGTabBarOriginalStandardAppearanceKey, nil, OBJC_ASSOCIATION_ASSIGN);
     }
-    if ([bar respondsToSelector:@selector(scrollEdgeAppearance)]) {
-        id savedScroll = objc_getAssociatedObject(bar, kLGTabBarOriginalScrollEdgeAppearanceKey);
-        if (savedScroll) {
-            bar.scrollEdgeAppearance = savedScroll == NSNull.null ? nil : savedScroll;
-            objc_setAssociatedObject(bar, kLGTabBarOriginalScrollEdgeAppearanceKey, nil, OBJC_ASSOCIATION_ASSIGN);
+    if (@available(iOS 15.0, *)) {
+        if ([bar respondsToSelector:@selector(scrollEdgeAppearance)]) {
+            id savedScroll = objc_getAssociatedObject(bar, kLGTabBarOriginalScrollEdgeAppearanceKey);
+            if (savedScroll) {
+                bar.scrollEdgeAppearance = savedScroll == NSNull.null ? nil : savedScroll;
+                objc_setAssociatedObject(bar, kLGTabBarOriginalScrollEdgeAppearanceKey, nil, OBJC_ASSOCIATION_ASSIGN);
+            }
         }
     }
 
@@ -1012,10 +1014,12 @@ static void LGConfigureTabBarAppearance(UITabBar *bar) {
         objc_setAssociatedObject(bar, kLGTabBarOriginalStandardAppearanceKey,
                                  bar.standardAppearance ?: NSNull.null,
                                  OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-        if ([bar respondsToSelector:@selector(scrollEdgeAppearance)]) {
-            objc_setAssociatedObject(bar, kLGTabBarOriginalScrollEdgeAppearanceKey,
-                                     bar.scrollEdgeAppearance ?: NSNull.null,
-                                     OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        if (@available(iOS 15.0, *)) {
+            if ([bar respondsToSelector:@selector(scrollEdgeAppearance)]) {
+                objc_setAssociatedObject(bar, kLGTabBarOriginalScrollEdgeAppearanceKey,
+                                         bar.scrollEdgeAppearance ?: NSNull.null,
+                                         OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            }
         }
     }
 
