@@ -44,10 +44,16 @@ static void lgClearAccessibilityFiles(void) {
 
     struct dirent *entry = NULL;
     while ((entry = readdir(directory))) {
-        if (strncmp(entry->d_name, "liquidass", 9) != 0 &&
-            strncmp(entry->d_name, "liquidglass", 11) != 0) continue;
+        const char *name = entry->d_name;
+        const char *temporarySuffix = strstr(name, ".tmp");
+        BOOL isLiquidFile = strncmp(name, "liquidass", 9) == 0 ||
+                            strncmp(name, "liquidglass", 11) == 0;
+        BOOL isTemporaryFile = temporarySuffix && temporarySuffix[4] == '\0';
+        // Preserve safe-mode counters, pending alerts, identity state and logs.
+        // Only stale atomic-write temp files are disposable here.
+        if (!isLiquidFile || !isTemporaryFile) continue;
         char path[PATH_MAX] = {};
-        snprintf(path, sizeof(path), "%s/%s", directoryPath, entry->d_name);
+        snprintf(path, sizeof(path), "%s/%s", directoryPath, name);
         unlink(path);
     }
     closedir(directory);

@@ -22,6 +22,9 @@ static const void *kLGTabBarBlueContentKey = &kLGTabBarBlueContentKey;
 static const void *kLGTabBarAccentColorKey = &kLGTabBarAccentColorKey;
 static const void *kLGTabBarOriginalTintKey = &kLGTabBarOriginalTintKey;
 static const void *kLGTabBarOriginalBarTintKey = &kLGTabBarOriginalBarTintKey;
+static const void *kLGTabBarOriginalUnselectedTintKey = &kLGTabBarOriginalUnselectedTintKey;
+static const void *kLGTabBarOriginalStandardAppearanceKey = &kLGTabBarOriginalStandardAppearanceKey;
+static const void *kLGTabBarOriginalScrollEdgeAppearanceKey = &kLGTabBarOriginalScrollEdgeAppearanceKey;
 static const void *kLGTabBarOriginalBackgroundColorKey =
     &kLGTabBarOriginalBackgroundColorKey;
 static const void *kLGTabBarOriginalBackgroundHiddenKey =
@@ -515,8 +518,27 @@ static void LGRemoveTabBarInjection(UITabBar *bar) {
         objc_getAssociatedObject(bar, kLGTabBarSelectedHighlightKey) ||
         objc_getAssociatedObject(bar, kLGTabBarSelectionGlassKey) ||
         objc_getAssociatedObject(bar, kLGTabBarBlueOverlayKey);
-    if (!injected) return;
     LGStopTabBarLumaSampling(bar);
+    if (!injected && !objc_getAssociatedObject(bar, kLGTabBarOriginalUnselectedTintKey) &&
+        !objc_getAssociatedObject(bar, kLGTabBarOriginalStandardAppearanceKey) &&
+        !objc_getAssociatedObject(bar, kLGTabBarOriginalScrollEdgeAppearanceKey)) return;
+    id savedUnselectedTint = objc_getAssociatedObject(bar, kLGTabBarOriginalUnselectedTintKey);
+    if (savedUnselectedTint) {
+        bar.unselectedItemTintColor = savedUnselectedTint == NSNull.null ? nil : savedUnselectedTint;
+        objc_setAssociatedObject(bar, kLGTabBarOriginalUnselectedTintKey, nil, OBJC_ASSOCIATION_ASSIGN);
+    }
+    id savedStandard = objc_getAssociatedObject(bar, kLGTabBarOriginalStandardAppearanceKey);
+    if (savedStandard) {
+        bar.standardAppearance = savedStandard == NSNull.null ? nil : savedStandard;
+        objc_setAssociatedObject(bar, kLGTabBarOriginalStandardAppearanceKey, nil, OBJC_ASSOCIATION_ASSIGN);
+    }
+    if ([bar respondsToSelector:@selector(scrollEdgeAppearance)]) {
+        id savedScroll = objc_getAssociatedObject(bar, kLGTabBarOriginalScrollEdgeAppearanceKey);
+        if (savedScroll) {
+            bar.scrollEdgeAppearance = savedScroll == NSNull.null ? nil : savedScroll;
+            objc_setAssociatedObject(bar, kLGTabBarOriginalScrollEdgeAppearanceKey, nil, OBJC_ASSOCIATION_ASSIGN);
+        }
+    }
 
     LGTabBarMotionState *state = LGTabBarMotionStateForBar(bar, NO);
     [state stop];
@@ -617,7 +639,8 @@ static void LGApplyTabBarGlyphColor(UITabBar *bar, UIColor *color) {
 }
 
 static void LGSampleTabBarLuma(UITabBar *bar) {
-    if (!bar.window || CGRectIsEmpty(bar.bounds)) return;
+    if (!bar || !bar.window || bar.hidden || bar.alpha < 0.01 ||
+        !LGTabBarAllowed() || CGRectIsEmpty(bar.bounds)) return;
     CGRect rect = [bar convertRect:bar.bounds toView:bar.window];
     UIGraphicsBeginImageContextWithOptions(CGSizeMake(1.0, 1.0), YES, 1.0);
     CGContextRef context = UIGraphicsGetCurrentContext();
@@ -981,6 +1004,20 @@ static void LGConfigureTabBarAppearance(UITabBar *bar) {
     if (!bar || !LGTabBarAllowed() || !LGIsStockTabBar(bar)) return;
     if ([objc_getAssociatedObject(bar, kLGTabBarAppearanceConfiguredKey) boolValue]) return;
     objc_setAssociatedObject(bar, kLGTabBarAppearanceConfiguredKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+
+    if (!objc_getAssociatedObject(bar, kLGTabBarOriginalUnselectedTintKey)) {
+        objc_setAssociatedObject(bar, kLGTabBarOriginalUnselectedTintKey,
+                                 bar.unselectedItemTintColor ?: NSNull.null,
+                                 OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        objc_setAssociatedObject(bar, kLGTabBarOriginalStandardAppearanceKey,
+                                 bar.standardAppearance ?: NSNull.null,
+                                 OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        if ([bar respondsToSelector:@selector(scrollEdgeAppearance)]) {
+            objc_setAssociatedObject(bar, kLGTabBarOriginalScrollEdgeAppearanceKey,
+                                     bar.scrollEdgeAppearance ?: NSNull.null,
+                                     OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        }
+    }
 
     bar.unselectedItemTintColor = [UIColor whiteColor];
     if (@available(iOS 13.0, *)) {
