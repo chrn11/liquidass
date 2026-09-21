@@ -340,7 +340,7 @@ static inline CGFloat LGTabBarSpringStep(CGFloat current,
             fabs(next.height - LGTabBarLensHeight(bar)) < 1.0;
         BOOL timedOut =
             CACurrentMediaTime() - self.destinationStartTime > 0.75;
-            if (arrived || timedOut) {
+        if (arrived || timedOut) {
             self.awaitingTapDestination = NO;
             self.active = NO;
             LGApplyTabBarGlyphColor(bar, objc_getAssociatedObject(bar, kLGTabBarDarkGlyphsKey) ? UIColor.blackColor : UIColor.whiteColor);
