@@ -1004,6 +1004,9 @@ static void LGConfigureTabBarAppearance(UITabBar *bar) {
         else if ([selected.titleTextAttributes[NSForegroundColorAttributeName] isKindOfClass:UIColor.class])
             accent = selected.titleTextAttributes[NSForegroundColorAttributeName];
     }
+    objc_setAssociatedObject(bar, kLGTabBarAccentColorKey,
+                             accent ?: UIColor.systemBlueColor,
+                             OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     bar.tintColor = accent ?: UIColor.systemBlueColor;
     bar.unselectedItemTintColor = [UIColor whiteColor];
     if (@available(iOS 13.0, *)) {
