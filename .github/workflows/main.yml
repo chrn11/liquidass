@@ -88,6 +88,8 @@ jobs:
           git -C AltList fetch --no-tags --depth 1 origin 9db09f92eff0404ae7fa9c2fe6c25ba13d5e02d7
           git -C AltList checkout --detach 9db09f92eff0404ae7fa9c2fe6c25ba13d5e02d7
           cd AltList
+          bash install_to_theos.sh
+
       - name: build (${{ matrix.scheme }})
         run: |
           SCHEME_FLAG=""
