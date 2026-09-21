@@ -273,6 +273,7 @@ static void LGSetTabBarVisualAccentIndex(UITabBar *bar, NSUInteger index);
 static void LGClearTabBarVisualAccentIndex(UITabBar *bar);
 static void LGTabBarAppearanceFromSystem(UITabBar *bar);
 static void LGScheduleTabBarAppearanceRefresh(UITabBar *bar);
+static void LGStyleStockTabBar(UITabBar *bar);
 static void LGFinalizeTabBarSelection(UITabBar *bar,
                                       LGLiveBackdropView *lens,
                                       LGTabBarMotionState *state);
