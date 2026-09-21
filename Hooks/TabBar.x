@@ -39,6 +39,7 @@ static const void *kLGTabBarInnerGlowKey = &kLGTabBarInnerGlowKey;
 static const void *kLGTabBarScaleAnimatorKey = &kLGTabBarScaleAnimatorKey;
 static const void *kLGTabBarLumaTimerKey = &kLGTabBarLumaTimerKey;
 static const void *kLGTabBarDarkGlyphsKey = &kLGTabBarDarkGlyphsKey;
+static const void *kLGTabBarVisualAccentIndexKey = &kLGTabBarVisualAccentIndexKey;
 static const CGFloat kLGTabBarPortraitHighlightHeight = 54.0;
 static const CGFloat kLGTabBarLandscapeHighlightHeight = 46.0;
 static const CGFloat kLGTabBarPortraitLensWidth = 94.0;
@@ -238,9 +239,22 @@ static void LGPositionTabBarBlueOverlay(UITabBar *bar,
                                         LGLiveBackdropView *lens);
 static UIView *LGTabBarBlueOverlay(UITabBar *bar, BOOL create);
 static void LGStartTabBarLumaSampling(UITabBar *bar);
+static void LGApplyTabBarGlyphColor(UITabBar *bar, UIColor *color);
+static void LGSetTabBarVisualAccentIndex(UITabBar *bar, NSUInteger index);
+static void LGClearTabBarVisualAccentIndex(UITabBar *bar);
 static void LGFinalizeTabBarSelection(UITabBar *bar,
                                       LGLiveBackdropView *lens,
                                       LGTabBarMotionState *state);
+
+static void LGSetTabBarVisualAccentIndex(UITabBar *bar, NSUInteger index) {
+    objc_setAssociatedObject(bar, kLGTabBarVisualAccentIndexKey, @(index),
+                             OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
+
+static void LGClearTabBarVisualAccentIndex(UITabBar *bar) {
+    objc_setAssociatedObject(bar, kLGTabBarVisualAccentIndexKey, nil,
+                             OBJC_ASSOCIATION_ASSIGN);
+}
 
 @implementation LGTabBarMotionState
 
@@ -326,9 +340,10 @@ static inline CGFloat LGTabBarSpringStep(CGFloat current,
             fabs(next.height - LGTabBarLensHeight(bar)) < 1.0;
         BOOL timedOut =
             CACurrentMediaTime() - self.destinationStartTime > 0.75;
-        if (arrived || timedOut) {
+            if (arrived || timedOut) {
             self.awaitingTapDestination = NO;
             self.active = NO;
+            LGApplyTabBarGlyphColor(bar, objc_getAssociatedObject(bar, kLGTabBarDarkGlyphsKey) ? UIColor.blackColor : UIColor.whiteColor);
             if (self.onArrival) {
                 void (^callback)(void) = self.onArrival;
                 self.onArrival = nil;
@@ -645,6 +660,9 @@ static void LGSampleTabBarLuma(UITabBar *bar) {
     CFRelease(data);
     objc_setAssociatedObject(bar, kLGTabBarDarkGlyphsKey, @(dark),
                              OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    NSUInteger selectedIndex = [bar.items indexOfObjectIdenticalTo:bar.selectedItem];
+    objc_setAssociatedObject(bar, kLGTabBarVisualAccentIndexKey,
+                             @(selectedIndex), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     LGApplyTabBarGlyphColor(bar, dark ? UIColor.blackColor : UIColor.whiteColor);
 }
 
@@ -974,12 +992,33 @@ static void LGConfigureTabBarAppearance(UITabBar *bar) {
     if ([objc_getAssociatedObject(bar, kLGTabBarAppearanceConfiguredKey) boolValue]) return;
     objc_setAssociatedObject(bar, kLGTabBarAppearanceConfiguredKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 
+    UIColor *accent = bar.tintColor;
+    if (@available(iOS 13.0, *)) {
+        UITabBarItemStateAppearance *selected = bar.standardAppearance.stackedLayoutAppearance.selected;
+        if (selected.iconColor) accent = selected.iconColor;
+        else if ([selected.titleTextAttributes[NSForegroundColorAttributeName] isKindOfClass:UIColor.class])
+            accent = selected.titleTextAttributes[NSForegroundColorAttributeName];
+    }
+    bar.tintColor = accent ?: UIColor.systemBlueColor;
     bar.unselectedItemTintColor = [UIColor whiteColor];
     if (@available(iOS 13.0, *)) {
         UITabBarAppearance *appearance = bar.standardAppearance;
         if (!appearance) appearance = [[UITabBarAppearance alloc] init];
         else appearance = [appearance copy];
-        appearance.stackedLayoutAppearance.normal.iconColor = [UIColor whiteColor];
+        appearance.stackedLayoutAppearance.selected.iconColor = accent;
+        NSMutableDictionary *selectedStackedAttrs = [appearance.stackedLayoutAppearance.selected.titleTextAttributes mutableCopy] ?: [NSMutableDictionary dictionary];
+        selectedStackedAttrs[NSForegroundColorAttributeName] = accent;
+        appearance.stackedLayoutAppearance.selected.titleTextAttributes = selectedStackedAttrs;
+        appearance.inlineLayoutAppearance.selected.iconColor = accent;
+        NSMutableDictionary *selectedInlineAttrs = [appearance.inlineLayoutAppearance.selected.titleTextAttributes mutableCopy] ?: [NSMutableDictionary dictionary];
+        selectedInlineAttrs[NSForegroundColorAttributeName] = accent;
+        appearance.inlineLayoutAppearance.selected.titleTextAttributes = selectedInlineAttrs;
+        appearance.compactInlineLayoutAppearance.selected.iconColor = accent;
+        NSMutableDictionary *selectedCompactAttrs = [appearance.compactInlineLayoutAppearance.selected.titleTextAttributes mutableCopy] ?: [NSMutableDictionary dictionary];
+        selectedCompactAttrs[NSForegroundColorAttributeName] = accent;
+        appearance.compactInlineLayoutAppearance.selected.titleTextAttributes = selectedCompactAttrs;
+
+
         NSMutableDictionary *stackedAttrs = [appearance.stackedLayoutAppearance.normal.titleTextAttributes mutableCopy] ?: [NSMutableDictionary dictionary];
         stackedAttrs[NSForegroundColorAttributeName] = [UIColor whiteColor];
         appearance.stackedLayoutAppearance.normal.titleTextAttributes = stackedAttrs;
@@ -1381,8 +1420,9 @@ static void LGShowTabBarSelectionLens(UITabBarButton *button, UITouch *touch) {
             bar.traitCollection.userInterfaceStyle == UIUserInterfaceStyleDark
                 ? 0.65 : 0.35 alpha:1.0];
     }
-    bar.tintColor = neutralTint;
-    LGBeginTabBarLiquidMotion(bar, lens, button, touch);
+    objc_setAssociatedObject(bar, kLGTabBarVisualAccentIndexKey, @(index),
+                             OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    LGApplyTabBarGlyphColor(bar, neutralTint);
     LGRebuildTabBarBlueMask(bar);
     UIView *blueOverlay = LGTabBarBlueOverlay(bar, YES);
     LGPositionTabBarBlueOverlay(bar, lens);
@@ -1588,6 +1628,7 @@ static void LGFinalizeTabBarSelection(UITabBar *bar,
     [CATransaction commit];
     id originalTint =
         objc_getAssociatedObject(bar, kLGTabBarOriginalTintKey);
+    LGClearTabBarVisualAccentIndex(bar);
     bar.tintColor = originalTint == NSNull.null ? nil : originalTint;
     objc_setAssociatedObject(bar, kLGTabBarOriginalTintKey, nil,
                              OBJC_ASSOCIATION_ASSIGN);
