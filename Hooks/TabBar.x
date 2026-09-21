@@ -1097,13 +1097,13 @@ static void LGConfigureTabBarAppearance(UITabBar *bar) {
        tintColor during a gesture. */
     if (@available(iOS 13.0, *)) {
         UITabBarAppearance *appearance = [bar.standardAppearance copy];
-        UITabBarItemStateAppearance *states[] = {
+        UITabBarItemAppearance *states[] = {
             appearance.stackedLayoutAppearance,
             appearance.inlineLayoutAppearance,
             appearance.compactInlineLayoutAppearance
         };
         for (NSUInteger i = 0; i < 3; i++) {
-            UITabBarItemStateAppearance *state = states[i];
+            UITabBarItemAppearance *state = states[i];
             NSMutableDictionary *attrs = [state.normal.titleTextAttributes mutableCopy]
                 ?: [NSMutableDictionary dictionary];
             UIColor *normal = attrs[NSForegroundColorAttributeName];
@@ -1258,10 +1258,8 @@ static void LGStyleStockTabBar(UITabBar *bar) {
                                      OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         }
         LGTabBarMotionState *motion = LGTabBarMotionStateForBar(bar, NO);
-        BOOL transitioning = motion &&
-            (motion.active || motion.awaitingTapDestination ||
-             motion.awaitingRestingShape);
         NSUInteger selectedIndex = [bar.items indexOfObjectIdenticalTo:bar.selectedItem];
+        (void)motion;
         if (selectedIndex != NSNotFound && selectedIndex < buttons.count) {
             /* The selected lens is the only selected background.  Keep the
                legacy view alive for teardown/state compatibility, but never
