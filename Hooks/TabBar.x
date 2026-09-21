@@ -1429,9 +1429,8 @@ static void LGShowTabBarSelectionLens(UITabBarButton *button, UITouch *touch) {
         : [bar.items indexOfObjectIdenticalTo:bar.selectedItem];
     objc_setAssociatedObject(bar, kLGTabBarVisualAccentIndexKey, @(visualIndex),
                              OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    LGBeginTabBarLiquidMotion(bar, lens, button, touch);
     LGApplyTabBarGlyphColor(bar, neutralTint);
-    bar.tintColor = neutralTint;
-    LGRebuildTabBarBlueMask(bar);
     UIView *blueOverlay = LGTabBarBlueOverlay(bar, YES);
     LGPositionTabBarBlueOverlay(bar, lens);
     [bar bringSubviewToFront:blueOverlay];
