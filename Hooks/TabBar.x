@@ -45,6 +45,7 @@ static const void *kLGTabBarOriginalUnselectedTintKey = &kLGTabBarOriginalUnsele
 static const void *kLGTabBarOriginalStandardAppearanceKey = &kLGTabBarOriginalStandardAppearanceKey;
 static const void *kLGTabBarOriginalScrollEdgeAppearanceKey = &kLGTabBarOriginalScrollEdgeAppearanceKey;
 static const void *kLGTabBarLensMaskKey = &kLGTabBarLensMaskKey;
+static const void *kLGTabBarAppearanceRefreshPendingKey = &kLGTabBarAppearanceRefreshPendingKey;
 static const CGFloat kLGTabBarPortraitHighlightHeight = 54.0;
 static const CGFloat kLGTabBarLandscapeHighlightHeight = 46.0;
 static const CGFloat kLGTabBarPortraitLensWidth = 94.0;
@@ -270,6 +271,8 @@ static void LGStopTabBarLumaSampling(UITabBar *bar);
 static void LGApplyTabBarGlyphColor(UITabBar *bar, UIColor *color);
 static void LGSetTabBarVisualAccentIndex(UITabBar *bar, NSUInteger index);
 static void LGClearTabBarVisualAccentIndex(UITabBar *bar);
+static void LGTabBarAppearanceFromSystem(UITabBar *bar);
+static void LGScheduleTabBarAppearanceRefresh(UITabBar *bar);
 static void LGFinalizeTabBarSelection(UITabBar *bar,
                                       LGLiveBackdropView *lens,
                                       LGTabBarMotionState *state);
@@ -397,16 +400,17 @@ static inline CGFloat LGTabBarSpringStep(CGFloat current,
                   next.height - self.targetHeight);
         CGFloat progress = self.collapseStartDistance > 0.001
             ? 1.0 - remaining / self.collapseStartDistance : 1.0;
-        progress = fmin(fmax(progress, 0.0), 1.0);
-        CGFloat handoff = progress * progress * (3.0 - 2.0 * progress);
-        (void)handoff;
+        (void)progress;
         if (highlight) {
             highlight.hidden = YES;
             highlight.alpha = 0.0;
         }
         lens.alpha = 1.0;
         UIView *blueOverlay = LGTabBarBlueOverlay(bar, NO);
-        blueOverlay.alpha = 1.0;
+        if (blueOverlay) {
+            blueOverlay.hidden = YES;
+            blueOverlay.alpha = 0.0;
+        }
         BOOL settled =
             fabs(next.centerX - self.targetCenterX) < 0.75 &&
             fabs(next.width - self.targetWidth) < 0.75 &&
@@ -1057,6 +1061,32 @@ static void LGAnimateTabBarScale(UITabBar *bar, BOOL pressed) {
                              OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 }
 
+static void LGTabBarAppearanceFromSystem(UITabBar *bar) {
+    if (!bar) return;
+    if (@available(iOS 13.0, *)) {
+        UITabBarAppearance *appearance = [bar.standardAppearance copy];
+        appearance.selectionIndicatorImage = nil;
+        appearance.selectionIndicatorTintColor = UIColor.clearColor;
+        bar.standardAppearance = appearance;
+        if (@available(iOS 15.0, *)) bar.scrollEdgeAppearance = [appearance copy];
+    }
+}
+
+static void LGScheduleTabBarAppearanceRefresh(UITabBar *bar) {
+    if (!bar || [objc_getAssociatedObject(bar, kLGTabBarAppearanceRefreshPendingKey) boolValue]) return;
+    objc_setAssociatedObject(bar, kLGTabBarAppearanceRefreshPendingKey, @YES,
+                             OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    __weak UITabBar *weakBar = bar;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        UITabBar *strongBar = weakBar;
+        if (!strongBar) return;
+        objc_setAssociatedObject(strongBar, kLGTabBarAppearanceRefreshPendingKey, nil,
+                                 OBJC_ASSOCIATION_ASSIGN);
+        LGTabBarAppearanceFromSystem(strongBar);
+        LGStyleStockTabBar(strongBar);
+    });
+}
+
 static void LGConfigureTabBarAppearance(UITabBar *bar) {
     if (!bar || !LGTabBarAllowed() || !LGIsStockTabBar(bar)) return;
     if ([objc_getAssociatedObject(bar, kLGTabBarAppearanceConfiguredKey) boolValue]) return;
@@ -1376,12 +1406,8 @@ static void LGBeginTabBarLiquidMotion(UITabBar *bar,
     CGRect buttonFrame =
         [button.superview convertRect:button.frame toView:bar];
     CGFloat centerX = CGRectGetMidX(frame);
-    UIView *highlight =
-        objc_getAssociatedObject(bar, kLGTabBarSelectedHighlightKey);
-    CGFloat restingCenterX = highlight
-        ? highlight.center.x : CGRectGetMidX(buttonFrame);
-    CGFloat restingWidth = highlight && CGRectGetWidth(highlight.bounds) > 0.0
-        ? CGRectGetWidth(highlight.bounds) : CGRectGetWidth(buttonFrame);
+    CGFloat restingCenterX = CGRectGetMidX(buttonFrame);
+    CGFloat restingWidth = CGRectGetWidth(buttonFrame);
     state.bar = bar;
     state.lens = lens;
     state.generation += 1;
@@ -1455,23 +1481,11 @@ static void LGShowTabBarSelectionLens(UITabBarButton *button, UITouch *touch) {
     LGRebuildTabBarBlueMask(bar);
     UIView *blueOverlay = LGTabBarBlueOverlay(bar, YES);
     LGPositionTabBarBlueOverlay(bar, lens);
-    [bar bringSubviewToFront:blueOverlay];
-
-    [bar bringSubviewToFront:lens];
-    blueOverlay.hidden = NO;
+    blueOverlay.hidden = YES;
     blueOverlay.alpha = 0.0;
     blueOverlay.transform = CGAffineTransformIdentity;
 
-    UIViewPropertyAnimator *animator =
-        [[UIViewPropertyAnimator alloc] initWithDuration:0.12
-                                                  curve:UIViewAnimationCurveEaseOut
-                                             animations:nil];
-    [animator addAnimations:^{
-        blueOverlay.alpha = 1.0;
-    }];
-    objc_setAssociatedObject(lens, kLGTabBarSelectionAnimatorKey, animator,
-                             OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-    [animator startAnimation];
+    [bar bringSubviewToFront:lens];
 
     UIImageView *glow = LGTabBarInnerGlow(bar, YES);
     if (glow && touch) {
@@ -2099,8 +2113,10 @@ static void LGHookTabBarHostControllers(void) {
 - (void)layoutSubviews {
     %orig;
     UITabBar *bar = LGTabBarForButton(self);
-    if (LGTabBarAllowed() && LGIsStockTabBar(bar))
+    if (LGTabBarAllowed() && LGIsStockTabBar(bar)) {
         LGCenterStockTabBarButtonContent(self);
+        LGScheduleTabBarAppearanceRefresh(bar);
+    }
 }
 
 - (BOOL)beginTrackingWithTouch:(UITouch *)touch withEvent:(UIEvent *)event {
