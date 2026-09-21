@@ -1410,13 +1410,13 @@ static void LGShowTabBarSelectionLens(UITabBarButton *button, UITouch *touch) {
         objc_getAssociatedObject(bar, kLGTabBarSelectedHighlightKey);
     selectedHighlight.hidden = NO;
     selectedHighlight.alpha = 0.0;
-    if (!objc_getAssociatedObject(bar, kLGTabBarOriginalTintKey)) {
-        objc_setAssociatedObject(bar, kLGTabBarOriginalTintKey,
-                                 bar.tintColor ?: NSNull.null,
-                                 OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-    }
+    UIColor *accent = objc_getAssociatedObject(bar, kLGTabBarAccentColorKey);
+    if (![accent isKindOfClass:UIColor.class]) accent = bar.tintColor;
+    objc_setAssociatedObject(bar, kLGTabBarOriginalTintKey,
+                             bar.tintColor ?: NSNull.null,
+                             OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     objc_setAssociatedObject(bar, kLGTabBarAccentColorKey,
-                             bar.tintColor ?: UIColor.systemBlueColor,
+                             accent ?: UIColor.systemBlueColor,
                              OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     UIColor *neutralTint = bar.unselectedItemTintColor;
     if (!neutralTint) {
@@ -1424,7 +1424,10 @@ static void LGShowTabBarSelectionLens(UITabBarButton *button, UITouch *touch) {
             bar.traitCollection.userInterfaceStyle == UIUserInterfaceStyleDark
                 ? 0.65 : 0.35 alpha:1.0];
     }
-    objc_setAssociatedObject(bar, kLGTabBarVisualAccentIndexKey, @(index),
+    NSUInteger visualIndex = objc_getAssociatedObject(bar, kLGTabBarVisualAccentIndexKey)
+        ? [objc_getAssociatedObject(bar, kLGTabBarVisualAccentIndexKey) unsignedIntegerValue]
+        : [bar.items indexOfObjectIdenticalTo:bar.selectedItem];
+    objc_setAssociatedObject(bar, kLGTabBarVisualAccentIndexKey, @(visualIndex),
                              OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     LGApplyTabBarGlyphColor(bar, neutralTint);
     bar.tintColor = neutralTint;
