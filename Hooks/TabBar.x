@@ -434,13 +434,13 @@ static BOOL LGTabBarAllowed(void) {
     return !excluded;
 }
 
-static CGFloat LGTabBarRequiredContentHeight(UITabBar *bar) {
+static CGFloat __attribute__((unused)) LGTabBarRequiredContentHeight(UITabBar *bar) {
     BOOL landscape = LGTabBarUsesLandscapeMetrics(bar);
     return (landscape ? kLGTabBarLandscapeHeight : 64.0) +
            (landscape ? 8.0 : 10.0);
 }
 
-static CGFloat LGTabBarAppliedOverhang(UITabBar *bar) {
+static CGFloat __attribute__((unused)) LGTabBarAppliedOverhang(UITabBar *bar) {
     return [objc_getAssociatedObject(bar, kLGTabBarAppliedOverhangKey) doubleValue];
 }
 
@@ -1285,7 +1285,7 @@ static UITabBar *LGTabBarForButton(UIView *button) {
     return nil;
 }
 
-static BOOL LGTabBarRemapButtonFrame(UIView *button, CGRect *frame) {
+static BOOL __attribute__((unused)) LGTabBarRemapButtonFrame(UIView *button, CGRect *frame) {
     /* UIKit owns UITabBarButton geometry.  Rewriting it after UIKit has
        already distributed items is what caused App Store's compressed and
        overlapping labels. */
