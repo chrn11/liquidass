@@ -162,6 +162,7 @@ static CGFloat LGTabBarLensHeight(UITabBar *bar);
 static LGLiveBackdropView *LGTabBarSelectionLens(UITabBar *bar);
 static LGTabBarMotionState *LGTabBarMotionStateForBar(UITabBar *bar,
                                                        BOOL create);
+static UITabBarButton *LGNearestTabBarButton(UITabBar *bar, CGFloat centerX);
 static void LGPersistTabBarDump(NSString *dump, NSString *reason);
 static void LGHookTabBarHostControllers(void);
 static UITabBar *LGTabBarForButton(UIView *button);
@@ -1474,7 +1475,17 @@ static void LGMoveTabBarSelectionLens(UITabBarButton *button, UITouch *touch) {
 
     CGPoint point = [touch locationInView:bar];
     LGTabBarMotionState *state = LGTabBarMotionStateForBar(bar, YES);
-    if (fabs(point.x - state.gestureStartX) > 4.0) state.dragged = YES;
+    if (fabs(point.x - state.gestureStartX) > 4.0) {
+        state.dragged = YES;
+        UITabBarButton *visualTarget = LGNearestTabBarButton(bar, point.x);
+        if (visualTarget) {
+            NSUInteger visualIndex = [LGStockTabBarButtons(bar) indexOfObjectIdenticalTo:visualTarget];
+            if (visualIndex != NSNotFound) {
+                LGSetTabBarVisualAccentIndex(bar, visualIndex);
+                LGApplyTabBarGlyphColor(bar, bar.unselectedItemTintColor ?: UIColor.whiteColor);
+            }
+        }
+    }
     CFTimeInterval now = CACurrentMediaTime();
     CFTimeInterval dt = MAX(now - state.lastTouchTime, 0.001);
     CGFloat rawVelocity = (point.x - state.lastTouchX) / dt;
