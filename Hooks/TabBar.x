@@ -616,12 +616,16 @@ static void LGCollectTabBarContentViews(UIView *root,
 
 static void LGApplyTabBarGlyphColor(UITabBar *bar, UIColor *color) {
     NSArray<UIView *> *buttons = LGStockTabBarButtons(bar);
-    NSUInteger selectedIndex = [bar.items indexOfObjectIdenticalTo:bar.selectedItem];
+    NSUInteger semanticIndex = [bar.items indexOfObjectIdenticalTo:bar.selectedItem];
+    NSNumber *visualNumber = objc_getAssociatedObject(bar, kLGTabBarVisualAccentIndexKey);
+    NSUInteger visualIndex = visualNumber ? visualNumber.unsignedIntegerValue : semanticIndex;
+    UIColor *accent = objc_getAssociatedObject(bar, kLGTabBarAccentColorKey);
+    if (![accent isKindOfClass:UIColor.class]) accent = bar.tintColor;
     [buttons enumerateObjectsUsingBlock:^(UIView *button, NSUInteger index,
                                           __unused BOOL *stop) {
         NSMutableArray<UIView *> *content = [NSMutableArray array];
         LGCollectTabBarContentViews(button, content, 0);
-        UIColor *glyphColor = index == selectedIndex ? bar.tintColor : color;
+        UIColor *glyphColor = index == visualIndex ? (accent ?: color) : color;
         for (UIView *view in content) {
             view.layer.compositingFilter = nil;
             if ([view isKindOfClass:UIImageView.class])
@@ -1423,6 +1427,7 @@ static void LGShowTabBarSelectionLens(UITabBarButton *button, UITouch *touch) {
     objc_setAssociatedObject(bar, kLGTabBarVisualAccentIndexKey, @(index),
                              OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     LGApplyTabBarGlyphColor(bar, neutralTint);
+    bar.tintColor = neutralTint;
     LGRebuildTabBarBlueMask(bar);
     UIView *blueOverlay = LGTabBarBlueOverlay(bar, YES);
     LGPositionTabBarBlueOverlay(bar, lens);
