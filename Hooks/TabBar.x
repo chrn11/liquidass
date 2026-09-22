@@ -1220,41 +1220,14 @@ static void LGStyleStockTabBar(UITabBar *bar) {
                                      highlight,
                                      OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         }
-        LGTabBarMotionState *motion = LGTabBarMotionStateForBar(bar, NO);
-        BOOL transitioning = motion &&
-            (motion.active || motion.awaitingTapDestination ||
-             motion.awaitingRestingShape);
         NSUInteger selectedIndex = [bar.items indexOfObjectIdenticalTo:bar.selectedItem];
+        (void)motion;
         if (selectedIndex != NSNotFound && selectedIndex < buttons.count) {
-            BOOL dark = bar.traitCollection.userInterfaceStyle ==
-                        UIUserInterfaceStyleDark;
-            if (!transitioning) {
-                UIView *selectedButton = buttons[selectedIndex];
-                CGRect buttonFrame = [selectedButton.superview
-                    convertRect:selectedButton.frame toView:bar];
-                CGRect highlightBounds = CGRectMake(0.0, 0.0,
-                                                    CGRectGetWidth(buttonFrame),
-                                                    LGTabBarHighlightHeight(bar));
-                CGPoint highlightCenter = CGPointMake(CGRectGetMidX(buttonFrame),
-                                                      CGRectGetMidY(pillFrame));
-                if (!CGRectEqualToRect(highlight.bounds, highlightBounds))
-                    highlight.bounds = highlightBounds;
-                if (!CGPointEqualToPoint(highlight.center, highlightCenter))
-                    highlight.center = highlightCenter;
-                if (fabs(highlight.layer.cornerRadius -
-                         LGTabBarHighlightHeight(bar) * 0.5) > 0.01)
-                    highlight.layer.cornerRadius = LGTabBarHighlightHeight(bar) * 0.5;
-                highlight.backgroundColor =
-                    [UIColor colorWithWhite:dark ? 1.0 : 0.0
-                                      alpha:dark ? 0.10 : 0.06];
-                highlight.alpha = 1.0;
-                highlight.hidden = NO;
-            } else {
-                highlight.hidden = NO;
-                if (!motion.awaitingRestingShape) highlight.alpha = 0.0;
-            }
+            highlight.hidden = YES;
+            highlight.alpha = 0.0;
         } else {
             highlight.hidden = YES;
+            highlight.alpha = 0.0;
         }
     }
 
