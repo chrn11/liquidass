@@ -40,11 +40,12 @@ static const void *kLGTabBarScaleAnimatorKey = &kLGTabBarScaleAnimatorKey;
 static const void *kLGTabBarLumaTimerKey = &kLGTabBarLumaTimerKey;
 static const void *kLGTabBarDarkGlyphsKey = &kLGTabBarDarkGlyphsKey;
 static const void *kLGTabBarVisualAccentIndexKey = &kLGTabBarVisualAccentIndexKey;
-static const void *kLGTabBarLensRimKey = &kLGTabBarLensRimKey;
-static const void *kLGTabBarApplyingFramesKey = &kLGTabBarApplyingFramesKey;
-static const void *kLGTabBarColorSignatureKey = &kLGTabBarColorSignatureKey;
-static const void *kLGTabBarSyncingAppearanceKey = &kLGTabBarSyncingAppearanceKey;
-static const void *kLGTabBarOriginalTranslucentKey = &kLGTabBarOriginalTranslucentKey;
+static const void *kLGTabBarInteractionActiveKey = &kLGTabBarInteractionActiveKey;
+static const void *kLGTabBarOriginalUnselectedTintKey = &kLGTabBarOriginalUnselectedTintKey;
+static const void *kLGTabBarOriginalStandardAppearanceKey = &kLGTabBarOriginalStandardAppearanceKey;
+static const void *kLGTabBarOriginalScrollEdgeAppearanceKey = &kLGTabBarOriginalScrollEdgeAppearanceKey;
+static const void *kLGTabBarLensMaskKey = &kLGTabBarLensMaskKey;
+static const void *kLGTabBarAppearanceRefreshPendingKey = &kLGTabBarAppearanceRefreshPendingKey;
 static const CGFloat kLGTabBarPortraitHighlightHeight = 54.0;
 static const CGFloat kLGTabBarLandscapeHighlightHeight = 46.0;
 static const CGFloat kLGTabBarPortraitLensWidth = 94.0;
@@ -167,10 +168,12 @@ static CGFloat LGTabBarLensHeight(UITabBar *bar);
 static LGLiveBackdropView *LGTabBarSelectionLens(UITabBar *bar);
 static LGTabBarMotionState *LGTabBarMotionStateForBar(UITabBar *bar,
                                                        BOOL create);
+static UITabBarButton *LGNearestTabBarButton(UITabBar *bar, CGFloat centerX);
 static void LGPersistTabBarDump(NSString *dump, NSString *reason);
 static void LGHookTabBarHostControllers(void);
 static UITabBar *LGTabBarForButton(UIView *button);
 static BOOL LGIsStockTabBar(UITabBar *bar);
+static NSArray<UIView *> *LGStockTabBarButtons(UITabBar *bar);
 static const CGFloat kLGTabBarLensShapeScaleX = 0.75;
 static const CGFloat kLGTabBarLensShapeScaleY = 0.48;
 static const void *kLGTabBarLensPillKey = &kLGTabBarLensPillKey;
@@ -185,7 +188,22 @@ static CGPoint LGTabBarLensPillCenter(LGLiveBackdropView *lens) {
     return CGPointMake(CGRectGetMidX(pill), CGRectGetMidY(pill));
 }
 
-static void LGPositionTabBarLensRim(UITabBar *bar, CGRect pill);
+static void LGSetTabBarLensMask(LGLiveBackdropView *lens, CGRect shape,
+                                CGFloat radius) {
+    if (!lens || CGRectIsEmpty(shape)) return;
+    CAShapeLayer *mask = objc_getAssociatedObject(lens, kLGTabBarLensMaskKey);
+    if (!mask) {
+        mask = [CAShapeLayer layer];
+        mask.fillColor = UIColor.whiteColor.CGColor;
+        objc_setAssociatedObject(lens, kLGTabBarLensMaskKey, mask,
+                                 OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
+    mask.frame = lens.bounds;
+    CGPathRef path = CGPathCreateWithRoundedRect(shape, radius, radius, NULL);
+    mask.path = path;
+    CGPathRelease(path);
+    lens.layer.mask = mask;
+}
 
 static void LGSetTabBarLensPill(UITabBar *bar, LGLiveBackdropView *lens,
                                 CGRect pill) {
@@ -201,11 +219,11 @@ static void LGSetTabBarLensPill(UITabBar *bar, LGLiveBackdropView *lens,
                                  CGRectGetHeight(pill));
         lens.center = CGPointMake(CGRectGetMidX(pill), CGRectGetMidY(pill));
         lens.layer.cornerRadius = CGRectGetHeight(pill) * 0.5;
-        lens.lgShapeRect = CGRectNull;
-        lens.lgShapeCornerRadius = 0.0;
+        lens.lgShapeRect = lens.bounds;
+        lens.lgShapeCornerRadius = CGRectGetHeight(pill) * 0.5;
+        LGSetTabBarLensMask(lens, lens.bounds, CGRectGetHeight(pill) * 0.5);
         [CATransaction commit];
-        LGPositionTabBarLensRim(bar, pill);
-        LGLensRectWrite(LGLensRectSlotTabBarSelection, false, 0.0, 0.0, 0.0, 0.0);
+        LGLensRectWrite(LGLensRectSlotTabBarSelection, true, 0.0, 0.0, 1.0, 1.0);
         return;
     }
 
@@ -230,13 +248,14 @@ static void LGSetTabBarLensPill(UITabBar *bar, LGLiveBackdropView *lens,
     lens.bounds = CGRectMake(0.0, 0.0, capture.width, capture.height);
     lens.center = centre;
     lens.layer.cornerRadius = MIN(capture.width, capture.height) * 0.5;
-    lens.layer.masksToBounds = NO;
-    lens.clipsToBounds = NO;
+    lens.layer.masksToBounds = YES;
+    lens.clipsToBounds = YES;
     CGRect pillInLens = [bar convertRect:pill toView:lens];
     lens.lgShapeRect = pillInLens;
     lens.lgShapeCornerRadius = CGRectGetHeight(pillInLens) * 0.5;
+    LGSetTabBarLensMask(lens, pillInLens,
+                        CGRectGetHeight(pillInLens) * 0.5);
     [CATransaction commit];
-    LGPositionTabBarLensRim(bar, pill);
     LGLensRectWrite(LGLensRectSlotTabBarSelection, YES,
                     CGRectGetMinX(pillInLens) / capture.width,
                     CGRectGetMinY(pillInLens) / capture.height,
@@ -248,32 +267,18 @@ static void LGPositionTabBarBlueOverlay(UITabBar *bar,
                                         LGLiveBackdropView *lens);
 static UIView *LGTabBarBlueOverlay(UITabBar *bar, BOOL create);
 static void LGStartTabBarLumaSampling(UITabBar *bar);
+static void LGStopTabBarLumaSampling(UITabBar *bar);
 static void LGApplyTabBarGlyphColor(UITabBar *bar, UIColor *color);
-static UIColor *LGTabBarNeutralGlyphColor(UITabBar *bar);
-static void LGSyncTabBarChromeAppearance(UITabBar *bar);
-static BOOL LGTabBarButtonsUseConstraints(UITabBar *bar);
-static UITabBarButton *LGNearestTabBarButton(UITabBar *bar, CGFloat centerX);
-static CGRect LGTabBarConstraintPillFrame(UITabBar *bar, BOOL *applied);
 static void LGSetTabBarVisualAccentIndex(UITabBar *bar, NSUInteger index);
 static void LGClearTabBarVisualAccentIndex(UITabBar *bar);
-static void LGPositionTabBarLensRim(UITabBar *bar, CGRect pill);
+static void LGTabBarAppearanceFromSystem(UITabBar *bar);
+static void LGScheduleTabBarAppearanceRefresh(UITabBar *bar);
+static void LGStyleStockTabBar(UITabBar *bar);
 static void LGFinalizeTabBarSelection(UITabBar *bar,
                                       LGLiveBackdropView *lens,
                                       LGTabBarMotionState *state);
 
-static UIImage *LGTabBarClearImage(void) {
-    static UIImage *image = nil;
-    static dispatch_once_t onceToken;
-    dispatch_once(&onceToken, ^{
-        UIGraphicsBeginImageContextWithOptions(CGSizeMake(1.0, 1.0), NO, 1.0);
-        image = UIGraphicsGetImageFromCurrentImageContext();
-        UIGraphicsEndImageContext();
-    });
-    return image;
-}
-
 static void LGSetTabBarVisualAccentIndex(UITabBar *bar, NSUInteger index) {
-    if (!bar || index == NSNotFound) return;
     objc_setAssociatedObject(bar, kLGTabBarVisualAccentIndexKey, @(index),
                              OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 }
@@ -281,22 +286,6 @@ static void LGSetTabBarVisualAccentIndex(UITabBar *bar, NSUInteger index) {
 static void LGClearTabBarVisualAccentIndex(UITabBar *bar) {
     objc_setAssociatedObject(bar, kLGTabBarVisualAccentIndexKey, nil,
                              OBJC_ASSOCIATION_ASSIGN);
-}
-
-static void LGPositionTabBarLensRim(UITabBar *bar, CGRect pill) {
-    UIView *rim = objc_getAssociatedObject(bar, kLGTabBarLensRimKey);
-    if (!rim || !bar || CGRectIsEmpty(pill)) return;
-    BOOL dark = bar.traitCollection.userInterfaceStyle == UIUserInterfaceStyleDark;
-    [CATransaction begin];
-    [CATransaction setDisableActions:YES];
-    rim.bounds = CGRectMake(0.0, 0.0, CGRectGetWidth(pill), CGRectGetHeight(pill));
-    rim.center = CGPointMake(CGRectGetMidX(pill), CGRectGetMidY(pill));
-    rim.layer.cornerRadius = CGRectGetHeight(pill) * 0.5;
-    rim.backgroundColor = UIColor.clearColor;
-    rim.layer.borderWidth = 1.75;
-    rim.layer.borderColor =
-        [UIColor colorWithWhite:dark ? 1.0 : 0.02 alpha:dark ? 0.96 : 0.55].CGColor;
-    [CATransaction commit];
 }
 
 @implementation LGTabBarMotionState
@@ -370,10 +359,10 @@ static inline CGFloat LGTabBarSpringStep(CGFloat current,
     self.renderedWidth = next.width;
     self.renderedHeight = next.height;
     CGFloat pillMidY = CGRectGetMidY(LGTabBarPillFrame(bar));
-    CGRect renderedPill = CGRectMake(next.centerX - next.width * 0.5,
-                                     pillMidY - next.height * 0.5,
-                                     next.width, next.height);
-    LGSetTabBarLensPill(bar, lens, renderedPill);
+    LGSetTabBarLensPill(bar, lens,
+        CGRectMake(next.centerX - next.width * 0.5,
+                   pillMidY - next.height * 0.5,
+                   next.width, next.height));
     LGPositionTabBarBlueOverlay(bar, lens);
 
     if (self.awaitingTapDestination) {
@@ -386,7 +375,6 @@ static inline CGFloat LGTabBarSpringStep(CGFloat current,
         if (arrived || timedOut) {
             self.awaitingTapDestination = NO;
             self.active = NO;
-            LGApplyTabBarGlyphColor(bar, LGTabBarNeutralGlyphColor(bar));
             if (self.onArrival) {
                 void (^callback)(void) = self.onArrival;
                 self.onArrival = nil;
@@ -404,10 +392,8 @@ static inline CGFloat LGTabBarSpringStep(CGFloat current,
     UIView *highlight =
         objc_getAssociatedObject(bar, kLGTabBarSelectedHighlightKey);
     if (highlight) {
-        highlight.bounds = CGRectMake(0.0, 0.0, next.width, next.height);
-        highlight.center = LGTabBarLensPillCenter(lens);
-        highlight.layer.cornerRadius = next.height * 0.5;
-        highlight.hidden = NO;
+        highlight.hidden = YES;
+        highlight.alpha = 0.0;
     }
     if (self.awaitingRestingShape) {
         CGFloat remaining =
@@ -415,12 +401,17 @@ static inline CGFloat LGTabBarSpringStep(CGFloat current,
                   next.height - self.targetHeight);
         CGFloat progress = self.collapseStartDistance > 0.001
             ? 1.0 - remaining / self.collapseStartDistance : 1.0;
-        progress = fmin(fmax(progress, 0.0), 1.0);
-        CGFloat handoff = progress * progress * (3.0 - 2.0 * progress);
-        highlight.alpha = handoff;
-        lens.alpha = 1.0 - handoff;
+        (void)progress;
+        if (highlight) {
+            highlight.hidden = YES;
+            highlight.alpha = 0.0;
+        }
+        lens.alpha = 1.0;
         UIView *blueOverlay = LGTabBarBlueOverlay(bar, NO);
-        blueOverlay.alpha = 1.0 - handoff;
+        if (blueOverlay) {
+            blueOverlay.hidden = YES;
+            blueOverlay.alpha = 0.0;
+        }
         BOOL settled =
             fabs(next.centerX - self.targetCenterX) < 0.75 &&
             fabs(next.width - self.targetWidth) < 0.75 &&
@@ -431,11 +422,6 @@ static inline CGFloat LGTabBarSpringStep(CGFloat current,
             self.awaitingRestingShape = NO;
             LGFinalizeTabBarSelection(bar, lens, self);
         }
-    }
-    UIView *rim = objc_getAssociatedObject(bar, kLGTabBarLensRimKey);
-    if (rim) {
-        rim.hidden = lens.hidden || lens.alpha < 0.01;
-        rim.alpha = lens.hidden ? 0.0 : lens.alpha;
     }
 }
 
@@ -453,33 +439,36 @@ static BOOL LGTabBarAllowed(void) {
     return !excluded;
 }
 
-static CGFloat LGTabBarRequiredContentHeight(UITabBar *bar) {
+static CGFloat __attribute__((unused)) LGTabBarRequiredContentHeight(UITabBar *bar) {
     BOOL landscape = LGTabBarUsesLandscapeMetrics(bar);
     return (landscape ? kLGTabBarLandscapeHeight : 64.0) +
            (landscape ? 8.0 : 10.0);
 }
 
-static CGFloat LGTabBarAppliedOverhang(UITabBar *bar) {
+static CGFloat __attribute__((unused)) LGTabBarAppliedOverhang(UITabBar *bar) {
     return [objc_getAssociatedObject(bar, kLGTabBarAppliedOverhangKey) doubleValue];
 }
 
 static CGRect LGTabBarPillFrame(UITabBar *bar) {
-    BOOL wrapped = NO;
-    CGRect constraintPill = LGTabBarConstraintPillFrame(bar, &wrapped);
-    if (wrapped) return constraintPill;
     BOOL landscape = LGTabBarUsesLandscapeMetrics(bar);
     const CGFloat height = landscape ? kLGTabBarLandscapeHeight : 64.0;
     const CGFloat minimumScreenInset = landscape ? 24.0 : 16.0;
     const CGFloat bottomInset = landscape ? 8.0 : 10.0;
-    const CGFloat itemSlotWidth = landscape ? 110.0 : 67.0;
-    const CGFloat pillEdgePadding = landscape ? 12.0 : 32.0;
     CGFloat availableWidth =
         MAX(0.0, CGRectGetWidth(bar.bounds) - minimumScreenInset * 2.0);
-    NSUInteger itemCount = bar.items.count;
-    CGFloat intrinsicWidth = itemCount
-        ? itemSlotWidth * itemCount + pillEdgePadding * 2.0
-        : availableWidth;
-    CGFloat width = MIN(availableWidth, intrinsicWidth);
+    /* Keep the renderer aligned to the system's actual button layout.  The
+       old item-count slot formula was also used to remap UITabBarButton
+       frames, which made apps such as App Store get a second, incompatible
+       width calculation. */
+    CGFloat first = CGFLOAT_MAX, last = -CGFLOAT_MAX;
+    for (UIView *button in LGStockTabBarButtons(bar)) {
+        CGRect frame = [button.superview convertRect:button.frame toView:bar];
+        first = MIN(first, CGRectGetMinX(frame));
+        last = MAX(last, CGRectGetMaxX(frame));
+    }
+    CGFloat width = (first < last) ? MIN(availableWidth, last - first)
+                                   : availableWidth;
+    if (width <= 0.0) width = availableWidth;
     CGFloat originX = (CGRectGetWidth(bar.bounds) - width) * 0.5;
     CGFloat safeBottom = bar.safeAreaInsets.bottom;
     CGFloat bottom = CGRectGetHeight(bar.bounds)
@@ -570,74 +559,32 @@ static NSArray<UIView *> *LGStockTabBarButtons(UITabBar *bar) {
     return buttons;
 }
 
-static BOOL LGTabBarButtonsUseConstraints(UITabBar *bar) {
-    for (UIView *button in LGStockTabBarButtons(bar)) {
-        if (!button.translatesAutoresizingMaskIntoConstraints) return YES;
-    }
-    return NO;
-}
-
-static CGRect LGTabBarConstraintPillFrame(UITabBar *bar, BOOL *applied) {
-    if (applied) *applied = NO;
-    if (!bar || !LGTabBarButtonsUseConstraints(bar)) return CGRectZero;
-    NSArray<UIView *> *buttons = LGStockTabBarButtons(bar);
-    if (!buttons.count) return CGRectZero;
-    CGRect content = CGRectNull;
-    NSUInteger counted = 0;
-    for (UIView *button in buttons) {
-        if (CGRectGetWidth(button.frame) < 1.0 || CGRectGetHeight(button.frame) < 1.0)
-            continue;
-        content = CGRectIsNull(content) ? button.frame : CGRectUnion(content, button.frame);
-        counted++;
-    }
-    if (counted != buttons.count || CGRectIsNull(content)) return CGRectZero;
-
-    BOOL landscape = LGTabBarUsesLandscapeMetrics(bar);
-    CGFloat height = landscape ? kLGTabBarLandscapeHeight : 64.0;
-    CGFloat padX = landscape ? 10.0 : 12.0;
-    CGFloat minX = landscape ? 24.0 : 16.0;
-    CGRect pill = CGRectInset(content, -padX, 0.0);
-    pill.origin.y = CGRectGetMidY(content) - height * 0.5;
-    pill.size.height = height;
-    CGFloat maxWidth = MAX(0.0, CGRectGetWidth(bar.bounds) - minX * 2.0);
-    if (maxWidth > 1.0 && CGRectGetWidth(pill) > maxWidth) {
-        pill.size.width = maxWidth;
-        pill.origin.x = (CGRectGetWidth(bar.bounds) - maxWidth) * 0.5;
-    }
-    if (CGRectGetMinX(pill) < minX) pill.origin.x = minX;
-    if (applied) *applied = YES;
-    return LGTabBarPixelAlignedRect(bar, pill);
-}
-
 static void LGRemoveTabBarInjection(UITabBar *bar) {
     if (!bar) return;
+    LGStopTabBarLumaSampling(bar);
     BOOL injected =
         [objc_getAssociatedObject(bar, kLGTabBarStylingKey) boolValue] ||
         objc_getAssociatedObject(bar, kLGTabBarGlassKey) ||
         objc_getAssociatedObject(bar, kLGTabBarVibranceKey) ||
         objc_getAssociatedObject(bar, kLGTabBarSelectedHighlightKey) ||
         objc_getAssociatedObject(bar, kLGTabBarSelectionGlassKey) ||
-        objc_getAssociatedObject(bar, kLGTabBarBlueOverlayKey) ||
-        objc_getAssociatedObject(bar, kLGTabBarLensRimKey);
+        objc_getAssociatedObject(bar, kLGTabBarBlueOverlayKey);
     if (!injected) return;
-    NSTimer *lumaTimer = objc_getAssociatedObject(bar, kLGTabBarLumaTimerKey);
-    [lumaTimer invalidate];
-    objc_setAssociatedObject(bar, kLGTabBarLumaTimerKey, nil,
-                             OBJC_ASSOCIATION_ASSIGN);
 
     LGTabBarMotionState *state = LGTabBarMotionStateForBar(bar, NO);
     [state stop];
     state.active = NO;
     state.awaitingTapDestination = NO;
     state.awaitingRestingShape = NO;
+    objc_setAssociatedObject(bar, kLGTabBarInteractionActiveKey, nil,
+                             OBJC_ASSOCIATION_ASSIGN);
 
     NSArray<NSValue *> *keys = @[
         [NSValue valueWithPointer:kLGTabBarGlassKey],
         [NSValue valueWithPointer:kLGTabBarVibranceKey],
         [NSValue valueWithPointer:kLGTabBarSelectedHighlightKey],
         [NSValue valueWithPointer:kLGTabBarSelectionGlassKey],
-        [NSValue valueWithPointer:kLGTabBarBlueOverlayKey],
-        [NSValue valueWithPointer:kLGTabBarLensRimKey]
+        [NSValue valueWithPointer:kLGTabBarBlueOverlayKey]
     ];
     for (NSValue *keyValue in keys) {
         const void *key = keyValue.pointerValue;
@@ -671,14 +618,24 @@ static void LGRemoveTabBarInjection(UITabBar *bar) {
         objc_getAssociatedObject(bar, kLGTabBarOriginalMasksKey);
     if (originalClips) bar.clipsToBounds = originalClips.boolValue;
     if (originalMasks) bar.layer.masksToBounds = originalMasks.boolValue;
-    NSNumber *originalTranslucent =
-        objc_getAssociatedObject(bar, kLGTabBarOriginalTranslucentKey);
-    if (originalTranslucent) bar.translucent = originalTranslucent.boolValue;
+    if (@available(iOS 13.0, *)) {
+        id originalStandard = objc_getAssociatedObject(bar, kLGTabBarOriginalStandardAppearanceKey);
+        if (originalStandard) bar.standardAppearance = originalStandard == NSNull.null ? [[UITabBarAppearance alloc] init] : originalStandard;
+        if (@available(iOS 15.0, *)) {
+            id originalScroll = objc_getAssociatedObject(bar, kLGTabBarOriginalScrollEdgeAppearanceKey);
+            if (originalScroll) bar.scrollEdgeAppearance = originalScroll == NSNull.null ? nil : originalScroll;
+        }
+    }
+    id originalUnselected = objc_getAssociatedObject(bar, kLGTabBarOriginalUnselectedTintKey);
+    if (originalUnselected) bar.unselectedItemTintColor = originalUnselected == NSNull.null ? nil : originalUnselected;
     objc_setAssociatedObject(bar, kLGTabBarOriginalBackgroundHiddenKey, nil,
                              OBJC_ASSOCIATION_ASSIGN);
-    objc_setAssociatedObject(bar, kLGTabBarOriginalTranslucentKey, nil,
+    objc_setAssociatedObject(bar, kLGTabBarOriginalStandardAppearanceKey, nil,
                              OBJC_ASSOCIATION_ASSIGN);
-    LGClearTabBarVisualAccentIndex(bar);
+    objc_setAssociatedObject(bar, kLGTabBarOriginalScrollEdgeAppearanceKey, nil,
+                             OBJC_ASSOCIATION_ASSIGN);
+    objc_setAssociatedObject(bar, kLGTabBarOriginalUnselectedTintKey, nil,
+                             OBJC_ASSOCIATION_ASSIGN);
     objc_setAssociatedObject(bar, kLGTabBarOriginalClipsKey, nil,
                              OBJC_ASSOCIATION_ASSIGN);
     objc_setAssociatedObject(bar, kLGTabBarOriginalMasksKey, nil,
@@ -687,7 +644,9 @@ static void LGRemoveTabBarInjection(UITabBar *bar) {
                              OBJC_ASSOCIATION_ASSIGN);
     objc_setAssociatedObject(bar, kLGTabBarAppearanceConfiguredKey, nil,
                              OBJC_ASSOCIATION_ASSIGN);
-    objc_setAssociatedObject(bar, kLGTabBarColorSignatureKey, nil,
+    objc_setAssociatedObject(bar, kLGTabBarAccentColorKey, nil,
+                             OBJC_ASSOCIATION_ASSIGN);
+    objc_setAssociatedObject(bar, kLGTabBarInteractionActiveKey, nil,
                              OBJC_ASSOCIATION_ASSIGN);
     objc_setAssociatedObject(bar, kLGTabBarInnerGlowKey, nil,
                              OBJC_ASSOCIATION_ASSIGN);
@@ -714,47 +673,24 @@ static void LGCollectTabBarContentViews(UIView *root,
     }
 }
 
-static UIColor *LGTabBarNeutralGlyphColor(UITabBar *bar) {
-    NSNumber *stored = objc_getAssociatedObject(bar, kLGTabBarDarkGlyphsKey);
-    BOOL darkGlyphs = stored
-        ? stored.boolValue
-        : bar.traitCollection.userInterfaceStyle != UIUserInterfaceStyleDark;
-    return darkGlyphs ? UIColor.blackColor : UIColor.whiteColor;
-}
-
-static UIColor *LGTabBarCurrentAccent(UITabBar *bar) {
-    UIColor *accent = objc_getAssociatedObject(bar, kLGTabBarAccentColorKey);
-    if ([accent isKindOfClass:UIColor.class]) return accent;
-    return bar.tintColor ?: UIColor.labelColor;
-}
-
 static void LGApplyTabBarGlyphColor(UITabBar *bar, UIColor *color) {
-    if (!bar) return;
-    LGSyncTabBarChromeAppearance(bar);
     NSArray<UIView *> *buttons = LGStockTabBarButtons(bar);
     NSUInteger semanticIndex = [bar.items indexOfObjectIdenticalTo:bar.selectedItem];
-    NSNumber *visualNumber =
-        objc_getAssociatedObject(bar, kLGTabBarVisualAccentIndexKey);
-    NSUInteger visualIndex = visualNumber ? visualNumber.unsignedIntegerValue
-                                          : semanticIndex;
-    UIColor *accent = LGTabBarCurrentAccent(bar);
-    UIColor *neutral = color ?: LGTabBarNeutralGlyphColor(bar);
+    NSNumber *visualNumber = objc_getAssociatedObject(bar, kLGTabBarVisualAccentIndexKey);
+    NSUInteger visualIndex = visualNumber ? visualNumber.unsignedIntegerValue : semanticIndex;
+    UIColor *accent = objc_getAssociatedObject(bar, kLGTabBarAccentColorKey);
+    if (![accent isKindOfClass:UIColor.class]) accent = bar.tintColor;
     [buttons enumerateObjectsUsingBlock:^(UIView *button, NSUInteger index,
                                           __unused BOOL *stop) {
         NSMutableArray<UIView *> *content = [NSMutableArray array];
         LGCollectTabBarContentViews(button, content, 0);
-        UIColor *glyphColor = index == visualIndex ? accent : neutral;
-        button.tintAdjustmentMode = UIViewTintAdjustmentModeNormal;
+        UIColor *glyphColor = index == visualIndex ? (accent ?: color) : color;
         for (UIView *view in content) {
             view.layer.compositingFilter = nil;
-            view.tintAdjustmentMode = UIViewTintAdjustmentModeNormal;
             if ([view isKindOfClass:UIImageView.class])
                 ((UIImageView *)view).tintColor = glyphColor;
-            else if ([view isKindOfClass:UILabel.class]) {
-                UILabel *label = (UILabel *)view;
-                label.textColor = glyphColor;
-                label.highlightedTextColor = glyphColor;
-            }
+            else if ([view isKindOfClass:UILabel.class])
+                ((UILabel *)view).textColor = glyphColor;
         }
     }];
 }
@@ -787,31 +723,35 @@ static void LGSampleTabBarLuma(UITabBar *bar) {
     CFRelease(data);
     objc_setAssociatedObject(bar, kLGTabBarDarkGlyphsKey, @(dark),
                              OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-    LGTabBarMotionState *motion = LGTabBarMotionStateForBar(bar, NO);
-    BOOL gesturing = motion && (motion.active || motion.awaitingTapDestination ||
-                                motion.awaitingRestingShape);
-    if (!gesturing) {
-        NSUInteger selectedIndex =
-            [bar.items indexOfObjectIdenticalTo:bar.selectedItem];
-        NSNumber *visual =
-            objc_getAssociatedObject(bar, kLGTabBarVisualAccentIndexKey);
-        if (visual && visual.unsignedIntegerValue == selectedIndex)
-            LGClearTabBarVisualAccentIndex(bar);
-    }
+    NSUInteger selectedIndex = [bar.items indexOfObjectIdenticalTo:bar.selectedItem];
+    objc_setAssociatedObject(bar, kLGTabBarVisualAccentIndexKey,
+                             @(selectedIndex), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     LGApplyTabBarGlyphColor(bar, dark ? UIColor.blackColor : UIColor.whiteColor);
 }
 
 static void LGStartTabBarLumaSampling(UITabBar *bar) {
     if (objc_getAssociatedObject(bar, kLGTabBarLumaTimerKey)) return;
     __weak UITabBar *weakBar = bar;
-    NSTimer *timer = [NSTimer timerWithTimeInterval:0.35 repeats:YES block:^(__unused NSTimer *unused) {
+    NSTimer *timer = [NSTimer timerWithTimeInterval:1.0 repeats:YES block:^(__unused NSTimer *unused) {
         UITabBar *strongBar = weakBar;
-        if (strongBar && LGTabBarAllowed()) LGSampleTabBarLuma(strongBar);
+        if (!strongBar || !strongBar.window || strongBar.hidden ||
+            strongBar.alpha < 0.01 ||
+            [objc_getAssociatedObject(strongBar, kLGTabBarInteractionActiveKey) boolValue] ||
+            !LGTabBarAllowed()) return;
+        LGSampleTabBarLuma(strongBar);
     }];
     [[NSRunLoop mainRunLoop] addTimer:timer forMode:NSRunLoopCommonModes];
     objc_setAssociatedObject(bar, kLGTabBarLumaTimerKey, timer,
                              OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-    LGSampleTabBarLuma(bar);
+    if (!objc_getAssociatedObject(bar, kLGTabBarInteractionActiveKey))
+        LGSampleTabBarLuma(bar);
+}
+
+static void LGStopTabBarLumaSampling(UITabBar *bar) {
+    NSTimer *timer = objc_getAssociatedObject(bar, kLGTabBarLumaTimerKey);
+    [timer invalidate];
+    objc_setAssociatedObject(bar, kLGTabBarLumaTimerKey, nil,
+                             OBJC_ASSOCIATION_ASSIGN);
 }
 
 static BOOL LGTabBarButtonGeometryIsConstraintManaged(UIView *button) {
@@ -902,7 +842,7 @@ static UIColor *LGTabBarAccentColor(UITabBar *bar) {
             }
         }
     }
-    return accent ?: UIColor.systemBlueColor;
+    return accent ?: UIColor.labelColor;
 }
 
 static UIView *LGTabBarBlueOverlay(UITabBar *bar, BOOL create) {
@@ -1083,13 +1023,6 @@ static void LGAnimateTabBarScale(UITabBar *bar, BOOL pressed) {
                 lens.transform = CGAffineTransformConcat(CGAffineTransformMakeScale(targetScale, targetScale),
                                                            CGAffineTransformMakeTranslation(shiftX, 0.0));
             }
-            UIView *rim = objc_getAssociatedObject(bar, kLGTabBarLensRimKey);
-            if (rim && !rim.hidden) {
-                CGFloat dx = rim.center.x - pillCenter.x;
-                CGFloat shiftX = dx * (targetScale - 1.0);
-                rim.transform = CGAffineTransformConcat(CGAffineTransformMakeScale(targetScale, targetScale),
-                                                        CGAffineTransformMakeTranslation(shiftX, 0.0));
-            }
             UIView *blueOverlay = LGTabBarBlueOverlay(bar, NO);
             if (blueOverlay && !blueOverlay.hidden) {
                 blueOverlay.transform = glass.transform;
@@ -1105,8 +1038,6 @@ static void LGAnimateTabBarScale(UITabBar *bar, BOOL pressed) {
             if (highlight) highlight.transform = CGAffineTransformIdentity;
             LGLiveBackdropView *lens = objc_getAssociatedObject(bar, kLGTabBarSelectionGlassKey);
             if (lens) lens.transform = CGAffineTransformIdentity;
-            UIView *rim = objc_getAssociatedObject(bar, kLGTabBarLensRimKey);
-            if (rim) rim.transform = CGAffineTransformIdentity;
             UIView *blueOverlay = LGTabBarBlueOverlay(bar, NO);
             if (blueOverlay) blueOverlay.transform = CGAffineTransformIdentity;
         }
@@ -1122,8 +1053,6 @@ static void LGAnimateTabBarScale(UITabBar *bar, BOOL pressed) {
             if (highlight) highlight.transform = CGAffineTransformIdentity;
             LGLiveBackdropView *lens = objc_getAssociatedObject(bar, kLGTabBarSelectionGlassKey);
             if (lens) lens.transform = CGAffineTransformIdentity;
-            UIView *rim = objc_getAssociatedObject(bar, kLGTabBarLensRimKey);
-            if (rim) rim.transform = CGAffineTransformIdentity;
             UIView *blueOverlay = LGTabBarBlueOverlay(bar, NO);
             if (blueOverlay) blueOverlay.transform = CGAffineTransformIdentity;
         }
@@ -1133,224 +1062,95 @@ static void LGAnimateTabBarScale(UITabBar *bar, BOOL pressed) {
                              OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 }
 
-static NSString *LGTabBarColorKey(UIColor *color, UITabBar *bar) {
-    if (!color) return @"nil";
-    if (@available(iOS 13.0, *)) {
-        if (bar) color = [color resolvedColorWithTraitCollection:bar.traitCollection];
-    }
-    CGFloat r = 0.0, g = 0.0, b = 0.0, a = 0.0;
-    if ([color getRed:&r green:&g blue:&b alpha:&a])
-        return [NSString stringWithFormat:@"%.3f,%.3f,%.3f,%.3f", r, g, b, a];
-    CGFloat white = 0.0;
-    if ([color getWhite:&white alpha:&a])
-        return [NSString stringWithFormat:@"w%.3f,%.3f", white, a];
-    return color.description ?: @"?";
-}
-
-static void LGPaintTabBarItemState(UITabBarItemStateAppearance *state, UIColor *color) {
-    if (!state || !color) return;
-    state.iconColor = color;
-    NSMutableDictionary *attributes =
-        [state.titleTextAttributes mutableCopy] ?: [NSMutableDictionary dictionary];
-    attributes[NSForegroundColorAttributeName] = color;
-    state.titleTextAttributes = attributes;
-}
-
-static void LGClearTabBarSelectionIndicator(id appearance) {
-    if (!appearance) return;
-    SEL tintSelector = NSSelectorFromString(@"setSelectionIndicatorTintColor:");
-    if ([appearance respondsToSelector:tintSelector]) {
-        ((void (*)(id, SEL, UIColor *))objc_msgSend)(
-            appearance, tintSelector, UIColor.clearColor);
-    }
-    SEL imageSelector = NSSelectorFromString(@"setSelectionIndicatorImage:");
-    if ([appearance respondsToSelector:imageSelector]) {
-        ((void (*)(id, SEL, UIImage *))objc_msgSend)(
-            appearance, imageSelector, LGTabBarClearImage());
-    }
-}
-
-static void LGRememberTabBarAccent(UITabBar *bar) {
+static void LGTabBarAppearanceFromSystem(UITabBar *bar) {
     if (!bar) return;
+    if (@available(iOS 13.0, *)) {
+        UITabBarAppearance *appearance = [bar.standardAppearance copy];
+        appearance.selectionIndicatorImage = nil;
+        appearance.selectionIndicatorTintColor = UIColor.clearColor;
+        bar.standardAppearance = appearance;
+        if (@available(iOS 15.0, *)) bar.scrollEdgeAppearance = [appearance copy];
+    }
+}
+
+static void LGScheduleTabBarAppearanceRefresh(UITabBar *bar) {
+    if (!bar || [objc_getAssociatedObject(bar, kLGTabBarAppearanceRefreshPendingKey) boolValue]) return;
+    objc_setAssociatedObject(bar, kLGTabBarAppearanceRefreshPendingKey, @YES,
+                             OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    __weak UITabBar *weakBar = bar;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        UITabBar *strongBar = weakBar;
+        if (!strongBar) return;
+        objc_setAssociatedObject(strongBar, kLGTabBarAppearanceRefreshPendingKey, nil,
+                                 OBJC_ASSOCIATION_ASSIGN);
+        LGTabBarAppearanceFromSystem(strongBar);
+        LGStyleStockTabBar(strongBar);
+    });
+}
+
+static void LGConfigureTabBarAppearance(UITabBar *bar) {
+    if (!bar || !LGTabBarAllowed() || !LGIsStockTabBar(bar)) return;
+    if ([objc_getAssociatedObject(bar, kLGTabBarAppearanceConfiguredKey) boolValue]) return;
+    objc_setAssociatedObject(bar, kLGTabBarAppearanceConfiguredKey, @YES,
+                             OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+
+    if (!objc_getAssociatedObject(bar, kLGTabBarOriginalUnselectedTintKey)) {
+        objc_setAssociatedObject(bar, kLGTabBarOriginalUnselectedTintKey,
+                                 bar.unselectedItemTintColor ?: NSNull.null,
+                                 OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
+    if (@available(iOS 13.0, *)) {
+        if (!objc_getAssociatedObject(bar, kLGTabBarOriginalStandardAppearanceKey))
+            objc_setAssociatedObject(bar, kLGTabBarOriginalStandardAppearanceKey,
+                                     bar.standardAppearance ?: NSNull.null,
+                                     OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        if (@available(iOS 15.0, *)) {
+            if (!objc_getAssociatedObject(bar, kLGTabBarOriginalScrollEdgeAppearanceKey))
+                objc_setAssociatedObject(bar, kLGTabBarOriginalScrollEdgeAppearanceKey,
+                                         bar.scrollEdgeAppearance ?: NSNull.null,
+                                         OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        }
+    }
+
     UIColor *accent = bar.tintColor;
     if (@available(iOS 13.0, *)) {
         UITabBarItemStateAppearance *selected =
             bar.standardAppearance.stackedLayoutAppearance.selected;
         if (selected.iconColor) accent = selected.iconColor;
-        else {
-            id title = selected.titleTextAttributes[NSForegroundColorAttributeName];
-            if ([title isKindOfClass:UIColor.class]) accent = title;
-        }
+        else if ([selected.titleTextAttributes[NSForegroundColorAttributeName]
+                  isKindOfClass:UIColor.class])
+            accent = selected.titleTextAttributes[NSForegroundColorAttributeName];
     }
-    if (![accent isKindOfClass:UIColor.class]) return;
-    UIColor *existing = objc_getAssociatedObject(bar, kLGTabBarAccentColorKey);
-    if ([existing isKindOfClass:UIColor.class] &&
-        [LGTabBarColorKey(existing, bar) isEqualToString:LGTabBarColorKey(accent, bar)])
-        return;
-    LGTabBarMotionState *motion = LGTabBarMotionStateForBar(bar, NO);
-    if ([existing isKindOfClass:UIColor.class] && motion &&
-        (motion.active || motion.awaitingTapDestination ||
-         motion.awaitingRestingShape)) return;
+    if (!accent) accent = UIColor.labelColor;
     objc_setAssociatedObject(bar, kLGTabBarAccentColorKey, accent,
                              OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-}
-
-static void LGSyncTabBarChromeAppearance(UITabBar *bar) {
-    if (!bar || !LGTabBarAllowed() || !LGIsStockTabBar(bar)) return;
-    if ([objc_getAssociatedObject(bar, kLGTabBarSyncingAppearanceKey) boolValue]) return;
-    LGRememberTabBarAccent(bar);
-    UIColor *neutral = LGTabBarNeutralGlyphColor(bar);
-    UIColor *accent = LGTabBarCurrentAccent(bar);
-    NSString *signature = [NSString stringWithFormat:@"%@|%@",
-                           LGTabBarColorKey(neutral, bar),
-                           LGTabBarColorKey(accent, bar)];
-    NSString *previous = objc_getAssociatedObject(bar, kLGTabBarColorSignatureKey);
-    if ([previous isEqualToString:signature]) return;
-
-    objc_setAssociatedObject(bar, kLGTabBarSyncingAppearanceKey, @YES,
-                             OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-    bar.selectionIndicatorImage = LGTabBarClearImage();
-    bar.backgroundImage = LGTabBarClearImage();
-    bar.shadowImage = LGTabBarClearImage();
-    bar.unselectedItemTintColor = neutral;
-    bar.tintAdjustmentMode = UIViewTintAdjustmentModeNormal;
+    /* Do not replace the application's tint with systemBlue or rewrite
+       tintColor during a gesture. */
     if (@available(iOS 13.0, *)) {
-        UITabBarAppearance *appearance = bar.standardAppearance
-            ? [bar.standardAppearance copy] : [UITabBarAppearance new];
-        [appearance configureWithTransparentBackground];
-        appearance.backgroundColor = UIColor.clearColor;
-        appearance.shadowColor = UIColor.clearColor;
-        appearance.backgroundEffect = nil;
-        if ([appearance respondsToSelector:@selector(setShadowImage:)])
-            appearance.shadowImage = LGTabBarClearImage();
-        LGClearTabBarSelectionIndicator(appearance);
-        void (^paint)(UITabBarItemAppearance *) = ^(UITabBarItemAppearance *layout) {
-            if (!layout) return;
-            LGPaintTabBarItemState(layout.normal, neutral);
-            LGPaintTabBarItemState(layout.selected, accent);
+        UITabBarAppearance *appearance = [bar.standardAppearance copy];
+        UITabBarItemAppearance *states[] = {
+            appearance.stackedLayoutAppearance,
+            appearance.inlineLayoutAppearance,
+            appearance.compactInlineLayoutAppearance
         };
-        paint(appearance.stackedLayoutAppearance);
-        paint(appearance.inlineLayoutAppearance);
-        paint(appearance.compactInlineLayoutAppearance);
+        for (NSUInteger i = 0; i < 3; i++) {
+            UITabBarItemAppearance *state = states[i];
+            NSMutableDictionary *attrs = [state.normal.titleTextAttributes mutableCopy]
+                ?: [NSMutableDictionary dictionary];
+            UIColor *normal = attrs[NSForegroundColorAttributeName];
+            if (!normal) normal = bar.unselectedItemTintColor ?: UIColor.secondaryLabelColor;
+            state.normal.iconColor = normal;
+            attrs[NSForegroundColorAttributeName] = normal;
+            state.normal.titleTextAttributes = attrs;
+            state.selected.iconColor = accent;
+            NSMutableDictionary *selectedAttrs = [state.selected.titleTextAttributes mutableCopy]
+                ?: [NSMutableDictionary dictionary];
+            selectedAttrs[NSForegroundColorAttributeName] = accent;
+            state.selected.titleTextAttributes = selectedAttrs;
+        }
         bar.standardAppearance = appearance;
-        if (@available(iOS 15.0, *)) bar.scrollEdgeAppearance = appearance;
+        if (@available(iOS 15.0, *)) bar.scrollEdgeAppearance = [appearance copy];
     }
-    objc_setAssociatedObject(bar, kLGTabBarColorSignatureKey, signature,
-                             OBJC_ASSOCIATION_COPY_NONATOMIC);
-    objc_setAssociatedObject(bar, kLGTabBarAppearanceConfiguredKey, @YES,
-                             OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-    objc_setAssociatedObject(bar, kLGTabBarSyncingAppearanceKey, nil,
-                             OBJC_ASSOCIATION_ASSIGN);
-}
-
-static BOOL LGTabBarIsInjectedView(UITabBar *bar, UIView *view) {
-    if (!view) return NO;
-    const void *keys[] = {
-        kLGTabBarGlassKey, kLGTabBarVibranceKey, kLGTabBarSelectedHighlightKey,
-        kLGTabBarSelectionGlassKey, kLGTabBarBlueOverlayKey, kLGTabBarLensRimKey
-    };
-    for (size_t index = 0; index < sizeof(keys) / sizeof(keys[0]); index++) {
-        if (view == objc_getAssociatedObject(bar, keys[index])) return YES;
-    }
-    return [view isKindOfClass:LGTabBarVibranceView.class] ||
-           [view isKindOfClass:LGLiveBackdropView.class];
-}
-
-static BOOL LGTabBarClassNameIsChrome(NSString *name) {
-    if (!name.length || [name hasPrefix:@"LG"]) return NO;
-    return [name isEqualToString:@"_UIBarBackground"] ||
-           [name containsString:@"Platter"] ||
-           [name containsString:@"Selection"] ||
-           [name containsString:@"Indicator"] ||
-           [name containsString:@"Background"] ||
-           [name containsString:@"Backdrop"] ||
-           [name containsString:@"Liquid"] ||
-           [name containsString:@"Glass"] ||
-           [name containsString:@"Separator"] ||
-           [name containsString:@"Shadow"];
-}
-
-static BOOL LGTabBarViewHostsGlyph(UIView *view) {
-    NSMutableArray<UIView *> *content = [NSMutableArray array];
-    LGCollectTabBarContentViews(view, content, 0);
-    return content.count > 0;
-}
-
-static void LGSuppressChromeTree(UIView *view) {
-    for (UIView *subview in view.subviews) {
-        NSString *name = NSStringFromClass(subview.class);
-        if ([name isEqualToString:@"UITabBarSwappableImageView"] ||
-            [name isEqualToString:@"UITabBarButtonLabel"] ||
-            [name containsString:@"Badge"] ||
-            [subview isKindOfClass:UILabel.class] ||
-            [subview isKindOfClass:UIImageView.class]) continue;
-        BOOL effect = [subview isKindOfClass:UIVisualEffectView.class];
-        BOOL filled = subview.backgroundColor &&
-            CGColorGetAlpha(subview.backgroundColor.CGColor) > 0.01;
-        if (effect || filled || LGTabBarClassNameIsChrome(name)) {
-            if (LGTabBarViewHostsGlyph(subview)) {
-                if (effect) ((UIVisualEffectView *)subview).effect = nil;
-                subview.backgroundColor = UIColor.clearColor;
-                subview.opaque = NO;
-                LGSuppressChromeTree(subview);
-            } else {
-                subview.hidden = YES;
-                subview.alpha = 0.0;
-                subview.backgroundColor = UIColor.clearColor;
-                if (effect) ((UIVisualEffectView *)subview).effect = nil;
-            }
-            continue;
-        }
-        LGSuppressChromeTree(subview);
-    }
-}
-
-static BOOL LGTabBarViewHostsButtons(UIView *view) {
-    Class buttonClass = objc_getClass("UITabBarButton");
-    if (!view || !buttonClass) return NO;
-    if ([view isKindOfClass:buttonClass]) return YES;
-    for (UIView *subview in view.subviews) {
-        if (LGTabBarViewHostsButtons(subview)) return YES;
-    }
-    return NO;
-}
-
-static void LGSuppressSystemTabBarChrome(UITabBar *bar) {
-    if (!bar) return;
-    Class buttonClass = objc_getClass("UITabBarButton");
-    for (UIView *view in bar.subviews) {
-        if (LGTabBarIsInjectedView(bar, view)) continue;
-        if (buttonClass && [view isKindOfClass:buttonClass]) {
-            LGSuppressChromeTree(view);
-            continue;
-        }
-        NSString *name = NSStringFromClass(view.class);
-        BOOL effect = [view isKindOfClass:UIVisualEffectView.class];
-        if (!effect && !LGTabBarClassNameIsChrome(name)) continue;
-        if (LGTabBarViewHostsButtons(view)) {
-            if (effect) ((UIVisualEffectView *)view).effect = nil;
-            view.backgroundColor = UIColor.clearColor;
-            view.opaque = NO;
-            LGSuppressChromeTree(view);
-            continue;
-        }
-        if ([name isEqualToString:@"_UIBarBackground"] &&
-            !objc_getAssociatedObject(bar, kLGTabBarOriginalBackgroundHiddenKey)) {
-            objc_setAssociatedObject(bar, kLGTabBarOriginalBackgroundHiddenKey,
-                                     @(view.hidden),
-                                     OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-        }
-        view.hidden = YES;
-        view.alpha = 0.0;
-        if (effect) ((UIVisualEffectView *)view).effect = nil;
-    }
-    if (bar.selectionIndicatorImage != LGTabBarClearImage())
-        bar.selectionIndicatorImage = LGTabBarClearImage();
-}
-
-static void LGConfigureTabBarAppearance(UITabBar *bar) {
-    if (!bar || !LGTabBarAllowed() || !LGIsStockTabBar(bar)) return;
-    LGSyncTabBarChromeAppearance(bar);
     LGStartTabBarLumaSampling(bar);
 }
 
@@ -1375,12 +1175,6 @@ static void LGStyleStockTabBar(UITabBar *bar) {
                              OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     if (bar.clipsToBounds) bar.clipsToBounds = NO;
     if (bar.layer.masksToBounds) bar.layer.masksToBounds = NO;
-    if (!objc_getAssociatedObject(bar, kLGTabBarOriginalTranslucentKey)) {
-        objc_setAssociatedObject(bar, kLGTabBarOriginalTranslucentKey,
-                                 @(bar.translucent),
-                                 OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-    }
-    if (!bar.translucent) bar.translucent = YES;
 
     UIView *stockBackground = nil;
     Class backgroundClass = objc_getClass("_UIBarBackground");
@@ -1396,7 +1190,6 @@ static void LGStyleStockTabBar(UITabBar *bar) {
                                  OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         stockBackground.hidden = YES;
     }
-    LGSuppressSystemTabBarChrome(bar);
 
     if (object_getClass(bar) == objc_getClass("UITabBar")) {
         UIColor *clear = [UIColor colorWithRed:0.0 green:0.0 blue:0.0 alpha:0.0];
@@ -1496,64 +1289,21 @@ static void LGStyleStockTabBar(UITabBar *bar) {
                                      OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         }
         LGTabBarMotionState *motion = LGTabBarMotionStateForBar(bar, NO);
-        BOOL transitioning = motion &&
-            (motion.active || motion.awaitingTapDestination ||
-             motion.awaitingRestingShape);
         NSUInteger selectedIndex = [bar.items indexOfObjectIdenticalTo:bar.selectedItem];
+        (void)motion;
         if (selectedIndex != NSNotFound && selectedIndex < buttons.count) {
-            BOOL dark = bar.traitCollection.userInterfaceStyle ==
-                        UIUserInterfaceStyleDark;
-            if (!transitioning) {
-                UIView *selectedButton = buttons[selectedIndex];
-                CGRect buttonFrame = [selectedButton.superview
-                    convertRect:selectedButton.frame toView:bar];
-                CGRect highlightBounds = CGRectMake(0.0, 0.0,
-                                                    CGRectGetWidth(buttonFrame),
-                                                    LGTabBarHighlightHeight(bar));
-                CGPoint highlightCenter = CGPointMake(CGRectGetMidX(buttonFrame),
-                                                      CGRectGetMidY(pillFrame));
-                if (!CGRectEqualToRect(highlight.bounds, highlightBounds))
-                    highlight.bounds = highlightBounds;
-                if (!CGPointEqualToPoint(highlight.center, highlightCenter))
-                    highlight.center = highlightCenter;
-                if (fabs(highlight.layer.cornerRadius -
-                         LGTabBarHighlightHeight(bar) * 0.5) > 0.01)
-                    highlight.layer.cornerRadius = LGTabBarHighlightHeight(bar) * 0.5;
-                highlight.backgroundColor =
-                    [UIColor colorWithWhite:dark ? 1.0 : 0.0
-                                      alpha:dark ? 0.10 : 0.06];
-                highlight.alpha = 1.0;
-                highlight.hidden = NO;
-            } else {
-                highlight.hidden = NO;
-                if (!motion.awaitingRestingShape) highlight.alpha = 0.0;
-            }
+            /* The selected lens is the only selected background.  Keep the
+               legacy view alive for teardown/state compatibility, but never
+               paint a second flat rectangle underneath the lens. */
+            highlight.hidden = YES;
+            highlight.alpha = 0.0;
         } else {
             highlight.hidden = YES;
-        }
-        LGLiveBackdropView *visibleLens =
-            objc_getAssociatedObject(bar, kLGTabBarSelectionGlassKey);
-        BOOL lensVisible = visibleLens && !visibleLens.hidden &&
-                           visibleLens.alpha > 0.01;
-        UIView *rim = objc_getAssociatedObject(bar, kLGTabBarLensRimKey);
-        if (!transitioning && !lensVisible) {
-            UIView *overlay = LGTabBarBlueOverlay(bar, NO);
-            if (overlay) {
-                overlay.hidden = YES;
-                overlay.alpha = 0.0;
-            }
-            if (rim) {
-                rim.hidden = YES;
-                rim.alpha = 0.0;
-            }
-        } else if (rim && !rim.hidden) {
-            [bar bringSubviewToFront:rim];
+            highlight.alpha = 0.0;
         }
     }
 
     LGTabBarInnerGlow(bar, YES);
-    LGSuppressSystemTabBarChrome(bar);
-    LGApplyTabBarGlyphColor(bar, LGTabBarNeutralGlyphColor(bar));
 
     objc_setAssociatedObject(bar, kLGTabBarStylingKey, nil,
                              OBJC_ASSOCIATION_ASSIGN);
@@ -1566,125 +1316,13 @@ static UITabBar *LGTabBarForButton(UIView *button) {
     return nil;
 }
 
-static BOOL LGTabBarFramesClose(CGRect a, CGRect b) {
-    return fabs(CGRectGetMinX(a) - CGRectGetMinX(b)) < 0.75 &&
-           fabs(CGRectGetMinY(a) - CGRectGetMinY(b)) < 0.75 &&
-           fabs(CGRectGetWidth(a) - CGRectGetWidth(b)) < 0.75 &&
-           fabs(CGRectGetHeight(a) - CGRectGetHeight(b)) < 0.75;
-}
-
-static BOOL LGTabBarFrameInsidePill(UITabBar *bar, CGRect frame) {
-    CGRect pill = LGTabBarPillFrame(bar);
-    if (CGRectIsEmpty(pill) || CGRectIsEmpty(frame)) return NO;
-    return CGRectContainsRect(CGRectInset(pill, -2.0, -14.0), frame);
-}
-
-static void LGTabBarNoteSystemFrame(UIView *button, CGRect frame) {
-    if (!button || !LGTabBarAllowed()) return;
-    UITabBar *bar = LGTabBarForButton(button);
-    if (!bar || !LGIsStockTabBar(bar)) return;
-    if ([objc_getAssociatedObject(bar, kLGTabBarApplyingFramesKey) boolValue]) return;
-    if (LGTabBarButtonsUseConstraints(bar)) return;
-    NSValue *mapped = objc_getAssociatedObject(button, kLGTabBarRemapOutKey);
-    if (mapped && LGTabBarFramesClose(mapped.CGRectValue, frame)) return;
-    if (LGTabBarFrameInsidePill(bar, frame) && mapped) return;
-    objc_setAssociatedObject(button, kLGTabBarOriginalButtonFrameKey,
-                             [NSValue valueWithCGRect:frame],
-                             OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-}
-
-static CGRect LGTabBarMappedButtonFrame(UITabBar *bar, CGRect systemFrame,
-                                        CGRect source) {
-    CGRect pill = CGRectInset(LGTabBarPillFrame(bar), 4.0, 0.0);
-    CGFloat scale = CGRectGetWidth(pill) / MAX(CGRectGetWidth(source), 1.0);
-    CGRect mapped = systemFrame;
-    mapped.origin.x = CGRectGetMinX(pill) +
-        (CGRectGetMinX(systemFrame) - CGRectGetMinX(source)) * scale;
-    mapped.size.width = MAX(1.0, CGRectGetWidth(systemFrame) * scale);
-    CGFloat overhang = CGRectGetHeight(bar.bounds) + 0.5 >=
-                       LGTabBarRequiredContentHeight(bar)
-        ? LGTabBarAppliedOverhang(bar) : 0.0;
-    CGFloat height = MAX(1.0, CGRectGetHeight(systemFrame) - overhang);
-    mapped.size.height = height;
-    mapped.origin.y = CGRectGetMidY(pill) - height * 0.5;
-    return mapped;
-}
-
-static BOOL LGTabBarCompleteSystemSource(UITabBar *bar, CGRect *sourceOut) {
-    NSArray<UIView *> *buttons = LGStockTabBarButtons(bar);
-    if (!buttons.count) return NO;
-    CGRect source = CGRectNull;
-    for (UIView *button in buttons) {
-        NSValue *value =
-            objc_getAssociatedObject(button, kLGTabBarOriginalButtonFrameKey);
-        if (!value) return NO;
-        source = CGRectIsNull(source) ? value.CGRectValue
-                                     : CGRectUnion(source, value.CGRectValue);
-    }
-    if (CGRectIsNull(source) || CGRectGetWidth(source) < 1.0) return NO;
-    if (sourceOut) *sourceOut = source;
-    return YES;
-}
-
-static BOOL LGTabBarSourceNeedsMapping(UITabBar *bar, CGRect source) {
-    CGRect pill = CGRectInset(LGTabBarPillFrame(bar), 4.0, 0.0);
-    if (CGRectIsEmpty(pill) || CGRectGetWidth(source) < 1.0) return NO;
-    CGFloat scale = CGRectGetWidth(pill) / CGRectGetWidth(source);
-    if (scale > 1.35) return NO;
-    if (CGRectGetWidth(source) <= CGRectGetWidth(pill) + 1.0 &&
-        CGRectGetMinX(source) >= CGRectGetMinX(pill) - 2.0 &&
-        CGRectGetMaxX(source) <= CGRectGetMaxX(pill) + 2.0) return NO;
-    return YES;
-}
-
-static BOOL LGTabBarRemapButtonFrame(UIView *button, CGRect *frame) {
-    if (!button || !frame || !LGTabBarAllowed()) return NO;
-    UITabBar *bar = LGTabBarForButton(button);
-    if (!bar || !LGIsStockTabBar(bar) || !bar.window) return NO;
-    if (LGTabBarButtonsUseConstraints(bar)) return NO;
-    if (CGRectGetWidth(bar.bounds) < 1.0) return NO;
-    LGTabBarNoteSystemFrame(button, *frame);
-    if (!objc_getAssociatedObject(bar, kLGTabBarGlassKey)) return NO;
-    NSValue *original =
-        objc_getAssociatedObject(button, kLGTabBarOriginalButtonFrameKey);
-    if (!original) return NO;
-    CGRect source = CGRectZero;
-    if (!LGTabBarCompleteSystemSource(bar, &source)) return NO;
-    if (!LGTabBarSourceNeedsMapping(bar, source)) return NO;
-    CGRect mapped = LGTabBarMappedButtonFrame(bar, original.CGRectValue, source);
-    if (LGTabBarFramesClose(mapped, *frame)) return NO;
-    objc_setAssociatedObject(button, kLGTabBarRemapOutKey,
-                             [NSValue valueWithCGRect:mapped],
-                             OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-    *frame = mapped;
-    return YES;
-}
-
-static void LGReapplyTabBarButtonFrames(UITabBar *bar) {
-    if (!LGTabBarAllowed() || !LGIsStockTabBar(bar) || !bar.window) return;
-    if (LGTabBarButtonsUseConstraints(bar)) return;
-    if (!objc_getAssociatedObject(bar, kLGTabBarGlassKey)) return;
-    CGRect source = CGRectZero;
-    if (!LGTabBarCompleteSystemSource(bar, &source)) return;
-    if (!LGTabBarSourceNeedsMapping(bar, source)) return;
-    objc_setAssociatedObject(bar, kLGTabBarApplyingFramesKey, @YES,
-                             OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-    for (UIView *button in LGStockTabBarButtons(bar)) {
-        if (!CGAffineTransformIsIdentity(button.transform)) continue;
-        NSValue *original =
-            objc_getAssociatedObject(button, kLGTabBarOriginalButtonFrameKey);
-        if (!original) continue;
-        CGRect mapped = LGTabBarMappedButtonFrame(bar, original.CGRectValue, source);
-        NSValue *last = objc_getAssociatedObject(button, kLGTabBarRemapOutKey);
-        if (last && LGTabBarFramesClose(last.CGRectValue, mapped) &&
-            LGTabBarFramesClose(button.frame, mapped)) continue;
-        objc_setAssociatedObject(button, kLGTabBarRemapOutKey,
-                                 [NSValue valueWithCGRect:mapped],
-                                 OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-        button.frame = mapped;
-    }
-    objc_setAssociatedObject(bar, kLGTabBarApplyingFramesKey, nil,
-                             OBJC_ASSOCIATION_ASSIGN);
+static BOOL __attribute__((unused)) LGTabBarRemapButtonFrame(UIView *button, CGRect *frame) {
+    /* UIKit owns UITabBarButton geometry.  Rewriting it after UIKit has
+       already distributed items is what caused App Store's compressed and
+       overlapping labels. */
+    (void)button;
+    (void)frame;
+    return NO;
 }
 
 static void LGStopTabBarSelectionAnimation(LGLiveBackdropView *lens) {
@@ -1706,7 +1344,9 @@ static LGLiveBackdropView *LGTabBarSelectionLens(UITabBar *bar) {
     lens.userInteractionEnabled = NO;
     lens.hidden = YES;
     lens.alpha = 0.0;
-    lens.layer.masksToBounds = NO;
+    lens.layer.masksToBounds = YES;
+    lens.clipsToBounds = YES;
+    lens.lgSpecularEnabledOverride = @YES;
     if (@available(iOS 13.0, *)) lens.layer.cornerCurve = kCACornerCurveContinuous;
 
     LGLiveBackdropView *base = objc_getAssociatedObject(bar, kLGTabBarGlassKey);
@@ -1715,32 +1355,6 @@ static LGLiveBackdropView *LGTabBarSelectionLens(UITabBar *bar) {
     objc_setAssociatedObject(bar, kLGTabBarSelectionGlassKey, lens,
                              OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     return lens;
-}
-
-static UIView *LGTabBarLensRim(UITabBar *bar, BOOL create) {
-    UIView *rim = objc_getAssociatedObject(bar, kLGTabBarLensRimKey);
-    if (rim || !create || !bar) return rim;
-    rim = [[UIView alloc] initWithFrame:CGRectZero];
-    rim.userInteractionEnabled = NO;
-    rim.backgroundColor = UIColor.clearColor;
-    rim.opaque = NO;
-    rim.hidden = YES;
-    rim.alpha = 0.0;
-    rim.layer.borderWidth = 1.5;
-    rim.layer.masksToBounds = NO;
-    if (@available(iOS 13.0, *))
-        rim.layer.cornerCurve = kCACornerCurveContinuous;
-    rim.layer.shadowColor = UIColor.blackColor.CGColor;
-    rim.layer.shadowOpacity = 0.22;
-    rim.layer.shadowRadius = 1.2;
-    rim.layer.shadowOffset = CGSizeMake(0.0, 0.4);
-    LGLiveBackdropView *lens =
-        objc_getAssociatedObject(bar, kLGTabBarSelectionGlassKey);
-    if (lens) [bar insertSubview:rim aboveSubview:lens];
-    else [bar addSubview:rim];
-    objc_setAssociatedObject(bar, kLGTabBarLensRimKey, rim,
-                             OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-    return rim;
 }
 
 static CGRect LGTabBarLensFrameForButton(UITabBar *bar, UIView *button) {
@@ -1793,12 +1407,8 @@ static void LGBeginTabBarLiquidMotion(UITabBar *bar,
     CGRect buttonFrame =
         [button.superview convertRect:button.frame toView:bar];
     CGFloat centerX = CGRectGetMidX(frame);
-    UIView *highlight =
-        objc_getAssociatedObject(bar, kLGTabBarSelectedHighlightKey);
-    CGFloat restingCenterX = highlight
-        ? highlight.center.x : CGRectGetMidX(buttonFrame);
-    CGFloat restingWidth = highlight && CGRectGetWidth(highlight.bounds) > 0.0
-        ? CGRectGetWidth(highlight.bounds) : CGRectGetWidth(buttonFrame);
+    CGFloat restingCenterX = CGRectGetMidX(buttonFrame);
+    CGFloat restingWidth = CGRectGetWidth(buttonFrame);
     state.bar = bar;
     state.lens = lens;
     state.generation += 1;
@@ -1842,47 +1452,41 @@ static void LGShowTabBarSelectionLens(UITabBarButton *button, UITouch *touch) {
     lens.alpha = 1.0;
     lens.transform = CGAffineTransformIdentity;
     lens.backgroundColor = UIColor.clearColor;
-    UIView *rim = LGTabBarLensRim(bar, YES);
-    if (rim) {
-        [bar insertSubview:rim aboveSubview:lens];
-        rim.hidden = NO;
-        rim.alpha = 1.0;
-        rim.transform = CGAffineTransformIdentity;
-        LGPositionTabBarLensRim(bar, LGTabBarLensFrameForButton(bar, button));
-    }
-    UIView *selectedHighlight =
+    UIView *highlight =
         objc_getAssociatedObject(bar, kLGTabBarSelectedHighlightKey);
-    selectedHighlight.hidden = NO;
-    selectedHighlight.alpha = 0.0;
-    LGRememberTabBarAccent(bar);
-    NSUInteger visualIndex =
-        [LGStockTabBarButtons(bar) indexOfObjectIdenticalTo:button];
-    LGSetTabBarVisualAccentIndex(bar, visualIndex);
-    LGApplyTabBarGlyphColor(bar, LGTabBarNeutralGlyphColor(bar));
+    if (highlight) {
+        highlight.hidden = YES;
+        highlight.alpha = 0.0;
+    }
+    UIColor *accent = objc_getAssociatedObject(bar, kLGTabBarAccentColorKey);
+    if (![accent isKindOfClass:UIColor.class]) accent = bar.tintColor;
+    if (!objc_getAssociatedObject(bar, kLGTabBarOriginalTintKey)) {
+        objc_setAssociatedObject(bar, kLGTabBarOriginalTintKey,
+                                 bar.tintColor ?: NSNull.null,
+                                 OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
+    objc_setAssociatedObject(bar, kLGTabBarInteractionActiveKey, @YES,
+                             OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    objc_setAssociatedObject(bar, kLGTabBarAccentColorKey,
+                             accent ?: UIColor.labelColor,
+                             OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    UIColor *neutralTint = bar.unselectedItemTintColor;
+    if (!neutralTint) neutralTint = UIColor.secondaryLabelColor;
+    NSUInteger visualIndex = objc_getAssociatedObject(bar, kLGTabBarVisualAccentIndexKey)
+        ? [objc_getAssociatedObject(bar, kLGTabBarVisualAccentIndexKey) unsignedIntegerValue]
+        : [bar.items indexOfObjectIdenticalTo:bar.selectedItem];
+    objc_setAssociatedObject(bar, kLGTabBarVisualAccentIndexKey, @(visualIndex),
+                             OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     LGBeginTabBarLiquidMotion(bar, lens, button, touch);
+    LGApplyTabBarGlyphColor(bar, neutralTint);
     LGRebuildTabBarBlueMask(bar);
     UIView *blueOverlay = LGTabBarBlueOverlay(bar, YES);
     LGPositionTabBarBlueOverlay(bar, lens);
-    [bar bringSubviewToFront:blueOverlay];
-
-    [bar bringSubviewToFront:lens];
-    for (UIView *tabButton in LGStockTabBarButtons(bar))
-        [bar bringSubviewToFront:tabButton];
-    if (rim) [bar bringSubviewToFront:rim];
-    blueOverlay.hidden = NO;
+    blueOverlay.hidden = YES;
     blueOverlay.alpha = 0.0;
     blueOverlay.transform = CGAffineTransformIdentity;
 
-    UIViewPropertyAnimator *animator =
-        [[UIViewPropertyAnimator alloc] initWithDuration:0.12
-                                                  curve:UIViewAnimationCurveEaseOut
-                                             animations:nil];
-    [animator addAnimations:^{
-        blueOverlay.alpha = 1.0;
-    }];
-    objc_setAssociatedObject(lens, kLGTabBarSelectionAnimatorKey, animator,
-                             OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-    [animator startAnimation];
+    [bar bringSubviewToFront:lens];
 
     UIImageView *glow = LGTabBarInnerGlow(bar, YES);
     if (glow && touch) {
@@ -1907,7 +1511,17 @@ static void LGMoveTabBarSelectionLens(UITabBarButton *button, UITouch *touch) {
 
     CGPoint point = [touch locationInView:bar];
     LGTabBarMotionState *state = LGTabBarMotionStateForBar(bar, YES);
-    if (fabs(point.x - state.gestureStartX) > 4.0) state.dragged = YES;
+    if (fabs(point.x - state.gestureStartX) > 4.0) {
+        state.dragged = YES;
+        UITabBarButton *visualTarget = LGNearestTabBarButton(bar, point.x);
+        if (visualTarget) {
+            NSUInteger visualIndex = [LGStockTabBarButtons(bar) indexOfObjectIdenticalTo:visualTarget];
+            if (visualIndex != NSNotFound) {
+                LGSetTabBarVisualAccentIndex(bar, visualIndex);
+                LGApplyTabBarGlyphColor(bar, bar.unselectedItemTintColor ?: UIColor.whiteColor);
+            }
+        }
+    }
     CFTimeInterval now = CACurrentMediaTime();
     CFTimeInterval dt = MAX(now - state.lastTouchTime, 0.001);
     CGFloat rawVelocity = (point.x - state.lastTouchX) / dt;
@@ -1934,18 +1548,6 @@ static void LGMoveTabBarSelectionLens(UITabBarButton *button, UITouch *touch) {
     state.targetCenterX = drag.centerX;
     state.targetWidth = drag.width;
     state.targetHeight = drag.height;
-    if (state.dragged) {
-        UITabBarButton *visualTarget = LGNearestTabBarButton(bar, drag.centerX);
-        NSUInteger visualIndex = [LGStockTabBarButtons(bar)
-            indexOfObjectIdenticalTo:visualTarget];
-        NSNumber *current =
-            objc_getAssociatedObject(bar, kLGTabBarVisualAccentIndexKey);
-        if (visualIndex != NSNotFound &&
-            (!current || current.unsignedIntegerValue != visualIndex)) {
-            LGSetTabBarVisualAccentIndex(bar, visualIndex);
-            LGApplyTabBarGlyphColor(bar, LGTabBarNeutralGlyphColor(bar));
-        }
-    }
     [state start];
 }
 
@@ -2070,26 +1672,29 @@ static void LGFinalizeTabBarSelection(UITabBar *bar,
     lens.alpha = 0.0;
     lens.hidden = YES;
     lens.backgroundColor = UIColor.clearColor;
-    highlight.alpha = 1.0;
-    highlight.hidden = NO;
+    if (highlight) {
+        highlight.alpha = 0.0;
+        highlight.hidden = YES;
+    }
     if (blueOverlay) {
         blueOverlay.hidden = YES;
         blueOverlay.alpha = 0.0;
         blueOverlay.transform = CGAffineTransformIdentity;
     }
-    UIView *rim = objc_getAssociatedObject(bar, kLGTabBarLensRimKey);
-    if (rim) {
-        rim.hidden = YES;
-        rim.alpha = 0.0;
-        rim.transform = CGAffineTransformIdentity;
-    }
     [CATransaction commit];
+    objc_setAssociatedObject(bar, kLGTabBarInteractionActiveKey, nil,
+                             OBJC_ASSOCIATION_ASSIGN);
+    id originalTint =
+        objc_getAssociatedObject(bar, kLGTabBarOriginalTintKey);
+    LGClearTabBarVisualAccentIndex(bar);
+    bar.tintColor = originalTint == NSNull.null ? nil : originalTint;
+    objc_setAssociatedObject(bar, kLGTabBarOriginalTintKey, nil,
+                             OBJC_ASSOCIATION_ASSIGN);
+    objc_setAssociatedObject(bar, kLGTabBarAccentColorKey, nil,
+                             OBJC_ASSOCIATION_ASSIGN);
+    objc_setAssociatedObject(bar, kLGTabBarInteractionActiveKey, nil,
+                             OBJC_ASSOCIATION_ASSIGN);
     [state stop];
-    NSUInteger semantic = [bar.items indexOfObjectIdenticalTo:bar.selectedItem];
-    NSNumber *visual = objc_getAssociatedObject(bar, kLGTabBarVisualAccentIndexKey);
-    if (!visual || visual.unsignedIntegerValue == semantic)
-        LGClearTabBarVisualAccentIndex(bar);
-    LGApplyTabBarGlyphColor(bar, LGTabBarNeutralGlyphColor(bar));
     UIImageView *finalizeGlow = LGTabBarInnerGlow(bar, NO);
     if (finalizeGlow) {
         finalizeGlow.alpha = 0.0;
@@ -2122,12 +1727,6 @@ static void LGHideTabBarSelectionLens(UITabBarButton *button) {
     CGRect frame = nearest
         ? [nearest.superview convertRect:nearest.frame toView:bar]
         : CGRectZero;
-    if (nearest) {
-        NSUInteger index =
-            [LGStockTabBarButtons(bar) indexOfObjectIdenticalTo:nearest];
-        if (index != NSNotFound) LGSetTabBarVisualAccentIndex(bar, index);
-        LGApplyTabBarGlyphColor(bar, LGTabBarNeutralGlyphColor(bar));
-    }
     if (state) {
 
         state.active = isTap;
@@ -2345,14 +1944,14 @@ static void LGScheduleTabBarDump(UITabBar *bar, NSString *reason) {
         LGConfigureTabBarAppearance(self);
         LGStyleStockTabBar(self);
         LGScheduleTabBarDump(self, @"didMoveToWindow");
+    } else {
+        LGStopTabBarLumaSampling(self);
     }
 }
 
 - (void)layoutSubviews {
     %orig;
-    LGStyleStockTabBar(self);
-    if (LGTabBarAllowed() && LGIsStockTabBar(self))
-        LGReapplyTabBarButtonFrames(self);
+    LGConfigureTabBarAppearance(self);
     LGStyleStockTabBar(self);
     if (LGTabBarAllowed()) LGStartTabBarLumaSampling(self);
     LGScheduleTabBarDump(self, @"layoutSubviews");
@@ -2366,22 +1965,21 @@ static void LGScheduleTabBarDump(UITabBar *bar, NSString *reason) {
 - (CGSize)sizeThatFits:(CGSize)size {
     CGSize fitted = %orig;
     if (!LGTabBarAllowed() || !LGIsStockTabBar(self)) return fitted;
-    CGFloat content = fitted.height - self.safeAreaInsets.bottom;
-    CGFloat overhang = MAX(0.0, LGTabBarRequiredContentHeight(self) - content);
-    objc_setAssociatedObject(self, kLGTabBarAppliedOverhangKey, @(overhang),
+    objc_setAssociatedObject(self, kLGTabBarAppliedOverhangKey, @0.0,
                              OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-    fitted.height += overhang;
     return fitted;
 }
 
 - (void)setItems:(NSArray<UITabBarItem *> *)items animated:(BOOL)animated {
     %orig(items, animated);
+    LGConfigureTabBarAppearance(self);
     LGStyleStockTabBar(self);
     LGScheduleTabBarDump(self, @"setItems");
 }
 
 - (void)setSelectedItem:(UITabBarItem *)item {
     %orig(item);
+    LGConfigureTabBarAppearance(self);
     LGStyleStockTabBar(self);
     LGScheduleTabBarDump(self, @"setSelectedItem");
 }
@@ -2392,22 +1990,6 @@ static void LGScheduleTabBarDump(UITabBar *bar, NSString *reason) {
 
 - (void)viewDidAppear:(BOOL)animated {
     %orig;
-    if (!LGTabBarAllowed()) return;
-
-    NSArray<UIViewController *> *vcs = self.viewControllers;
-    if (vcs.count <= 1) return;
-
-    for (NSUInteger i = 0; i < vcs.count; i++) {
-        UIViewController *vc = vcs[i];
-        if (!vc.isViewLoaded) {
-            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)((0.4 * (i + 1)) * NSEC_PER_SEC)),
-                           dispatch_get_main_queue(), ^{
-                if (!vc.isViewLoaded) {
-                    (void)vc.view;
-                }
-            });
-        }
-    }
 }
 
 - (void)tabBar:(UITabBar *)tabBar didSelectItem:(UITabBarItem *)item {
@@ -2459,7 +2041,9 @@ static void LGScheduleTabBarDump(UITabBar *bar, NSString *reason) {
 
 static void LGRefreshTabBarsInView(UIView *view) {
     if ([view isKindOfClass:UITabBar.class]) {
-        LGStyleStockTabBar((UITabBar *)view);
+        UITabBar *bar = (UITabBar *)view;
+        LGConfigureTabBarAppearance(bar);
+        LGStyleStockTabBar(bar);
     }
     for (UIView *subview in view.subviews) LGRefreshTabBarsInView(subview);
 }
@@ -2524,24 +2108,16 @@ static void LGHookTabBarHostControllers(void) {
 %hook UITabBarButton
 
 - (void)setFrame:(CGRect)frame {
-    UITabBar *bar = LGTabBarForButton(self);
-    if (bar && [objc_getAssociatedObject(bar, kLGTabBarApplyingFramesKey) boolValue]) {
-        %orig(frame);
-        return;
-    }
-    if (!CGAffineTransformIsIdentity(self.transform)) {
-        LGTabBarNoteSystemFrame(self, frame);
-        return;
-    }
-    CGRect mapped = frame;
-    %orig(LGTabBarRemapButtonFrame(self, &mapped) ? mapped : frame);
+    %orig(frame);
 }
 
 - (void)layoutSubviews {
     %orig;
     UITabBar *bar = LGTabBarForButton(self);
-    if (LGTabBarAllowed() && LGIsStockTabBar(bar))
+    if (LGTabBarAllowed() && LGIsStockTabBar(bar)) {
         LGCenterStockTabBarButtonContent(self);
+        LGScheduleTabBarAppearanceRefresh(bar);
+    }
 }
 
 - (BOOL)beginTrackingWithTouch:(UITouch *)touch withEvent:(UIEvent *)event {
