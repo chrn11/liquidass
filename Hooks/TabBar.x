@@ -362,13 +362,9 @@ static inline CGFloat LGTabBarSpringStep(CGFloat current,
             self.destinationStartTime = CACurrentMediaTime();
         }
     }
-    UIView *highlight =
-        objc_getAssociatedObject(bar, kLGTabBarSelectedHighlightKey);
     if (highlight) {
-        highlight.bounds = CGRectMake(0.0, 0.0, next.width, next.height);
-        highlight.center = LGTabBarLensPillCenter(lens);
-        highlight.layer.cornerRadius = next.height * 0.5;
-        highlight.hidden = NO;
+        highlight.hidden = YES;
+        highlight.alpha = 0.0;
     }
     if (self.awaitingRestingShape) {
         CGFloat remaining =
@@ -376,12 +372,13 @@ static inline CGFloat LGTabBarSpringStep(CGFloat current,
                   next.height - self.targetHeight);
         CGFloat progress = self.collapseStartDistance > 0.001
             ? 1.0 - remaining / self.collapseStartDistance : 1.0;
-        progress = fmin(fmax(progress, 0.0), 1.0);
-        CGFloat handoff = progress * progress * (3.0 - 2.0 * progress);
-        highlight.alpha = handoff;
-        lens.alpha = 1.0 - handoff;
+        (void)progress;
+        lens.alpha = 1.0;
         UIView *blueOverlay = LGTabBarBlueOverlay(bar, NO);
-        blueOverlay.alpha = 1.0 - handoff;
+        if (blueOverlay) {
+            blueOverlay.hidden = YES;
+            blueOverlay.alpha = 0.0;
+        }
         BOOL settled =
             fabs(next.centerX - self.targetCenterX) < 0.75 &&
             fabs(next.width - self.targetWidth) < 0.75 &&
@@ -395,7 +392,7 @@ static inline CGFloat LGTabBarSpringStep(CGFloat current,
     }
 }
 
-@end
+%end
 
 static BOOL LGTabBarAllowed(void) {
     if (!lgHostEnabled(@"TabBar")) return NO;
