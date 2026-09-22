@@ -1221,7 +1221,6 @@ static void LGStyleStockTabBar(UITabBar *bar) {
                                      OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         }
         NSUInteger selectedIndex = [bar.items indexOfObjectIdenticalTo:bar.selectedItem];
-        (void)motion;
         if (selectedIndex != NSNotFound && selectedIndex < buttons.count) {
             highlight.hidden = YES;
             highlight.alpha = 0.0;
