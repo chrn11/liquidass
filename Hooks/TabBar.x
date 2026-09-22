@@ -170,6 +170,8 @@ static LGTabBarMotionState *LGTabBarMotionStateForBar(UITabBar *bar,
 static void LGPersistTabBarDump(NSString *dump, NSString *reason);
 static void LGHookTabBarHostControllers(void);
 static UITabBar *LGTabBarForButton(UIView *button);
+static BOOL LGIsStockTabBar(UITabBar *bar);
+static NSArray<UIView *> *LGStockTabBarButtons(UITabBar *bar);
 static void LGSetTabBarVisualAccentIndex(UITabBar *bar, NSUInteger index);
 static void LGClearTabBarVisualAccentIndex(UITabBar *bar);
 static UITabBarButton *LGNearestTabBarButton(UITabBar *bar, CGFloat centerX);
