@@ -1140,8 +1140,11 @@ static void LGStyleStockTabBar(UITabBar *bar) {
         LGRemoveTabBarInjection(bar);
         return;
     }
-    if (!LGIsStockTabBar(bar) || !bar.window ||
-        [objc_getAssociatedObject(bar, kLGTabBarStylingKey) boolValue]) return;
+    if (!LGIsStockTabBar(bar) || !bar.window) return;
+    if ([objc_getAssociatedObject(bar, kLGTabBarStylingKey) boolValue]) {
+        LGSyncTabBarRestingSelection(bar);
+        return;
+    }
 
     LGConfigureTabBarAppearance(bar);
 
