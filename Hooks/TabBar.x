@@ -404,13 +404,13 @@ static BOOL LGTabBarAllowed(void) {
     return !excluded;
 }
 
-static CGFloat LGTabBarRequiredContentHeight(UITabBar *bar) {
+static CGFloat __attribute__((unused)) LGTabBarRequiredContentHeight(UITabBar *bar) {
     BOOL landscape = LGTabBarUsesLandscapeMetrics(bar);
     return (landscape ? kLGTabBarLandscapeHeight : 64.0) +
            (landscape ? 8.0 : 10.0);
 }
 
-static CGFloat LGTabBarAppliedOverhang(UITabBar *bar) {
+static CGFloat __attribute__((unused)) LGTabBarAppliedOverhang(UITabBar *bar) {
     return [objc_getAssociatedObject(bar, kLGTabBarAppliedOverhangKey) doubleValue];
 }
 
@@ -419,15 +419,17 @@ static CGRect LGTabBarPillFrame(UITabBar *bar) {
     const CGFloat height = landscape ? kLGTabBarLandscapeHeight : 64.0;
     const CGFloat minimumScreenInset = landscape ? 24.0 : 16.0;
     const CGFloat bottomInset = landscape ? 8.0 : 10.0;
-    const CGFloat itemSlotWidth = landscape ? 110.0 : 67.0;
-    const CGFloat pillEdgePadding = landscape ? 12.0 : 32.0;
     CGFloat availableWidth =
         MAX(0.0, CGRectGetWidth(bar.bounds) - minimumScreenInset * 2.0);
-    NSUInteger itemCount = bar.items.count;
-    CGFloat intrinsicWidth = itemCount
-        ? itemSlotWidth * itemCount + pillEdgePadding * 2.0
-        : availableWidth;
-    CGFloat width = MIN(availableWidth, intrinsicWidth);
+    CGFloat first = CGFLOAT_MAX, last = -CGFLOAT_MAX;
+    for (UIView *button in LGStockTabBarButtons(bar)) {
+        CGRect frame = [button.superview convertRect:button.frame toView:bar];
+        first = MIN(first, CGRectGetMinX(frame));
+        last = MAX(last, CGRectGetMaxX(frame));
+    }
+    CGFloat width = (first < last) ? MIN(availableWidth, last - first)
+                                   : availableWidth;
+    if (width <= 0.0) width = availableWidth;
     CGFloat originX = (CGRectGetWidth(bar.bounds) - width) * 0.5;
     CGFloat safeBottom = bar.safeAreaInsets.bottom;
     CGFloat bottom = CGRectGetHeight(bar.bounds)
@@ -1233,49 +1235,10 @@ static UITabBar *LGTabBarForButton(UIView *button) {
 }
 
 static BOOL LGTabBarRemapButtonFrame(UIView *button, CGRect *frame) {
-    if (!button || !LGTabBarAllowed()) return NO;
-    UITabBar *bar = LGTabBarForButton(button);
-    if (!bar || !LGIsStockTabBar(bar) || !bar.window) return NO;
-    if (!objc_getAssociatedObject(bar, kLGTabBarGlassKey)) return NO;
-
-    CGFloat barWidth = CGRectGetWidth(bar.bounds);
-    if (barWidth < 1.0) return NO;
-
-    NSValue *previous = objc_getAssociatedObject(button, kLGTabBarRemapOutKey);
-    if (previous && CGRectEqualToRect(previous.CGRectValue, *frame)) return NO;
-    objc_setAssociatedObject(button, kLGTabBarOriginalButtonFrameKey,
-                             [NSValue valueWithCGRect:*frame],
-                             OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-
-    CGRect pill = CGRectInset(LGTabBarPillFrame(bar), 4.0, 0.0);
-    if (CGRectIsEmpty(pill)) return NO;
-    CGRect source = CGRectNull;
-    for (UIView *tabButton in LGStockTabBarButtons(bar)) {
-        NSValue *value = objc_getAssociatedObject(
-            tabButton, kLGTabBarOriginalButtonFrameKey);
-        if (!value) continue;
-        source = CGRectIsNull(source) ? value.CGRectValue
-                                     : CGRectUnion(source, value.CGRectValue);
-    }
-    if (CGRectIsNull(source) || CGRectGetWidth(source) < 1.0)
-        source = CGRectMake(0.0, 0.0, barWidth, CGRectGetHeight(*frame));
-    CGFloat scale = CGRectGetWidth(pill) / CGRectGetWidth(source);
-
-    CGRect mapped = *frame;
-    mapped.origin.x = CGRectGetMinX(pill) +
-        (CGRectGetMinX(*frame) - CGRectGetMinX(source)) * scale;
-    mapped.size.width = CGRectGetWidth(*frame) * scale;
-    CGFloat overhang = CGRectGetHeight(bar.bounds) + 0.5 >=
-                       LGTabBarRequiredContentHeight(bar)
-        ? LGTabBarAppliedOverhang(bar) : 0.0;
-    CGFloat height = MAX(1.0, CGRectGetHeight(*frame) - overhang);
-    mapped.size.height = height;
-    mapped.origin.y = CGRectGetMidY(pill) - height * 0.5;
-    objc_setAssociatedObject(button, kLGTabBarRemapOutKey,
-                             [NSValue valueWithCGRect:mapped],
-                             OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-    *frame = mapped;
-    return YES;
+    /* T2: do not rewrite UIKit's final slot one button at a time. */
+    (void)button;
+    (void)frame;
+    return NO;
 }
 
 static void LGStopTabBarSelectionAnimation(LGLiveBackdropView *lens) {
@@ -1909,11 +1872,8 @@ static void LGScheduleTabBarDump(UITabBar *bar, NSString *reason) {
 - (CGSize)sizeThatFits:(CGSize)size {
     CGSize fitted = %orig;
     if (!LGTabBarAllowed() || !LGIsStockTabBar(self)) return fitted;
-    CGFloat content = fitted.height - self.safeAreaInsets.bottom;
-    CGFloat overhang = MAX(0.0, LGTabBarRequiredContentHeight(self) - content);
-    objc_setAssociatedObject(self, kLGTabBarAppliedOverhangKey, @(overhang),
+    objc_setAssociatedObject(self, kLGTabBarAppliedOverhangKey, @0.0,
                              OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-    fitted.height += overhang;
     return fitted;
 }
 
@@ -2067,11 +2027,7 @@ static void LGHookTabBarHostControllers(void) {
 %hook UITabBarButton
 
 - (void)setFrame:(CGRect)frame {
-    if (!CGAffineTransformIsIdentity(self.transform)) {
-        return;
-    }
-    CGRect mapped = frame;
-    %orig(LGTabBarRemapButtonFrame(self, &mapped) ? mapped : frame);
+    %orig(frame);
 }
 
 - (void)layoutSubviews {
