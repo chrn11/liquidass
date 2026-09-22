@@ -1236,7 +1236,7 @@ static UITabBar *LGTabBarForButton(UIView *button) {
     return nil;
 }
 
-static BOOL LGTabBarRemapButtonFrame(UIView *button, CGRect *frame) {
+static BOOL __attribute__((unused)) LGTabBarRemapButtonFrame(UIView *button, CGRect *frame) {
     /* T2: do not rewrite UIKit's final slot one button at a time. */
     (void)button;
     (void)frame;
