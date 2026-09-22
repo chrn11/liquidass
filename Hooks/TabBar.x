@@ -42,7 +42,6 @@ static const void *kLGTabBarLumaTimerKey = &kLGTabBarLumaTimerKey;
 static const void *kLGTabBarDarkGlyphsKey = &kLGTabBarDarkGlyphsKey;
 static const void *kLGTabBarVisualAccentIndexKey = &kLGTabBarVisualAccentIndexKey;
 static const void *kLGTabBarInteractionActiveKey = &kLGTabBarInteractionActiveKey;
-static const void *kLGTabBarOriginalUnselectedTintKey = &kLGTabBarOriginalUnselectedTintKey;
 static const void *kLGTabBarOriginalStandardAppearanceKey = &kLGTabBarOriginalStandardAppearanceKey;
 static const void *kLGTabBarOriginalScrollEdgeAppearanceKey = &kLGTabBarOriginalScrollEdgeAppearanceKey;
 static const void *kLGTabBarLensMaskKey = &kLGTabBarLensMaskKey;
@@ -171,7 +170,9 @@ static LGTabBarMotionState *LGTabBarMotionStateForBar(UITabBar *bar,
 static void LGPersistTabBarDump(NSString *dump, NSString *reason);
 static void LGHookTabBarHostControllers(void);
 static UITabBar *LGTabBarForButton(UIView *button);
-static BOOL LGIsStockTabBar(UITabBar *bar);
+static void LGSetTabBarVisualAccentIndex(UITabBar *bar, NSUInteger index);
+static void LGClearTabBarVisualAccentIndex(UITabBar *bar);
+static UITabBarButton *LGNearestTabBarButton(UITabBar *bar, CGFloat centerX);
 static const CGFloat kLGTabBarLensShapeScaleX = 0.75;
 static const CGFloat kLGTabBarLensShapeScaleY = 0.48;
 static const void *kLGTabBarLensPillKey = &kLGTabBarLensPillKey;
@@ -249,7 +250,18 @@ static void LGFinalizeTabBarSelection(UITabBar *bar,
                                       LGLiveBackdropView *lens,
                                       LGTabBarMotionState *state);
 
-@implementation LGTabBarMotionState
+static void LGSetTabBarVisualAccentIndex(UITabBar *bar, NSUInteger index) {
+    if (!bar || index == NSNotFound) return;
+    objc_setAssociatedObject(bar, kLGTabBarVisualAccentIndexKey, @(index),
+                             OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
+
+static void LGClearTabBarVisualAccentIndex(UITabBar *bar) {
+    objc_setAssociatedObject(bar, kLGTabBarVisualAccentIndexKey, nil,
+                             OBJC_ASSOCIATION_ASSIGN);
+}
+
+
 
 static inline CGFloat LGTabBarSpringStep(CGFloat current,
                                          CGFloat target,
