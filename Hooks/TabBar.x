@@ -364,10 +364,6 @@ static inline CGFloat LGTabBarSpringStep(CGFloat current,
             self.destinationStartTime = CACurrentMediaTime();
         }
     }
-    if (highlight) {
-        highlight.hidden = YES;
-        highlight.alpha = 0.0;
-    }
     if (self.awaitingRestingShape) {
         CGFloat remaining =
             hypot(next.width - self.targetWidth,
