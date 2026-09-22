@@ -719,7 +719,7 @@ static void LGStartTabBarLumaSampling(UITabBar *bar) {
     if (!objc_getAssociatedObject(bar, kLGTabBarInteractionActiveKey)) LGSampleTabBarLuma(bar);
 }
 
-static void LGStopTabBarLumaSampling(UITabBar *bar) {
+static void __attribute__((unused)) LGStopTabBarLumaSampling(UITabBar *bar) {
     NSTimer *timer = objc_getAssociatedObject(bar, kLGTabBarLumaTimerKey);
     [timer invalidate];
     objc_setAssociatedObject(bar, kLGTabBarLumaTimerKey, nil,
