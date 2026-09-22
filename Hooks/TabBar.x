@@ -617,7 +617,33 @@ static void LGCollectTabBarContentViews(UIView *root,
     }
 }
 
-static UIColor *LGTabBarNeutralGlyphColor(UITabBar *bar) {
+static BOOL LGTabBarLooksLikeSelectionPlate(UIView *view, UIView *button) {
+    if (!view || !button || ![view isKindOfClass:UIImageView.class]) return NO;
+    UIImageView *image = (UIImageView *)view;
+    if (image.image == nil || image.alpha > 0.35 || image.hidden) return NO;
+    CGRect bounds = button.bounds;
+    CGRect frame = view.frame;
+    CGFloat area = CGRectGetWidth(bounds) * CGRectGetHeight(bounds);
+    CGFloat imageArea = CGRectGetWidth(frame) * CGRectGetHeight(frame);
+    if (area <= 1.0 || imageArea / area < 0.55) return NO;
+    NSString *imageDescription = image.image.description ?: @"";
+    UIColor *tint = image.tintColor;
+    BOOL systemBlue = [tint.description rangeOfString:@"systemBlueColor"].location != NSNotFound;
+    return systemBlue || [imageDescription rangeOfString:@"_UIResizableImage"].location != NSNotFound;
+}
+
+static void LGSuppressKnownTabBarSelectionPlate(UITabBar *bar) {
+    for (UIView *button in LGStockTabBarButtons(bar)) {
+        for (UIView *view in button.subviews) {
+            if (LGTabBarLooksLikeSelectionPlate(view, button)) {
+                view.hidden = YES;
+                view.alpha = 0.0;
+            }
+        }
+    }
+}
+
+
     NSNumber *stored = objc_getAssociatedObject(bar, kLGTabBarDarkGlyphsKey);
     BOOL darkGlyphs = stored ? stored.boolValue
                              : bar.traitCollection.userInterfaceStyle != UIUserInterfaceStyleDark;
@@ -1223,6 +1249,7 @@ static void LGStyleStockTabBar(UITabBar *bar) {
         highlight.alpha = 0.0;
     }
 
+    LGSuppressKnownTabBarSelectionPlate(bar);
     LGTabBarInnerGlow(bar, YES);
 
     objc_setAssociatedObject(bar, kLGTabBarStylingKey, nil,
