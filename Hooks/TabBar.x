@@ -642,14 +642,12 @@ static void LGSuppressKnownTabBarSelectionPlate(UITabBar *bar) {
         }
     }
 }
-
-
+static UIColor *LGTabBarNeutralGlyphColor(UITabBar *bar) {
     NSNumber *stored = objc_getAssociatedObject(bar, kLGTabBarDarkGlyphsKey);
     BOOL darkGlyphs = stored ? stored.boolValue
                              : bar.traitCollection.userInterfaceStyle != UIUserInterfaceStyleDark;
     return darkGlyphs ? UIColor.blackColor : UIColor.whiteColor;
 }
-
 static UIColor *LGTabBarResolveAccent(UITabBar *bar) {
     if (!bar) return UIColor.labelColor;
     UITabBarItem *item = bar.selectedItem;
