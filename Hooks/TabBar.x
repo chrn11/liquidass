@@ -263,6 +263,8 @@ static void LGClearTabBarVisualAccentIndex(UITabBar *bar) {
 
 
 
+@implementation LGTabBarMotionState
+
 static inline CGFloat LGTabBarSpringStep(CGFloat current,
                                          CGFloat target,
                                          CGFloat *velocity,
@@ -392,7 +394,7 @@ static inline CGFloat LGTabBarSpringStep(CGFloat current,
     }
 }
 
-%end
+@end
 
 static BOOL LGTabBarAllowed(void) {
     if (!lgHostEnabled(@"TabBar")) return NO;
