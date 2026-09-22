@@ -2062,8 +2062,10 @@ static void LGHookTabBarHostControllers(void) {
 - (void)layoutSubviews {
     %orig;
     UITabBar *bar = LGTabBarForButton(self);
-    if (LGTabBarAllowed() && LGIsStockTabBar(bar))
+    if (LGTabBarAllowed() && LGIsStockTabBar(bar)) {
         LGCenterStockTabBarButtonContent(self);
+        LGSuppressKnownTabBarSelectionPlate(bar);
+    }
 }
 
 - (BOOL)beginTrackingWithTouch:(UITouch *)touch withEvent:(UIEvent *)event {
