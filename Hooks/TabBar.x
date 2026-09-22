@@ -1203,31 +1203,20 @@ static void LGStyleStockTabBar(UITabBar *bar) {
     if (@available(iOS 13.0, *)) glass.layer.cornerCurve = kCACornerCurveContinuous;
     glass.layer.masksToBounds = YES;
 
-    NSArray<UIView *> *buttons = LGStockTabBarButtons(bar);
-    if (buttons.count) {
-        UIView *highlight =
-            objc_getAssociatedObject(bar, kLGTabBarSelectedHighlightKey);
-        if (!highlight) {
-            highlight = [[UIView alloc] initWithFrame:CGRectZero];
-            highlight.userInteractionEnabled = NO;
-            highlight.layer.masksToBounds = YES;
-            if (@available(iOS 13.0, *)) {
-                highlight.layer.cornerCurve = kCACornerCurveContinuous;
-            }
-            if (glass) [bar insertSubview:highlight aboveSubview:glass];
-            else [bar insertSubview:highlight atIndex:0];
-            objc_setAssociatedObject(bar, kLGTabBarSelectedHighlightKey,
-                                     highlight,
-                                     OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-        }
-        NSUInteger selectedIndex = [bar.items indexOfObjectIdenticalTo:bar.selectedItem];
-        if (selectedIndex != NSNotFound && selectedIndex < buttons.count) {
-            highlight.hidden = YES;
-            highlight.alpha = 0.0;
-        } else {
-            highlight.hidden = YES;
-            highlight.alpha = 0.0;
-        }
+    if (!objc_getAssociatedObject(bar, kLGTabBarSelectedHighlightKey)) {
+        UIView *legacyHighlight = [[UIView alloc] initWithFrame:CGRectZero];
+        legacyHighlight.userInteractionEnabled = NO;
+        legacyHighlight.hidden = YES;
+        if (glass) [bar insertSubview:legacyHighlight aboveSubview:glass];
+        else [bar insertSubview:legacyHighlight atIndex:0];
+        objc_setAssociatedObject(bar, kLGTabBarSelectedHighlightKey,
+                                 legacyHighlight,
+                                 OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
+    UIView *highlight = objc_getAssociatedObject(bar, kLGTabBarSelectedHighlightKey);
+    if (highlight) {
+        highlight.hidden = YES;
+        highlight.alpha = 0.0;
     }
 
     LGTabBarInnerGlow(bar, YES);
