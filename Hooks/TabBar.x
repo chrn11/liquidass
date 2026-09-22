@@ -392,7 +392,7 @@ static inline CGFloat LGTabBarSpringStep(CGFloat current,
     }
 }
 
-@end
+%end
 
 static BOOL LGTabBarAllowed(void) {
     if (!lgHostEnabled(@"TabBar")) return NO;
