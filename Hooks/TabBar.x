@@ -373,11 +373,6 @@ static inline CGFloat LGTabBarSpringStep(CGFloat current,
         if (arrived || timedOut) {
             self.awaitingTapDestination = NO;
             self.active = NO;
-            if (self.onArrival) {
-                void (^callback)(void) = self.onArrival;
-                self.onArrival = nil;
-                callback();
-            }
             self.targetWidth = self.restingTargetWidth;
             self.targetHeight = LGTabBarHighlightHeight(bar);
             self.awaitingRestingShape = YES;
@@ -385,6 +380,11 @@ static inline CGFloat LGTabBarSpringStep(CGFloat current,
                 hypot(next.width - self.targetWidth,
                       next.height - self.targetHeight);
             self.destinationStartTime = CACurrentMediaTime();
+            if (self.onArrival) {
+                void (^callback)(void) = self.onArrival;
+                self.onArrival = nil;
+                callback();
+            }
         }
     }
     if (self.awaitingRestingShape) {
