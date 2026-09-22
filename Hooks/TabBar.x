@@ -489,7 +489,8 @@ static CGFloat LGTabBarLensWidth(UITabBar *bar) {
 }
 
 static CGFloat LGTabBarLensHeight(UITabBar *bar) {
-    return kLGTabBarPortraitLensHeight;
+    return LGTabBarUsesLandscapeMetrics(bar)
+        ? kLGTabBarLandscapeHeight : kLGTabBarPortraitLensHeight;
 }
 
 static BOOL LGIsStockTabBar(UITabBar *bar) {
