@@ -107,8 +107,27 @@ static void *LGClockSharedMaskMapping(void) {
     return mapping;
 }
 
+static BOOL LGClockVariableFontEnabled(void);
+static CGFloat LGClockFontScale(void);
+static CGFloat LGClockAxisValue(NSString *axis);
+
+static CGFloat sLGClockResolvedBezel = 5.0;
+static uint32_t sLGClockBackdropGeneration = 0;
+
 static CGFloat LGClockBezelWidth(void) {
-    return LG_prefFloat(@"Clock.BezelWidth", 12.0);
+    id stored = LGGlassPreferenceValue(@"Clock.BezelWidth");
+    if ([stored respondsToSelector:@selector(doubleValue)])
+        return MAX(0.0, [stored doubleValue]);
+    return sLGClockResolvedBezel;
+}
+
+static void LGClockResolveStrokeBezel(UIFont *font) {
+    if (LGGlassPreferenceValue(@"Clock.BezelWidth")) return;
+    CGFloat size = font ? font.pointSize : 80.0;
+    if (LGClockVariableFontEnabled()) size *= LGClockFontScale();
+    CGFloat weight = LGClockVariableFontEnabled() ? LGClockAxisValue(@"weight") : 760.0;
+    CGFloat stroke = size * (0.075 + (weight / 1000.0) * 0.13);
+    sLGClockResolvedBezel = MAX(2.5, MIN(16.0, stroke * 0.42));
 }
 
 static BOOL LGClockPublishPath(CGPathRef path, CGSize size, CGFloat scale) {
@@ -1031,7 +1050,8 @@ static UIColor *LGClockPullTint(UITraitCollection *traits) {
                                                    &obstacleCandidates);
     CFTimeInterval profileObstacleEnd = CACurrentMediaTime();
     if (nearestTop != CGFLOAT_MAX) nearestTop = round(nearestTop);
-    NSString *signature = [NSString stringWithFormat:@"%d|%d|%@|%.2f|%.1f|%.1f|%.1f|%.1f|%.1f|%.1f|%.1f|%.1f|%.1f|%.1f",
+    LGClockResolveStrokeBezel(self.originalFont ?: label.font);
+    NSString *signature = [NSString stringWithFormat:@"%d|%d|%@|%.2f|%.1f|%.1f|%.1f|%.1f|%.1f|%.1f|%.1f|%.1f|%.1f|%.1f|%u",
                            enabled, variableFontEnabled, label.text ?: label.attributedText.string,
                            self.originalFont.pointSize,
                            variableFontEnabled ? LGClockAxisValue(@"weight") : 0.0,
@@ -1040,7 +1060,8 @@ static UIColor *LGClockPullTint(UITraitCollection *traits) {
                            variableFontEnabled ? LGClockAxisValue(@"softness") : 0.0,
                            nearestTop, LGClockBezelWidth(),
                            CGRectGetMinX(sourceRect), CGRectGetMinY(sourceRect),
-                           CGRectGetWidth(sourceRect), CGRectGetHeight(sourceRect)];
+                           CGRectGetWidth(sourceRect), CGRectGetHeight(sourceRect),
+                           sLGClockBackdropGeneration];
     BOOL fontStateMatches = enabled ? (self.glassView != nil)
                                     : !LGClockLabelUsesOurFont(label);
     if ([signature isEqualToString:self.lastSignature] && fontStateMatches) {
@@ -1145,7 +1166,11 @@ static UIColor *LGClockPullTint(UITraitCollection *traits) {
                     LGClockLog(@"font decision %@", fontDiagnostic);
                 }
             }
-            NSDictionary *attributes = @{ (__bridge id)kCTFontAttributeName: font };
+            CGFloat clockKern = -MAX(0.4, font.pointSize * 0.012);
+            NSDictionary *attributes = @{
+                (__bridge id)kCTFontAttributeName: font,
+                (__bridge id)kCTKernAttributeName: @(clockKern)
+            };
             NSAttributedString *string = [[NSAttributedString alloc] initWithString:text ?: @""
                                                                           attributes:attributes];
             CTLineRef line = CTLineCreateWithAttributedString((__bridge CFAttributedStringRef)string);
@@ -1808,10 +1833,31 @@ static void LGPublishArtworkRect(UIView *artworkView) {
 
 %end
 
+static void LGClockNoteBackdropChanged(CFNotificationCenterRef center, void *observer,
+                                      CFStringRef name, const void *object,
+                                      CFDictionaryRef userInfo) {
+    (void)center; (void)observer; (void)name; (void)object; (void)userInfo;
+    sLGClockBackdropGeneration++;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        for (LGClockState *state in LGClockStates().allObjects)
+            [state scheduleApply:@"backdrop"];
+    });
+}
+
 %ctor {
     if (objc_getClass("MRUArtworkView")) %init(LGNowPlayingArtwork);
 
     if (![NSBundle.mainBundle.bundleIdentifier isEqualToString:@"com.apple.springboard"]) return;
+    CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), NULL,
+                                    LGClockNoteBackdropChanged,
+                                    CFSTR("com.apple.springboard.wallpaperchanged"),
+                                    NULL, CFNotificationSuspensionBehaviorCoalesce);
+    [[NSNotificationCenter defaultCenter] addObserverForName:@"SBWallpaperDidChangeNotification"
+                                                      object:nil
+                                                       queue:NSOperationQueue.mainQueue
+                                                  usingBlock:^(__unused NSNotification *note) {
+        LGClockNoteBackdropChanged(NULL, NULL, NULL, NULL, NULL);
+    }];
     LGClockLog(@"rewrite ctor os=%@ sim=%d font=%@ hostModern=%@ hostLegacy=%@ animLabel=%@ enabled=%d variable=%d",
                UIDevice.currentDevice.systemVersion, TARGET_OS_SIMULATOR,
                LGClockVariableFontPath(), NSClassFromString(@"CSProminentTimeView"),

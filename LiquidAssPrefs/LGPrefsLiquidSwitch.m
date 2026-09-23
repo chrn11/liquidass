@@ -636,6 +636,7 @@ static void LGSettingsSwitchScheduleAutoContract(LGPrefsLiquidSwitch *self_) {
     self.contractedThumbView.layer.cornerRadius = 12.0;
     self.glassThumbView.layer.cornerRadius = CGRectGetHeight(glassFrame) * 0.5;
     self.glassThumbView.hidden = NO;
+    self.glassThumbView.lgPressed = self.pressed;
     self.contractedThumbView.hidden = NO;
     (void)animated;
     CGFloat expansion = fmax(0.0, fmin(self.renderedExpansion, 1.0));

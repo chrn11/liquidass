@@ -21,35 +21,35 @@ typedef struct {
 
 //    host            filter                            pref             corner          bezel      thick   refr  index  blur  spec   disp   light        dark
 #define LG_HOST_REGISTRY(X) \
-    X(Default,        "dylv.liquidglass.refraction",   "Default",         28.0f / 220.0f, 20.00f,    108.0f, 2.6f, 1.80f, 1.0f, 1.0f,  2.00f, "#FFFFFF1A", "#00000000") \
-    X(FolderIcon,     "dylv.liquidglass.folder",       "FolderIcon",      28.0f / 220.0f, 13.75f,    108.0f, 2.6f, 1.80f, 1.0f, 1.0f,  1.00f, "#FFFFFF1A", "#00000000") \
+    X(Default,        "dylv.liquidglass.refraction",   "Default",         28.0f / 220.0f, 16.00f,    108.0f, 1.8f, 1.60f, 1.0f, 1.0f,  0.40f, "#FFFFFF1A", "#00000000") \
+    X(FolderIcon,     "dylv.liquidglass.folder",       "FolderIcon",      28.0f / 220.0f, 12.00f,    108.0f, 1.8f, 1.60f, 1.0f, 1.0f,  0.20f, "#FFFFFF1A", "#00000000") \
     X(OpenFolder,     "dylv.liquidglass.openfolder",   "OpenFolder",      28.0f / 220.0f, 36.00f,    108.0f, 2.6f, 1.80f, 0.0f, 1.0f,  0.00f, "#FFFFFF1A", "#00000000") \
-    X(Dock,           "dylv.liquidglass.dock",         "Dock",            0.35f,          17.50f,    120.0f, 2.6f, 1.60f, 3.0f, 1.0f,  0.00f, "#FFFFFF1A", "#00000000") \
+    X(Dock,           "dylv.liquidglass.dock",         "Dock",            0.35f,          14.00f,    120.0f, 2.2f, 1.55f, 3.0f, 1.0f,  0.15f, "#FFFFFF1A", "#00000000") \
     X(Banner,         "dylv.liquidglass.banner",       "Banner",          28.0f / 220.0f, 20.75f,    132.0f, 1.6f, 1.60f, 3.0f, 1.0f,  0.00f, "#FFFFFFCC", "#00000080") \
     X(Notification,   "dylv.liquidglass.notification", "Notification",    28.0f / 220.0f, 20.75f,    132.0f, 1.6f, 1.60f, 3.0f, 1.0f,  0.00f, "#FFFFFF00", "#00000000") \
-    X(ControlCenter,  "dylv.liquidglass.cc",           "ControlCenter",   28.0f / 220.0f, 15.50f,    120.0f, 1.8f, 1.60f, 0.0f, 1.0f,  2.00f, "#FFFFFF1A", "#00000000") \
-    X(AppLibrary,     "dylv.liquidglass.applibpod",    "AppLibrary",      28.0f / 220.0f, 25.00f,    120.0f, 2.2f, 1.60f, 0.0f, 1.0f,  2.00f, "#FFFFFF1A", "#00000000") \
-    X(AppLibSearch,   "dylv.liquidglass.applibsearch", "AppLibSearch",    0.50f,          25.00f,    108.0f, 1.8f, 1.60f, 0.0f, 1.0f,  2.00f, "#FFFFFF1A", "#00000000") \
-    X(Spotlight,      "dylv.liquidglass.spotlight",    "Spotlight",       0.50f,          25.00f,    108.0f, 1.8f, 1.60f, 0.0f, 1.0f,  2.00f, "#FFFFFFCC", "#0000004d") \
-    X(SearchPill,     "dylv.liquidglass.searchpill",   "SearchPill",      0.50f,          10.00f,    108.0f, 1.6f, 1.60f, 1.0f, 1.0f,  1.00f, "#FFFFFF1A", "#00000000") \
+    X(ControlCenter,  "dylv.liquidglass.cc",           "ControlCenter",   28.0f / 220.0f, 12.00f,    120.0f, 1.6f, 1.55f, 0.0f, 1.0f,  0.35f, "#FFFFFF1A", "#00000000") \
+    X(AppLibrary,     "dylv.liquidglass.applibpod",    "AppLibrary",      28.0f / 220.0f, 18.00f,    120.0f, 1.7f, 1.55f, 0.0f, 1.0f,  0.35f, "#FFFFFF1A", "#00000000") \
+    X(AppLibSearch,   "dylv.liquidglass.applibsearch", "AppLibSearch",    0.50f,          8.00f,     108.0f, 1.5f, 1.55f, 0.0f, 1.0f,  0.20f, "#FFFFFF1A", "#00000000") \
+    X(Spotlight,      "dylv.liquidglass.spotlight",    "Spotlight",       0.50f,          10.00f,    108.0f, 1.5f, 1.55f, 0.0f, 1.0f,  0.20f, "#FFFFFFCC", "#0000004d") \
+    X(SearchPill,     "dylv.liquidglass.searchpill",   "SearchPill",      0.50f,          8.00f,     108.0f, 1.5f, 1.55f, 1.0f, 1.0f,  0.20f, "#FFFFFF1A", "#00000000") \
     X(Widgets,        "dylv.liquidglass.widget",       "Widgets",         28.0f / 220.0f, 30.00f,    120.0f, 2.2f, 1.60f, 1.0f, 1.0f,  0.00f, "#FFFFFF1A", "#0000004D") \
     X(ContextMenu,    "dylv.liquidglass.contextmenu",  "ContextMenu",     28.0f / 220.0f, 32.00f,    120.0f, 1.8f, 1.80f, 8.0f, 1.0f,  0.00f, "#FFFFFFCC", "#0000004c") \
     X(Alerts,         "dylv.liquidglass.alerts",       "Alerts",          28.0f / 220.0f, 32.00f,    120.0f, 1.6f, 1.60f, 3.0f, 1.0f,  0.00f, "#FFFFFFCC", "#0000004c") \
-    X(QuickActions,   "dylv.liquidglass.quickaction",  "QuickActions",    0.50f,          12.00f,    96.00f, 1.6f, 1.40f, 1.0f, 1.0f,  1.00f, "#FFFFFF1A", "#00000000") \
-    X(Passcode,       "dylv.liquidglass.passcode",     "Passcode",        0.50f,          28.00f,    96.00f, 2.2f, 1.60f, 1.0f, 1.0f,  1.00f, "#FFFFFF1A", "#0000001F") \
+    X(QuickActions,   "dylv.liquidglass.quickaction",  "QuickActions",    0.50f,          8.00f,     96.00f, 1.5f, 1.40f, 1.0f, 1.0f,  0.00f, "#FFFFFF1A", "#00000000") \
+    X(Passcode,       "dylv.liquidglass.passcode",     "Passcode",        0.50f,          12.00f,    96.00f, 1.6f, 1.55f, 1.0f, 1.0f,  0.15f, "#FFFFFF1A", "#0000001F") \
     X(Clock,          "dylv.liquidglass.clock",        "Clock",           0.00f,          12.00f,    120.0f, 1.6f, 1.60f, 2.0f, 1.0f,  0.00f, "#FFFFFF4C", "#FFFFFF4C") \
-    X(PrefsSlider,    "dylv.liquidglass.prefsslider",  "PrefsSlider",     0.50f,          10.00f,    108.0f, 2.6f, 1.60f, 0.0f, 1.0f,  1.00f, "#FFFFFF1A", "#00000000") \
-    X(PrefsSwitch,    "dylv.liquidglass.prefsswitch",  "PrefsSwitch",     0.50f,          6.500f,    108.0f, 2.6f, 1.60f, 0.0f, 1.0f,  1.00f, "#FFFFFF1A", "#00000000") \
-    X(PrefsButton,    "dylv.liquidglass.prefsbutton",  "PrefsButton",     0.50f,          16.00f,    108.0f, 2.0f, 1.60f, 3.0f, 1.0f,  1.00f, "#FFFFFFCC", "#2A2A2D80") \
-    X(PrefsSegment,   "dylv.liquidglass.prefssegment", "PrefsSegment",    0.50f,          8.000f,    132.0f, 1.4f, 1.60f, 0.0f, 1.0f,  0.50f, "#FFFFFF1A", "#00000000") \
+    X(PrefsSlider,    "dylv.liquidglass.prefsslider",  "PrefsSlider",     0.50f,          5.00f,     108.0f, 1.8f, 1.55f, 0.0f, 1.0f,  0.00f, "#FFFFFF1A", "#00000000") \
+    X(PrefsSwitch,    "dylv.liquidglass.prefsswitch",  "PrefsSwitch",     0.50f,          4.50f,     108.0f, 1.8f, 1.55f, 0.0f, 1.0f,  0.00f, "#FFFFFF1A", "#00000000") \
+    X(PrefsButton,    "dylv.liquidglass.prefsbutton",  "PrefsButton",     0.50f,          8.00f,     108.0f, 1.7f, 1.55f, 1.2f, 1.0f,  0.00f, "#FFFFFFCC", "#2A2A2D80") \
+    X(PrefsSegment,   "dylv.liquidglass.prefssegment", "PrefsSegment",    0.50f,          6.00f,     132.0f, 1.35f, 1.55f, 0.0f, 1.0f,  0.10f, "#FFFFFF1A", "#00000000") \
     X(CoverSheet,     "dylv.liquidglass.coversheet",   "CoverSheet",      0.00f,          64.00f,    192.0f, 1.4f, 1.60f, 0.0f, 0.0f,  2.00f, "#0000002E", "#0000002E") \
-    X(TabBar,         "dylv.liquidglass.tabbar",       "TabBar",          0.50f,          20.00f,    108.0f, 2.2f, 1.80f, 3.0f, 1.0f,  2.00f, "#FFFFFF80", "#2A2A2D80") \
-    X(TabBarSelection,"dylv.liquidglass.tabbarselect", "TabBarSelection", 0.50f,          12.00f,    132.0f, 1.4f, 1.60f, 0.0f, 1.0f,  0.50f, "#FFFFFF1A", "#FFFFFF0D") \
-    X(Keyboard,       "dylv.liquidglass.keyboard",     "Keyboard",        28.0f / 220.0f, 26.00f,    120.0f, 1.8f, 1.60f, 8.0f, 0.0f,  0.00f, "#D1D3D980", "#0000004d") \
+    X(TabBar,         "dylv.liquidglass.tabbar",       "TabBar",          0.50f,          16.00f,    108.0f, 1.8f, 1.60f, 2.0f, 1.0f,  0.35f, "#FFFFFF80", "#2A2A2D80") \
+    X(TabBarSelection,"dylv.liquidglass.tabbarselect", "TabBarSelection", 0.50f,          8.00f,     132.0f, 1.35f, 1.55f, 0.0f, 1.0f,  0.15f, "#FFFFFF1A", "#FFFFFF0D") \
+    X(Keyboard,       "dylv.liquidglass.keyboard",     "Keyboard",        28.0f / 220.0f, 18.00f,    120.0f, 1.6f, 1.55f, 6.0f, 0.0f,  0.00f, "#D1D3D980", "#0000004d") \
     X(AppIcons,       "dylv.liquidglass.appicons",     "AppIcons",        28.0f / 220.0f, 13.75f,    108.0f, 2.6f, 1.80f, 1.0f, 1.0f,  1.00f, "#FFFFFF1A", "#00000000") \
     X(AssistiveTouch, "dylv.liquidglass.assistivetouch","AssistiveTouch", 0.50f,          22.80f,    18.00f, 2.75f, 2.10f, 0.5f, 0.35f, 0.00f, "#00000000", "#00000000") \
-    X(VolumeHUD,      "dylv.liquidglass.volumehud",    "VolumeHUD",       0.50f,          28.00f,    280.0f, 3.00f, 3.20f, 5.0f, 0.35f, 1.20f, "#B8B8B8CC", "#666666CC") \
-    X(PillHUD,        "dylv.liquidglass.pillhud",      "PillHUD",         0.50f,          17.50f,    120.0f, 2.2f, 1.70f, 1.0f, 0.35f, 1.20f, "#FFFFFF1A", "#0000002E")
+    X(VolumeHUD,      "dylv.liquidglass.volumehud",    "VolumeHUD",       0.50f,          18.00f,    280.0f, 2.2f, 2.40f, 3.0f, 0.35f, 0.40f, "#B8B8B8CC", "#666666CC") \
+    X(PillHUD,        "dylv.liquidglass.pillhud",      "PillHUD",         0.50f,          12.00f,    120.0f, 1.8f, 1.60f, 1.0f, 0.35f, 0.35f, "#FFFFFF1A", "#0000002E")
 
 enum LGHostIdentifier {
 #define LG_HOST_ENUM(identifier, ...) LGHostIdentifier##identifier,
@@ -90,4 +90,53 @@ static inline const LGHostDefinition *LGHostDefinitionForFilterType(const char *
 
 static inline enum LGHostIdentifier LGHostIdentifierForFilterType(const char *filterType) {
     return LGHostIdentifierForDefinition(LGHostDefinitionForFilterType(filterType));
+}
+
+typedef struct {
+    float edgeInnerPoints;
+    float edgeOuterPoints;
+    float frostBlur;
+    float luminanceAdapt;
+} LGLensProfile;
+
+// edgeInner/edgeOuter of 0 means "derive from bezel" at render time.
+static inline LGLensProfile LGLensProfileForIdentifier(enum LGHostIdentifier identifier) {
+    static const LGLensProfile kProfiles[] = {
+        { 0.0f,  0.0f,  0.60f, 0.00f }, // Default
+        { 0.0f,  0.0f,  0.50f, 0.00f }, // FolderIcon
+        { 0.0f,  0.0f,  0.40f, 0.00f }, // OpenFolder
+        { 4.0f,  14.0f, 1.00f, 0.65f }, // Dock
+        { 0.0f,  0.0f,  0.50f, 0.00f }, // Banner
+        { 0.0f,  0.0f,  0.50f, 0.00f }, // Notification
+        { 3.5f,  12.0f, 1.00f, 0.35f }, // ControlCenter
+        { 0.0f,  0.0f,  0.60f, 0.20f }, // AppLibrary
+        { 2.4f,  8.0f,  0.60f, 0.40f }, // AppLibSearch
+        { 2.6f,  10.0f, 0.50f, 0.25f }, // Spotlight
+        { 2.2f,  8.0f,  0.70f, 0.65f }, // SearchPill
+        { 0.0f,  0.0f,  0.50f, 0.15f }, // Widgets
+        { 0.0f,  0.0f,  0.40f, 0.00f }, // ContextMenu
+        { 0.0f,  0.0f,  0.40f, 0.00f }, // Alerts
+        { 2.4f,  8.0f,  0.60f, 0.65f }, // QuickActions
+        { 3.0f,  12.0f, 0.50f, 0.20f }, // Passcode
+        { 0.0f,  0.0f,  1.15f, 1.00f }, // Clock
+        { 1.3f,  5.0f,  0.45f, 1.00f }, // PrefsSlider
+        { 1.15f, 4.5f,  0.40f, 1.00f }, // PrefsSwitch
+        { 2.2f,  8.0f,  0.80f, 1.00f }, // PrefsButton
+        { 1.6f,  6.0f,  0.45f, 0.80f }, // PrefsSegment
+        { 0.0f,  0.0f,  0.30f, 0.00f }, // CoverSheet
+        { 4.0f,  16.0f, 0.80f, 0.65f }, // TabBar
+        { 2.4f,  8.0f,  0.45f, 0.80f }, // TabBarSelection
+        { 5.0f,  18.0f, 0.45f, 0.25f }, // Keyboard
+        { 0.0f,  0.0f,  0.40f, 0.00f }, // AppIcons
+        { 0.0f,  0.0f,  0.30f, 0.00f }, // AssistiveTouch
+        { 6.0f,  18.0f, 0.70f, 0.30f }, // VolumeHUD
+        { 3.5f,  12.0f, 0.60f, 0.35f }, // PillHUD
+    };
+    _Static_assert(sizeof(kProfiles) / sizeof(kProfiles[0]) == LGHostIdentifierCount,
+                   "lens profiles diverged from the host registry");
+    if ((unsigned)identifier >= (unsigned)LGHostIdentifierCount) {
+        LGLensProfile empty = { 0.0f, 0.0f, 0.0f, 0.0f };
+        return empty;
+    }
+    return kProfiles[identifier];
 }
