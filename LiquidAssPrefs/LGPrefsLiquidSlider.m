@@ -683,6 +683,7 @@ static UIColor *LGSliderInactiveTrackColor(UITraitCollection *traitCollection) {
                                                  contractedFrame.size.height);
     self.contractedThumbView.center = CGPointMake(CGRectGetMidX(contractedFrame),
                                                   CGRectGetMidY(contractedFrame));
+    self.glassThumbView.lgPressed = self.trackingActive;
     self.glassThumbView.alpha = visualExpansion;
     self.contractedThumbView.alpha = 1.0 - visualExpansion;
     self.glassThumbView.transform = CGAffineTransformMakeScale(glassScaleX, glassScaleY);

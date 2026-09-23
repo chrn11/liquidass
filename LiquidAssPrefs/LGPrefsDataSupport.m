@@ -970,6 +970,18 @@ NSArray<NSDictionary *> *LGMoreOptionsItems(void) {
     NSMutableArray<NSDictionary *> *items = [NSMutableArray arrayWithArray:@[
         LGSectionSetting(LGLocalized(@"prefs.misc.options_section.title"),
                          LGLocalized(@"prefs.misc.options_section.subtitle"))]];
+    [items addObject:LGSliderSetting(@"Renderer.RefractionStrength",
+                                     LGLocalized(@"prefs.control.refraction_strength"),
+                                     LGLocalized(@"prefs.subtitle.refraction_strength"),
+                                     1.0, 0.0, 2.0, 2)];
+    [items addObject:LGSliderSetting(@"Renderer.FrostBlur",
+                                     LGLocalized(@"prefs.control.frost_blur"),
+                                     LGLocalized(@"prefs.subtitle.frost_blur"),
+                                     1.0, 0.0, 2.0, 2)];
+    [items addObject:LGSliderSetting(@"Renderer.EdgeWidth",
+                                     LGLocalized(@"prefs.control.edge_width"),
+                                     LGLocalized(@"prefs.subtitle.edge_width"),
+                                     1.0, 0.4, 1.8, 2)];
     [items addObject:LGSliderSetting(@"Renderer.FresnelGlareStrength",
                                      LGLocalized(@"prefs.control.fresnel_glare"),
                                      LGLocalized(@"prefs.subtitle.fresnel_glare"),

@@ -1,6 +1,7 @@
 #import "LGLiveBackdropView.h"
 #import "LGHostRegistry.h"
 #import "LGCoverSheetState.h"
+#import "LGRimLightState.h"
 #import <CoreMotion/CoreMotion.h>
 #import <QuartzCore/QuartzCore.h>
 #import <objc/message.h>
@@ -227,6 +228,8 @@ static void LGApplyMotionHighlightAngle(void) {
     if (sLGMotionDisplayLink && sLGMotionDisplayLink.paused &&
         fabs(sLGSpecularAngle - sLGLastAppliedSpecularAngle) < 0.001) return;
     sLGLastAppliedSpecularAngle = sLGSpecularAngle;
+    LGRimLightWriteSharedState((float)sLGSpecularAngle);
+    if (!sLGMotionEnabled) return;
 
     [CATransaction begin];
     [CATransaction setDisableActions:YES];
@@ -262,17 +265,6 @@ static void LGApplyMotionHighlightAngle(void) {
 
 static void LGRefreshMotionHighlights(void) {
     if (!sLGMotionSetup || !LGIsSpringBoardBundle()) return;
-    if (!sLGMotionEnabled) {
-        [sLGMotionManager stopDeviceMotionUpdates];
-        [sLGMotionDisplayLink invalidate];
-        sLGMotionDisplayLink = nil;
-        sLGMotionRunning = NO;
-        sLGSpecularAngle = -M_PI_4;
-        sLGTargetSpecularAngle = sLGSpecularAngle;
-        sLGLastAppliedSpecularAngle = -100.0;
-        LGApplyMotionHighlightAngle();
-        return;
-    }
     if (sLGMotionRunning) return;
 
     if (!sLGMotionQueue) {
@@ -297,7 +289,7 @@ static void LGRefreshMotionHighlights(void) {
     [sLGMotionManager startDeviceMotionUpdatesUsingReferenceFrame:frame
                                                             toQueue:sLGMotionQueue
                                                         withHandler:^(CMDeviceMotion *motion, NSError *error) {
-        if (!motion || error || !sLGMotionEnabled) return;
+        if (!motion || error) return;
         CMAttitude *attitude = motion.attitude;
 
         CGFloat baseMotion = attitude.roll * 1.2 + attitude.pitch * 1.2 + attitude.yaw;
@@ -348,6 +340,7 @@ static const CGFloat kLGGlassEdgeWidth = 1.0;
     BOOL             _parameterRefreshVariant;
     NSInteger        _lastRadiusStep;
     CGFloat          _appliedSpecularOpacity;
+    BOOL             _lgPressed;
 }
 
 - (NSString *)lgEffectiveFilterType {
@@ -367,6 +360,17 @@ static const CGFloat kLGGlassEdgeWidth = 1.0;
             step = _lastRadiusStep;
         _lastRadiusStep = step;
         base = [base stringByAppendingFormat:@".r%ld", (long)step];
+    }
+    if (_lgPressed) {
+        switch (LGHostIdentifierForFilterType(_lgFilterType.UTF8String)) {
+            case LGHostIdentifierPrefsButton:
+            case LGHostIdentifierPrefsSwitch:
+            case LGHostIdentifierPrefsSlider:
+                base = [base stringByAppendingString:@".p"];
+                break;
+            default:
+                break;
+        }
     }
     NSString *type = self.traitCollection.userInterfaceStyle == UIUserInterfaceStyleDark
         ? [base stringByAppendingString:@".dark"] : base;
@@ -479,6 +483,17 @@ static const CGFloat kLGGlassEdgeWidth = 1.0;
     [CATransaction commit];
 }
 
+- (BOOL)isLgPressed {
+    return _lgPressed;
+}
+
+- (void)setLgPressed:(BOOL)pressed {
+    if (_lgPressed == pressed) return;
+    _lgPressed = pressed;
+    _filterAttached = NO;
+    [self applyFilters];
+}
+
 - (void)setLgShapeRect:(CGRect)rect {
     if (CGRectEqualToRect(_lgShapeRect, rect)) return;
     _lgShapeRect = rect;
@@ -534,7 +549,7 @@ static const CGFloat kLGGlassEdgeWidth = 1.0;
         else if (host->specularOpacity > 0.001f)
             maxAlpha = host->specularOpacity;
     }
-    maxAlpha = fmax(0.0, fmin(1.0, maxAlpha));
+    maxAlpha = fmax(0.0, fmin(1.0, maxAlpha)) * 0.35;
 
     if (!_specularLayer) {
         _specularLayer = [CAGradientLayer layer];

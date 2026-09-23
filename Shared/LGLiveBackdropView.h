@@ -33,6 +33,7 @@ NSString *LGFilterTypeForHostPrefix(NSString *prefix);
 - (BOOL)lgFilterAttached;
 
 @property (nonatomic, assign) CGFloat lgBackdropZoom;
+@property (nonatomic, assign, getter=isLgPressed) BOOL lgPressed;
 @end
 
 void LGInjectGlassIntoMaterialGroupType(UIView *materialView, const void *assocKey,

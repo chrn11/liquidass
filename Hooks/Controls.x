@@ -394,6 +394,7 @@ static void LGSettingsPerformSoftHaptic(void) {
 
         strongSelf.transform = highlighted ? CGAffineTransformMakeScale(1.16, 1.16)
                                             : CGAffineTransformIdentity;
+        strongSelf.glass.lgPressed = highlighted;
     }];
     [self.pressAnimator startAnimation];
 }

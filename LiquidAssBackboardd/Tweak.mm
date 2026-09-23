@@ -5,6 +5,7 @@
 #import "../Shared/LGLensRectState.h"
 #import "LGSymbolResolver.h"
 #import "../Shared/LGCoverSheetState.h"
+#import "../Shared/LGRimLightState.h"
 #include <stdio.h>
 #include <stdarg.h>
 #include <string.h>
@@ -311,6 +312,13 @@ typedef struct {
     float       fresnelGlareStrength;
     float       borderWidthPixels;
     simd_float4 tintColor;
+    float       edgeInner;
+    float       edgeOuter;
+    float       refractionStrength;
+    float       frostBlur;
+    simd_float2 rimDirection;
+    float       luminanceAdapt;
+    float       lensPad;
 } LGUniforms;
 
 typedef void (*Render13Fn)(void*,
@@ -467,6 +475,13 @@ struct Uniforms {
     float  fresnelGlareStrength;
     float  borderWidthPixels;
     float4 tintColor;
+    float  edgeInner;
+    float  edgeOuter;
+    float  refractionStrength;
+    float  frostBlur;
+    float2 rimDirection;
+    float  luminanceAdapt;
+    float  lensPad;
 };
 
 float quartzGlassEdgeProfile(float distanceFromEdge,
@@ -588,6 +603,66 @@ float2 backdropSampleUV(float2 capturePx,
         sampleUV = float2(0.5) + (sampleUV - float2(0.5)) / zoom;
     }
     return clamp(sampleUV, 0.0, 1.0);
+}
+
+float iosLensWeight(float distanceFromEdge, float innerPeak, float outerBand) {
+    float peak = clamp(innerPeak, 0.35, max(outerBand * 0.85, 0.35));
+    float reach = max(outerBand, peak + 0.35);
+    float rise = smoothstep(0.0, peak, distanceFromEdge);
+    float fall = 1.0 - smoothstep(peak, reach, distanceFromEdge);
+    float bulge = rise * fall;
+    float silhouette = quartzGlassEdgeProfile(distanceFromEdge, reach);
+    return max(bulge, silhouette * 0.28 * (0.35 + 0.65 * fall));
+}
+
+float4 sampleFrosted(texture2d<float, access::sample> src,
+                     sampler samp,
+                     float2 uv,
+                     float frostPixels,
+                     float2 resolution,
+                     float rimWeight) {
+    float radius = max(frostPixels, 0.0) * (1.0 - saturate(rimWeight));
+    if (radius < 0.35) return src.sample(samp, uv);
+    float2 texel = radius / max(resolution, float2(1.0));
+    float4 color = src.sample(samp, uv) * 0.42;
+    color += src.sample(samp, uv + float2(texel.x, 0.0)) * 0.145;
+    color += src.sample(samp, uv - float2(texel.x, 0.0)) * 0.145;
+    color += src.sample(samp, uv + float2(0.0, texel.y)) * 0.145;
+    color += src.sample(samp, uv - float2(0.0, texel.y)) * 0.145;
+    return color;
+}
+
+float3 applyLuminanceAdapt(float3 color, float amount) {
+    if (amount <= 0.001) return color;
+    float y = dot(color, float3(0.2126, 0.7152, 0.0722));
+    float darken = saturate((y - 0.58) * 2.2) * amount;
+    float lighten = saturate((0.40 - y) * 2.4) * amount;
+    color = mix(color, color * 0.78, darken * 0.65);
+    color = mix(color, 1.0 - (1.0 - color) * 0.82, lighten * 0.55);
+    return color;
+}
+
+float4 finishGlassPixel(float4 background,
+                        float distanceFromEdge,
+                        float bandWidth,
+                        float2 surfaceDirection,
+                        float edgeOpacity,
+                        bool subShape,
+                        constant Uniforms &u) {
+    float3 outRGB = mix(background.rgb, u.tintColor.rgb, u.tintColor.a);
+    float2 light = u.rimDirection;
+    float angle = length(light) > 0.05 ? atan2(light.y, light.x) : -0.78539816339;
+    float highlight = quartzGlassHighlight(distanceFromEdge, max(bandWidth, 1.0),
+                                           surfaceDirection, u.fresnelGlareStrength,
+                                           angle) * edgeOpacity;
+    float luminance = dot(outRGB, float3(0.2126, 0.7152, 0.0722));
+    highlight *= mix(0.32, 1.0, luminance);
+    highlight = min(highlight, 0.16);
+    outRGB = 1.0 - (1.0 - outRGB) * (1.0 - highlight);
+    outRGB = applyLuminanceAdapt(outRGB, u.luminanceAdapt);
+    if (subShape && distanceFromEdge <= u.borderWidthPixels)
+        outRGB = 1.0 - (1.0 - outRGB) * 0.82;
+    return float4(outRGB, edgeOpacity * background.a);
 }
 
 float4 liquidGlassPixel(texture2d<float, access::sample> src,
@@ -772,23 +847,29 @@ float4 liquidGlassPixel(texture2d<float, access::sample> src,
                                : clamp(1.0 - max(0.0, signedDistance), 0.0, 1.0);
     }
 
+    float outerBand = u.edgeOuter > 0.5 ? u.edgeOuter : bezel;
+    float innerPeak = u.edgeInner > 0.2 ? u.edgeInner : outerBand * 0.28;
     if (u.useGlyphMask < 0.5 && !isCoverSheet && !isKeyboard &&
-        R >= 0.5 && bezel > R) {
+        R >= 0.5 && outerBand > R) {
         float cornerScale = R >= shortest * 0.49 ? R
                                                  : min(R * 1.528, shortest * 0.5);
         float taper = cornerBlend * cornerBlend * (3.0 - 2.0 * cornerBlend);
-        bezel = mix(bezel, min(bezel, cornerScale), taper);
+        outerBand = mix(outerBand, min(outerBand, cornerScale), taper);
+        bezel = min(bezel, outerBand);
+    }
+    if (cornerBlend > 0.0 && u.useGlyphMask < 0.5 && !isCoverSheet) {
+        float cornerNarrow = cornerBlend * cornerBlend * (3.0 - 2.0 * cornerBlend);
+        outerBand = mix(outerBand, outerBand * 0.72, cornerNarrow);
+        innerPeak = min(innerPeak, outerBand * 0.8);
     }
 
-    if ((R < shortest * 0.45 || subShape) && distFromSide >= bezel) {
-        float4 flat = src.sample(s, captureUV);
-        flat.rgb = mix(flat.rgb, u.tintColor.rgb, u.tintColor.a);
-        return flat;
+    if ((R < shortest * 0.45 || subShape) && distFromSide >= outerBand) {
+        float4 flat = sampleFrosted(src, s, captureUV, u.frostBlur, u.resolution, 0.0);
+        return finishGlassPixel(flat, distFromSide, outerBand, dir, edgeOpacity,
+                                subShape, u);
     }
 
-    float normDisp = (distFromSide < bezel) ?
-        quartzGlassEdgeProfile(distFromSide,
-                               min(max(u.glassThickness, 1.0), bezel)) : 0.0;
+    float normDisp = iosLensWeight(distFromSide, innerPeak, outerBand);
     if ((isCoverSheet && dir.y <= -abs(dir.x)) ||
         (isKeyboard && dir.y >= abs(dir.x))) normDisp = 0.0;
 
@@ -803,13 +884,14 @@ float4 liquidGlassPixel(texture2d<float, access::sample> src,
 
         textureDir = float2(dir.y, -dir.x);
     }
-    float2 dispPx = -textureDir * normDisp * bezel
-                  * u.refractionScale * edgeOpacity;
+    float refraction = max(u.refractionStrength, 0.0);
+    float2 dispPx = -textureDir * normDisp * outerBand
+                  * refraction * edgeOpacity;
 
     float dispersion = clamp(u.dispersionStrength, 0.0, 20.0);
     constexpr float zoomRampSpan = 0.3;
-    float zoomMix = bezel > 0.001
-        ? clamp((1.0 - distFromSide / bezel) / zoomRampSpan, 0.0, 1.0) : 0.0;
+    float zoomMix = outerBand > 0.001
+        ? clamp((1.0 - distFromSide / outerBand) / zoomRampSpan, 0.0, 1.0) : 0.0;
     zoomMix = zoomMix * zoomMix * (3.0 - 2.0 * zoomMix);
     float2 greenUV = backdropSampleUV(capturePx, px, dispPx,
                                       isCoverSheet, u, zoomMix);
@@ -870,18 +952,10 @@ float4 liquidGlassPixel(texture2d<float, access::sample> src,
         bg.a = accumulatedAlpha / 7.0;
     }
 
-    float3 outRGB = mix(bg.rgb, u.tintColor.rgb, u.tintColor.a);
-    float highlight = quartzGlassHighlight(distFromSide, bezel, dir,
-                                           u.fresnelGlareStrength,
-                                           -0.78539816339) *
-                      edgeOpacity;
-    float luminance = dot(outRGB, float3(0.2126, 0.7152, 0.0722));
-    highlight *= mix(0.32, 1.0, luminance);
-    highlight = min(highlight, 0.22);
-    outRGB = 1.0 - (1.0 - outRGB) * (1.0 - highlight);
-    if (subShape && distFromSide <= u.borderWidthPixels)
-        outRGB = 1.0 - (1.0 - outRGB) * 0.82;
-    return float4(outRGB, edgeOpacity);
+    float4 frosted = sampleFrosted(src, s, greenUV, u.frostBlur, u.resolution, normDisp);
+    bg = mix(bg, frosted, 1.0 - saturate(normDisp));
+    return finishGlassPixel(bg, distFromSide, outerBand, dir, edgeOpacity,
+                            subShape, u);
 }
 
 struct LGVertexOut {
@@ -1110,9 +1184,16 @@ static void ensureUniforms(__unsafe_unretained id<MTLDevice> device, uint64_t w,
     u->shapeOrigin             = simd_make_float2(0.f, 0.f);
     u->shapeSize               = simd_make_float2(0.f, 0.f);
     u->useGlyphMask            = 0.f;
-    u->dispersionStrength      = 5.0f;
+    u->dispersionStrength      = 0.2f;
     u->fresnelGlareStrength    = 0.5f;
     u->borderWidthPixels       = 2.0f;
+    u->edgeInner               = 4.0f;
+    u->edgeOuter               = 14.0f;
+    u->refractionStrength      = 1.6f;
+    u->frostBlur               = 1.0f;
+    u->rimDirection            = simd_make_float2(0.70710678f, -0.70710678f);
+    u->luminanceAdapt          = 0.0f;
+    u->lensPad                 = 0.0f;
     lglog("uniforms buffer allocated (geometry refreshed per-frame)");
 }
 
@@ -1141,6 +1222,10 @@ typedef struct {
     float       refractionScale;
     float       refractiveIndex;
     float       dispersionStrength;
+    float       edgeInnerPoints;
+    float       edgeOuterPoints;
+    float       frostBlur;
+    float       luminanceAdapt;
     float       tintR, tintG, tintB, tintStrength;
     float       darkTintR, darkTintG, darkTintB, darkTintStrength;
 } LGHostParams;
@@ -1158,8 +1243,11 @@ static uint32_t g_darkAtoms[kHostCount];
 static bool         g_hostParamsInit = false;
 static float        g_fresnelGlareStrength = 0.5f;
 static float        g_coverSheetCornerRadiusPoints = 64.0f;
+static float        g_globalRefraction = 1.0f;
+static float        g_globalFrost = 1.0f;
+static float        g_globalEdgeWidth = 1.0f;
 
-struct LGRadiusRoute { int host; float radiusRatio; bool dark; };
+struct LGRadiusRoute { int host; float radiusRatio; bool dark; float pressBoost; };
 static std::unordered_map<uint32_t, LGRadiusRoute> g_radiusRoutes;
 struct LGHostRoute { int host; bool dark; };
 static std::unordered_map<uint32_t, LGHostRoute> g_refreshRoutes;
@@ -1168,6 +1256,13 @@ static const int kDynamicRadiusSteps = 32;
 static bool lgUsesDynamicRadiusRoute(int host) {
 
     return strcmp(kHostDefaults[host].prefPrefix, "Clock") != 0;
+}
+
+static bool lgUsesPressRoute(int host) {
+    const char *prefix = kHostDefaults[host].prefPrefix;
+    return !strcmp(prefix, "PrefsButton") ||
+           !strcmp(prefix, "PrefsSwitch") ||
+           !strcmp(prefix, "PrefsSlider");
 }
 
 static const LGHostParams *lgHostParamsForAtom(uint32_t atom, bool *dark) {
@@ -1240,6 +1335,15 @@ static void lgReloadHostPrefs(void) {
     NSNumber *fresnelStrength = prefs[@"Renderer.FresnelGlareStrength"];
     g_fresnelGlareStrength = [fresnelStrength isKindOfClass:NSNumber.class]
         ? fminf(1.0f, fmaxf(0.0f, fresnelStrength.floatValue)) : 0.5f;
+    NSNumber *globalRefraction = prefs[@"Renderer.RefractionStrength"];
+    g_globalRefraction = [globalRefraction isKindOfClass:NSNumber.class]
+        ? fminf(2.0f, fmaxf(0.0f, globalRefraction.floatValue)) : 1.0f;
+    NSNumber *globalFrost = prefs[@"Renderer.FrostBlur"];
+    g_globalFrost = [globalFrost isKindOfClass:NSNumber.class]
+        ? fminf(2.0f, fmaxf(0.0f, globalFrost.floatValue)) : 1.0f;
+    NSNumber *globalEdge = prefs[@"Renderer.EdgeWidth"];
+    g_globalEdgeWidth = [globalEdge isKindOfClass:NSNumber.class]
+        ? fminf(1.8f, fmaxf(0.4f, globalEdge.floatValue)) : 1.0f;
     g_coverSheetCornerRadiusPoints = 64.0f;
     NSNumber *coverSheetCornerRadius = prefs[@"CoverSheet.CornerRadius"];
     if ([coverSheetCornerRadius isKindOfClass:[NSNumber class]]) {
@@ -1253,6 +1357,11 @@ static void lgReloadHostPrefs(void) {
         g_hostParams[i].atom = keepAtom;
         g_darkAtoms[i] = keepDarkAtom;
         if (i > 0) { lgApplyHistoricalTintDefault(i, &g_hostParams[i], false); lgApplyHistoricalTintDefault(i, &g_hostParams[i], true); }
+        LGLensProfile lensProfile = LGLensProfileForIdentifier((enum LGHostIdentifier)i);
+        g_hostParams[i].edgeInnerPoints = lensProfile.edgeInnerPoints;
+        g_hostParams[i].edgeOuterPoints = lensProfile.edgeOuterPoints;
+        g_hostParams[i].frostBlur = lensProfile.frostBlur;
+        g_hostParams[i].luminanceAdapt = lensProfile.luminanceAdapt;
         if (!prefs) continue;
         NSString *p = [NSString stringWithUTF8String:kHostDefaults[i].prefPrefix];
         NSNumber *v;
@@ -1265,6 +1374,10 @@ static void lgReloadHostPrefs(void) {
         LG_OVR(refractionScale,    @"RefractionScale");
         LG_OVR(refractiveIndex,    @"RefractiveIndex");
         LG_OVR(dispersionStrength, @"DispersionStrength");
+        LG_OVR(edgeInnerPoints,    @"EdgeInner");
+        LG_OVR(edgeOuterPoints,    @"EdgeOuter");
+        LG_OVR(frostBlur,          @"FrostBlur");
+        LG_OVR(luminanceAdapt,     @"LuminanceAdapt");
         LG_OVR(tintR,           @"TintR");
         LG_OVR(tintG,           @"TintG");
         LG_OVR(tintB,           @"TintB");
@@ -1381,10 +1494,40 @@ static void ourCustomRender13(void *self, void *filter, void *layer, void *ctx,
     lu.refractionScale    = hp->refractionScale;
     lu.refractiveIndex    = hp->refractiveIndex;
     lu.dispersionStrength = hp->dispersionStrength;
-    lu.fresnelGlareStrength = !strcmp(hp->prefPrefix, "Clock")
-        ? g_fresnelGlareStrength : 0.0f;
+    lu.fresnelGlareStrength = !strcmp(hp->prefPrefix, "CoverSheet") ? 0.0f
+        : (!strcmp(hp->prefPrefix, "Clock") ? g_fresnelGlareStrength
+                                            : g_fresnelGlareStrength * 0.65f);
     lu.tintColor          = darkTint ? simd_make_float4(hp->darkTintR, hp->darkTintG, hp->darkTintB, hp->darkTintStrength)
                                   : simd_make_float4(hp->tintR, hp->tintG, hp->tintB, hp->tintStrength);
+    float pressBoost = 1.0f;
+    if (radiusIt != g_radiusRoutes.end() && radiusIt->second.pressBoost > 0.05f)
+        pressBoost = radiusIt->second.pressBoost;
+    float designedBezel = hp->bezelWidthPoints;
+    for (int hostIndex = 0; hostIndex < kHostCount; hostIndex++) {
+        if (!strcmp(kHostDefaults[hostIndex].prefPrefix, hp->prefPrefix)) {
+            designedBezel = kHostDefaults[hostIndex].bezelWidthPoints;
+            break;
+        }
+    }
+    float outerPoints = hp->edgeOuterPoints > 0.05f
+        ? hp->edgeOuterPoints : hp->bezelWidthPoints;
+    if (fabsf(hp->bezelWidthPoints - designedBezel) > 0.05f)
+        outerPoints = hp->bezelWidthPoints;
+    outerPoints *= g_globalEdgeWidth;
+    float innerPoints = hp->edgeInnerPoints > 0.05f
+        ? hp->edgeInnerPoints * g_globalEdgeWidth : outerPoints * 0.28f;
+    lu.edgeOuter = fminf(outerPoints * pixelsPerPoint, shortestF * 0.5f);
+    lu.edgeInner = fminf(innerPoints * pixelsPerPoint, lu.edgeOuter * 0.85f);
+    lu.refractionStrength = fmaxf(0.0f, hp->refractionScale * g_globalRefraction * pressBoost);
+    lu.refractionScale = lu.refractionStrength;
+    lu.frostBlur = fmaxf(0.0f, hp->frostBlur * g_globalFrost * pixelsPerPoint);
+    lu.luminanceAdapt = fminf(1.0f, fmaxf(0.0f, hp->luminanceAdapt));
+    LGRimLightSharedState rimLight = {};
+    if (LGRimLightReadSharedState(&rimLight)) {
+        lu.rimDirection = simd_make_float2(rimLight.dirX, rimLight.dirY);
+    } else {
+        lu.rimDirection = simd_make_float2(0.70710678f, -0.70710678f);
+    }
 
     if (!strcmp(hp->prefPrefix, "Keyboard")) {
         static int keyboardGeometryLogs = 0;
@@ -1416,6 +1559,8 @@ static void ourCustomRender13(void *self, void *filter, void *layer, void *ctx,
             lu.radius = radiusRatio * shapeShortest;
             lu.bezelWidth = fminf(hp->bezelWidthPoints * pixelsPerPoint,
                                   shapeShortest * 0.5f);
+            lu.edgeOuter = fminf(lu.edgeOuter, lu.bezelWidth);
+            lu.edgeInner = fminf(lu.edgeInner, lu.edgeOuter * 0.85f);
         }
     }
 
@@ -1432,12 +1577,16 @@ static void ourCustomRender13(void *self, void *filter, void *layer, void *ctx,
             lu.radius = radiusRatio * shapeShortest;
             lu.bezelWidth = fminf(hp->bezelWidthPoints * pixelsPerPoint,
                                   shapeShortest * 0.5f);
+            lu.edgeOuter = fminf(lu.edgeOuter, lu.bezelWidth);
+            lu.edgeInner = fminf(lu.edgeInner, lu.edgeOuter * 0.85f);
         } else {
             lu.shapeScale = 0.75f;
             float shapeShortest = shortestF * lu.shapeScale;
             lu.radius = radiusRatio * shapeShortest;
             lu.bezelWidth = fminf(hp->bezelWidthPoints * pixelsPerPoint,
                                   shapeShortest * 0.5f);
+            lu.edgeOuter = fminf(lu.edgeOuter, lu.bezelWidth);
+            lu.edgeInner = fminf(lu.edgeInner, lu.edgeOuter * 0.85f);
         }
 
     }
@@ -1452,7 +1601,9 @@ static void ourCustomRender13(void *self, void *filter, void *layer, void *ctx,
             float pixelsPerPointX = maskPointWidth > 0.0f ? (float)w / maskPointWidth : 1.0f;
             float pixelsPerPointY = maskPointHeight > 0.0f ? (float)h / maskPointHeight : 1.0f;
             float pixelsPerPoint = fminf(pixelsPerPointX, pixelsPerPointY);
-            lu.bezelWidth = fmaxf(1.0f, g_clockMaskBezelWidthPoints * pixelsPerPoint);
+            lu.bezelWidth = fmaxf(1.0f, g_clockMaskBezelWidthPoints * pixelsPerPoint * g_globalEdgeWidth);
+            lu.edgeOuter = lu.bezelWidth;
+            lu.edgeInner = lu.edgeOuter * 0.36f;
         }
     } else if (!strcmp(hp->prefPrefix, "Keyboard")) {
         lu.useGlyphMask = 0.25f;
@@ -2062,6 +2213,25 @@ static bool registerCustomFilter(void) {
             g_refreshRoutes[darkRefreshAtom] = { i, true };
             lgRegisterCustomAtom(darkRefreshAtom, registrationDescriptor);
         }
+        if (lgUsesPressRoute(i)) {
+            NSString *basePress = [[NSString stringWithUTF8String:kHostDefaults[i].typeName]
+                stringByAppendingString:@".p"];
+            NSString *basePressNames[] = {
+                basePress,
+                [basePress stringByAppendingString:@".refresh"],
+                [basePress stringByAppendingString:@".dark"],
+                [[basePress stringByAppendingString:@".dark"] stringByAppendingString:@".refresh"],
+            };
+            bool basePressDark[] = { false, false, true, true };
+            for (int variant = 0; variant < 4; variant++) {
+                uint32_t pressAtom = g_internAtom(basePressNames[variant].UTF8String);
+                if (!pressAtom) continue;
+                g_radiusRoutes[pressAtom] = {
+                    i, kHostDefaults[i].radiusRatio, basePressDark[variant], 1.35f
+                };
+                lgRegisterCustomAtom(pressAtom, registrationDescriptor);
+            }
+        }
         if (lgUsesDynamicRadiusRoute(i)) {
             for (int step = 0; step <= kDynamicRadiusSteps / 2; step++) {
                 NSString *radiusName = [[NSString stringWithUTF8String:kHostDefaults[i].typeName]
@@ -2091,6 +2261,24 @@ static bool registerCustomFilter(void) {
                         g_radiusRoutes[darkRadiusRefreshAtom] =
                             { i, (float)step / (float)kDynamicRadiusSteps, true };
                         lgRegisterCustomAtom(darkRadiusRefreshAtom, registrationDescriptor);
+                    }
+                }
+                if (lgUsesPressRoute(i)) {
+                    float ratio = (float)step / (float)kDynamicRadiusSteps;
+                    NSString *pressName = [radiusName stringByAppendingString:@".p"];
+                    NSString *pressNames[] = {
+                        pressName,
+                        [pressName stringByAppendingString:@".refresh"],
+                        [pressName stringByAppendingString:@".dark"],
+                        [[pressName stringByAppendingString:@".dark"]
+                            stringByAppendingString:@".refresh"],
+                    };
+                    bool pressDark[] = { false, false, true, true };
+                    for (int variant = 0; variant < 4; variant++) {
+                        uint32_t pressAtom = g_internAtom(pressNames[variant].UTF8String);
+                        if (!pressAtom) continue;
+                        g_radiusRoutes[pressAtom] = { i, ratio, pressDark[variant], 1.35f };
+                        lgRegisterCustomAtom(pressAtom, registrationDescriptor);
                     }
                 }
             }

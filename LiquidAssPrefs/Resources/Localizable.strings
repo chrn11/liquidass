@@ -144,6 +144,12 @@
 "prefs.misc.options_section.subtitle" = "Experimental features and other stuff.";
 "prefs.control.fresnel_glare" = "Fresnel Glare";
 "prefs.subtitle.fresnel_glare" = "Controls the edge glare added by the glass shader.";
+"prefs.control.refraction_strength" = "Refraction Strength";
+"prefs.subtitle.refraction_strength" = "Scales how far the lens edge bends the backdrop. Per-surface refraction still overrides the base amount.";
+"prefs.control.frost_blur" = "Frost";
+"prefs.subtitle.frost_blur" = "Softens the clear center of the glass. Edges stay sharper than the middle.";
+"prefs.control.edge_width" = "Edge Width";
+"prefs.subtitle.edge_width" = "Scales the soft rim where the liquid bend lives. A per-surface bezel width replaces this.";
 "prefs.misc.rwb_third_party.title" = "RWB list";
 "prefs.misc.rwb_third_party.subtitle" = "Enter widget bundle ids for the RWB allowlist.";
 "prefs.misc.rwb_third_party.editor_body" = "Enter one bundle id per line.";
