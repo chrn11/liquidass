@@ -7,6 +7,9 @@
 static void *kQAGlassKey = &kQAGlassKey;
 static void *kQABackdropKey = &kQABackdropKey;
 static void *kQABackdropAlphaKey = &kQABackdropAlphaKey;
+static void *kQAOriginalStyleKey = &kQAOriginalStyleKey;
+static void *kQAOriginalContentStyleKey = &kQAOriginalContentStyleKey;
+static void *kQAOriginalStyleCapturedKey = &kQAOriginalStyleCapturedKey;
 static NSHashTable<UIVisualEffectView *> *sQuickActionHosts;
 static void removeQuickActionsGlass(UIVisualEffectView *fx);
 
@@ -22,16 +25,60 @@ static UIView *qaBackdropView(UIView *effectView) {
     return nil;
 }
 
-static void qaSetBackdropHidden(UIVisualEffectView *effectView) {
+static BOOL qaSetBackdropHidden(UIVisualEffectView *effectView) {
     UIView *backdrop = qaBackdropView(effectView);
-    if (!backdrop) return;
-    if (!objc_getAssociatedObject(effectView, kQABackdropAlphaKey)) {
+    if (!backdrop) return NO;
+
+    UIView *savedBackdrop = objc_getAssociatedObject(effectView, kQABackdropKey);
+    NSNumber *savedAlpha = objc_getAssociatedObject(effectView, kQABackdropAlphaKey);
+    if (savedBackdrop && savedBackdrop != backdrop && savedAlpha)
+        savedBackdrop.alpha = savedAlpha.doubleValue;
+
+    if (savedBackdrop != backdrop || !savedAlpha) {
         objc_setAssociatedObject(effectView, kQABackdropKey, backdrop,
                                  OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         objc_setAssociatedObject(effectView, kQABackdropAlphaKey, @(backdrop.alpha),
                                  OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     }
     backdrop.alpha = 0.0;
+    return YES;
+}
+
+static BOOL qaStockBackdropSaved(UIVisualEffectView *effectView) {
+    return objc_getAssociatedObject(effectView, kQABackdropAlphaKey) != nil;
+}
+
+static void qaRestoreStockBackdrop(UIVisualEffectView *effectView) {
+    UIView *backdrop = objc_getAssociatedObject(effectView, kQABackdropKey);
+    NSNumber *alpha = objc_getAssociatedObject(effectView, kQABackdropAlphaKey);
+    if (backdrop && alpha) backdrop.alpha = alpha.doubleValue;
+    objc_setAssociatedObject(effectView, kQABackdropKey, nil, OBJC_ASSOCIATION_ASSIGN);
+    objc_setAssociatedObject(effectView, kQABackdropAlphaKey, nil, OBJC_ASSOCIATION_ASSIGN);
+}
+
+static void qaCaptureOriginalStyle(UIVisualEffectView *effectView) {
+    if (objc_getAssociatedObject(effectView, kQAOriginalStyleCapturedKey)) return;
+    objc_setAssociatedObject(effectView, kQAOriginalStyleKey,
+        @((NSInteger)effectView.overrideUserInterfaceStyle), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    objc_setAssociatedObject(effectView, kQAOriginalContentStyleKey,
+        @((NSInteger)effectView.contentView.overrideUserInterfaceStyle), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    objc_setAssociatedObject(effectView, kQAOriginalStyleCapturedKey, @YES,
+        OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
+
+static void qaRestoreOriginalStyle(UIVisualEffectView *effectView) {
+    if (!objc_getAssociatedObject(effectView, kQAOriginalStyleCapturedKey)) return;
+    NSNumber *style = objc_getAssociatedObject(effectView, kQAOriginalStyleKey);
+    NSNumber *contentStyle = objc_getAssociatedObject(effectView, kQAOriginalContentStyleKey);
+    if (@available(iOS 13.0, *)) {
+        effectView.overrideUserInterfaceStyle = style
+            ? (UIUserInterfaceStyle)style.integerValue : UIUserInterfaceStyleUnspecified;
+        effectView.contentView.overrideUserInterfaceStyle = contentStyle
+            ? (UIUserInterfaceStyle)contentStyle.integerValue : UIUserInterfaceStyleUnspecified;
+    }
+    objc_setAssociatedObject(effectView, kQAOriginalStyleKey, nil, OBJC_ASSOCIATION_ASSIGN);
+    objc_setAssociatedObject(effectView, kQAOriginalContentStyleKey, nil, OBJC_ASSOCIATION_ASSIGN);
+    objc_setAssociatedObject(effectView, kQAOriginalStyleCapturedKey, nil, OBJC_ASSOCIATION_ASSIGN);
 }
 
 static BOOL isQuickActionsHost(UIView *view) {
@@ -53,17 +100,17 @@ static void injectQuickActionsGlass(UIVisualEffectView *fx) {
     UIView *container = fx.contentView;
     if (CGRectGetWidth(container.bounds) < 4.0 || CGRectGetHeight(container.bounds) < 4.0) return;
 
-    qaSetBackdropHidden(fx);
-
-    if (@available(iOS 13.0, *)) {
-        fx.overrideUserInterfaceStyle        = UIUserInterfaceStyleLight;
-        container.overrideUserInterfaceStyle = UIUserInterfaceStyleLight;
-    }
-
     LGLiveBackdropView *glass = objc_getAssociatedObject(fx, kQAGlassKey);
+    BOOL hadStock = qaStockBackdropSaved(fx);
     if (!glass) {
         glass = LGCreateRegisteredGlass(container.bounds, nil, @"QuickActions");
-        if (!glass) return;
+        if (!glass) {
+            if (hadStock) {
+                qaRestoreOriginalStyle(fx);
+                qaRestoreStockBackdrop(fx);
+            }
+            return;
+        }
         glass.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
         [container insertSubview:glass atIndex:0];
         objc_setAssociatedObject(fx, kQAGlassKey, glass, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
@@ -74,6 +121,27 @@ static void injectQuickActionsGlass(UIVisualEffectView *fx) {
     glass.layer.cornerCurve   = kCACornerCurveContinuous;
     glass.layer.masksToBounds = YES;
     [glass applyFilters];
+
+    // Don't suppress Apple's backdrop until our CA filter is attached.
+    if (!glass.lgFilterAttached) {
+        if (hadStock) {
+            qaRestoreOriginalStyle(fx);
+            qaRestoreStockBackdrop(fx);
+        }
+        [glass removeFromSuperview];
+        objc_setAssociatedObject(fx, kQAGlassKey, nil, OBJC_ASSOCIATION_ASSIGN);
+        return;
+    }
+
+    qaCaptureOriginalStyle(fx);
+    if (@available(iOS 13.0, *)) {
+        fx.overrideUserInterfaceStyle        = UIUserInterfaceStyleLight;
+        container.overrideUserInterfaceStyle = UIUserInterfaceStyleLight;
+    }
+    if (!qaSetBackdropHidden(fx)) {
+        removeQuickActionsGlass(fx);
+        return;
+    }
     if (!sQuickActionHosts) sQuickActionHosts = [NSHashTable weakObjectsHashTable];
     [sQuickActionHosts addObject:fx];
     lgTrackGlass(glass, @"QuickActions", nil);
@@ -81,21 +149,15 @@ static void injectQuickActionsGlass(UIVisualEffectView *fx) {
 
 static void removeQuickActionsGlass(UIVisualEffectView *fx) {
     LGLiveBackdropView *glass = objc_getAssociatedObject(fx, kQAGlassKey);
-    if (@available(iOS 13.0, *)) {
-        fx.overrideUserInterfaceStyle             = UIUserInterfaceStyleUnspecified;
-        fx.contentView.overrideUserInterfaceStyle = UIUserInterfaceStyleUnspecified;
-    }
-    UIView *backdrop = objc_getAssociatedObject(fx, kQABackdropKey);
-    NSNumber *alpha = objc_getAssociatedObject(fx, kQABackdropAlphaKey);
-    if (backdrop && alpha) backdrop.alpha = alpha.doubleValue;
-    objc_setAssociatedObject(fx, kQABackdropKey, nil, OBJC_ASSOCIATION_ASSIGN);
-    objc_setAssociatedObject(fx, kQABackdropAlphaKey, nil, OBJC_ASSOCIATION_ASSIGN);
+    qaRestoreOriginalStyle(fx);
+    qaRestoreStockBackdrop(fx);
     if (glass) {
         [glass removeFromSuperview];
         objc_setAssociatedObject(fx, kQAGlassKey, nil, OBJC_ASSOCIATION_ASSIGN);
     }
     [sQuickActionHosts removeObject:fx];
 }
+
 
 static void LGReconcileQuickActionHosts(void) {
     for (UIVisualEffectView *host in sQuickActionHosts.allObjects) {

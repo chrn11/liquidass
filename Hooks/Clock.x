@@ -722,6 +722,7 @@ static NSString *LGClockVariableFontPath(void) {
 @property (nonatomic, strong) UIView *pullBlurView;
 @property (nonatomic, strong) UIView *glyphMaskView;
 @property (nonatomic, strong) CAShapeLayer *glyphMaskLayer;
+@property (nonatomic) BOOL glyphMaskPublished;
 @property (nonatomic, weak) UIView *renderContainer;
 @property (nonatomic) CGRect originalLabelFrame;
 @property (nonatomic) CGSize renderCanvasSize;
@@ -1056,6 +1057,8 @@ static UIColor *LGClockPullTint(UITraitCollection *traits) {
     CFTimeInterval profilePrepareEnd = profileObstacleEnd;
     CFTimeInterval profilePublishEnd = profileObstacleEnd;
     CFTimeInterval profilePublishDuration = 0.0;
+    BOOL glyphMaskPublishedThisApply = NO;
+    self.glyphMaskPublished = NO;
     if (!enabled) {
         if (self.originalFont) label.font = self.originalFont;
         label.alpha = self.originalLabelAlpha;
@@ -1083,6 +1086,28 @@ static UIColor *LGClockPullTint(UITraitCollection *traits) {
                        variableFontEnabled, self.originalFont.fontName,
                        self.originalFont.pointSize,
                        label.text ?: label.attributedText.string);
+            if (self.glassView) {
+                self.glassView.hidden = YES;
+                self.glassView.maskView = nil;
+                [self.glassView removeFromSuperview];
+                self.glassView = nil;
+            }
+            if (self.pullBlurView) {
+                self.pullBlurView.maskView = nil;
+                self.pullBlurView.hidden = YES;
+                [self.pullBlurView removeFromSuperview];
+                self.pullBlurView = nil;
+            }
+            self.glyphMaskView = nil;
+            self.glyphMaskLayer = nil;
+            self.renderContainer = nil;
+            label.alpha = self.originalLabelAlpha;
+            label.hidden = self.originalLabelHidden;
+            if (visibleSourceView && visibleSourceView != label) {
+                visibleSourceView.hidden = self.originalVisibleSourceHidden;
+                visibleSourceView.alpha = self.originalVisibleSourceAlpha;
+                visibleSourceView.layer.opacity = self.originalVisibleSourceLayerOpacity;
+            }
         }
         if (font) {
             NSString *text = label.text.length ? label.text : label.attributedText.string;
@@ -1240,7 +1265,8 @@ static UIColor *LGClockPullTint(UITraitCollection *traits) {
             maskView.layer.position = CGPointMake(CGRectGetMidX(glass.bounds),
                                                   CGRectGetMidY(glass.bounds));
             maskLayer.frame = maskView.bounds;
-            if (glyphPath) {
+            if (glyphPath && !CGRectIsEmpty(glyphBounds) &&
+                CGRectGetWidth(glyphBounds) > 0.0 && CGRectGetHeight(glyphBounds) > 0.0) {
                 CGFloat left = floor((canvasWidth - CGRectGetWidth(glyphBounds)) * 0.5);
                 CGAffineTransform transform = CGAffineTransformMake(
                     1.0, 0.0, 0.0, -1.0,
@@ -1248,35 +1274,68 @@ static UIColor *LGClockPullTint(UITraitCollection *traits) {
                     glyphOriginY + verticalPadding + CGRectGetMaxY(glyphBounds) +
                         CGRectGetMinY(canvasFrame));
                 CGPathRef normalizedPath = CGPathCreateCopyByTransformingPath(glyphPath, &transform);
-                maskLayer.path = normalizedPath;
-                profilePrepareEnd = CACurrentMediaTime();
-                CFTimeInterval profilePublishStart = profilePrepareEnd;
-                BOOL published = LGClockPublishPath(normalizedPath, glass.bounds.size, 1.0);
-                profilePublishEnd = CACurrentMediaTime();
-                profilePublishDuration = profilePublishEnd - profilePublishStart;
-                if (!published)
-                    LGClockLog(@"mask publish failed reason=%@ text=%@ glass=%@ path=%@",
-                               reason, text, NSStringFromCGRect(glass.bounds),
-                               NSStringFromCGRect(CGPathGetBoundingBox(normalizedPath)));
-                [glass lgInvalidateFilterContents];
-                CGPathRelease(normalizedPath);
+                if (normalizedPath) {
+                    maskLayer.path = normalizedPath;
+                    profilePrepareEnd = CACurrentMediaTime();
+                    CFTimeInterval profilePublishStart = profilePrepareEnd;
+                    glyphMaskPublishedThisApply = LGClockPublishPath(normalizedPath, glass.bounds.size, 1.0);
+                    self.glyphMaskPublished = glyphMaskPublishedThisApply;
+                    profilePublishEnd = CACurrentMediaTime();
+                    profilePublishDuration = profilePublishEnd - profilePublishStart;
+                    if (!glyphMaskPublishedThisApply)
+                        LGClockLog(@"mask publish failed reason=%@ text=%@; keeping native clock visible",
+                                   reason, text);
+                    [glass lgInvalidateFilterContents];
+                    CGPathRelease(normalizedPath);
+                }
+                CGPathRelease(glyphPath);
+            } else if (glyphPath) {
+                glyphMaskPublishedThisApply = NO;
+                self.glyphMaskPublished = NO;
                 CGPathRelease(glyphPath);
             }
             glass.maskView = maskView;
             [CATransaction commit];
             if (![reason isEqualToString:@"motion"])
                 [[LGClockMotionTracker shared] trackMotion];
+            if (glyphMaskPublishedThisApply && !maskLayer.path)
+                glyphMaskPublishedThisApply = NO;
             BOOL filterReady = glass.lgFilterAttached;
-            label.alpha = filterReady ? 0.0 : self.originalLabelAlpha;
-            label.hidden = self.originalLabelHidden;
-            if (visibleSourceView && visibleSourceView != label) {
-                visibleSourceView.hidden = filterReady ? YES : self.originalVisibleSourceHidden;
-                visibleSourceView.alpha = filterReady ? 0.0 : self.originalVisibleSourceAlpha;
-                visibleSourceView.layer.opacity = filterReady ? 0.0 : self.originalVisibleSourceLayerOpacity;
+            BOOL clockGlassReady = glyphMaskPublishedThisApply && filterReady;
+            if (clockGlassReady) {
+                label.alpha = 0.0;
+                label.hidden = self.originalLabelHidden;
+                if (visibleSourceView && visibleSourceView != label) {
+                    visibleSourceView.hidden = YES;
+                    visibleSourceView.alpha = 0.0;
+                    visibleSourceView.layer.opacity = 0.0;
+                }
+                [self updatePullBlur];
+                [renderContainer bringSubviewToFront:glass];
+            } else {
+                glass.maskView = nil;
+                [glass removeFromSuperview];
+                self.glassView = nil;
+                if (self.pullBlurView) {
+                    self.pullBlurView.maskView = nil;
+                    self.pullBlurView.hidden = YES;
+                    [self.pullBlurView removeFromSuperview];
+                    self.pullBlurView = nil;
+                }
+                self.glyphMaskView = nil;
+                self.glyphMaskLayer = nil;
+                self.renderContainer = nil;
+                label.alpha = self.originalLabelAlpha;
+                label.hidden = self.originalLabelHidden;
+                if (visibleSourceView && visibleSourceView != label) {
+                    visibleSourceView.hidden = self.originalVisibleSourceHidden;
+                    visibleSourceView.alpha = self.originalVisibleSourceAlpha;
+                    visibleSourceView.layer.opacity = self.originalVisibleSourceLayerOpacity;
+                }
+                LGClockLog(@"clock glass not ready (mask=%d filter=%d); keeping native time visible host=%@",
+                           glyphMaskPublishedThisApply, filterReady, NSStringFromClass(host.class));
             }
             self.pullBlurKnown = NO;
-            [self updatePullBlur];
-            [renderContainer bringSubviewToFront:glass];
             if (LGDebugLoggingEnabled()) {
             CGRect glassWindowFrame = glass.window
                 ? [glass convertRect:glass.bounds toView:glass.window] : CGRectNull;
@@ -1825,7 +1884,32 @@ static void LGPublishArtworkRect(UIView *artworkView) {
                 usingBlock:^(__unused NSNotification *note) {
                     LGLiveBackdropView *attached = note.object;
                     for (LGClockState *state in LGClockStates().allObjects) {
-                        if (state.glassView != attached) continue;
+                        if (state.glassView != attached || !state.sourceLabel) continue;
+                        BOOL filterReady = attached.lgFilterAttached;
+                        BOOL clockGlassReady = state.glyphMaskPublished && filterReady;
+                        if (!clockGlassReady) {
+                            if (state.glassView) {
+                                state.glassView.maskView = nil;
+                                [state.glassView removeFromSuperview];
+                                state.glassView = nil;
+                            }
+                            if (state.pullBlurView) {
+                                state.pullBlurView.maskView = nil;
+                                state.pullBlurView.hidden = YES;
+                                [state.pullBlurView removeFromSuperview];
+                                state.pullBlurView = nil;
+                            }
+                            state.sourceLabel.alpha = state.originalLabelAlpha;
+                            state.sourceLabel.hidden = state.originalLabelHidden;
+                            UIView *source = state.visibleSourceView;
+                            if (source && source != state.sourceLabel) {
+                                source.hidden = state.originalVisibleSourceHidden;
+                                source.alpha = state.originalVisibleSourceAlpha;
+                                source.layer.opacity = state.originalVisibleSourceLayerOpacity;
+                            }
+                            state.glyphMaskPublished = NO;
+                            continue;
+                        }
                         UILabel *label = state.sourceLabel;
                         label.alpha = 0.0;
                         UIView *visible = state.visibleSourceView;
