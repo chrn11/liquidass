@@ -91,6 +91,7 @@ void *kGlassKey = &kGlassKey;
 
 static NSMapTable<UIView *, LGGlassRec *> *sGlassRecs;
 static NSMapTable<UIView *, NSString *> *sSuppressed;
+static NSMapTable<UIView *, NSNumber *> *sSuppressedOriginalHidden;
 static NSMutableArray<void (^)(void)> *sReloadHandlers;
 
 @interface LGMaterialHostRoute : NSObject
@@ -127,9 +128,16 @@ void lgTrackGlass(UIView *glass, NSString *prefix, UIView *material) {
 
 void lgSuppressStock(UIView *v, NSString *prefix, BOOL setHidden) {
     if (!v || !prefix.length) return;
-    if (setHidden) v.hidden = YES;
     if (!sSuppressed) sSuppressed = [NSMapTable weakToStrongObjectsMapTable];
-    [sSuppressed setObject:prefix forKey:v];
+    if (!sSuppressedOriginalHidden)
+        sSuppressedOriginalHidden = [NSMapTable weakToStrongObjectsMapTable];
+
+    NSString *existingPrefix = [sSuppressed objectForKey:v];
+    if (!existingPrefix || ![existingPrefix isEqualToString:prefix]) {
+        [sSuppressedOriginalHidden setObject:@(v.hidden) forKey:v];
+    }
+    [sSuppressed setObject:[prefix copy] forKey:v];
+    if (setHidden) v.hidden = YES;
 }
 
 #pragma mark - registered material lifecycle
@@ -160,6 +168,7 @@ LGLiveBackdropView *LGInstallRegisteredGlassInMaterial(UIView *material,
         LGHostDefinitionForPreferencePrefix(prefix.UTF8String);
     if (!host) {
         LGLog(@"lifecycle rejected unknown host prefix=%@", prefix);
+        LGRemoveGlassFromMaterial(material, associationKey);
         return nil;
     }
     if (!lgHostEnabled(prefix)) {
@@ -168,11 +177,34 @@ LGLiveBackdropView *LGInstallRegisteredGlassInMaterial(UIView *material,
     }
 
     NSString *filterType = [NSString stringWithUTF8String:host->filterType];
-    LGInjectGlassIntoMaterialGroupType(material, associationKey, outset,
-                                       cornerRadius, groupName, filterType);
     LGLiveBackdropView *glass = objc_getAssociatedObject(material, associationKey);
-    if (glass) lgTrackGlass(glass, prefix, material);
+    if (!glass) {
+        LGInjectGlassIntoMaterialGroupType(material, associationKey, outset,
+                                           cornerRadius, groupName, filterType);
+        glass = objc_getAssociatedObject(material, associationKey);
+    }
+    if (!glass) return nil;
+    lgTrackGlass(glass, prefix, material);
+    if (!glass.lgFilterAttached) {
+        // Keep one associated, hidden renderer alive so a later geometry/window
+        // cycle or its bounded retry can recover without exposing a blank host.
+        glass.hidden = YES;
+        [glass applyFilters];
+        if (!glass.lgFilterAttached) {
+            [glass lgApplyStockHealth];
+            LGLog(@"renderer-health host=%@ state=native-fallback-retry-pending material=%p",
+                  prefix, material);
+            return nil;
+        }
+    }
+    lgTrackGlass(glass, prefix, material);
     return glass;
+}
+
+BOOL LGMaterialGlassReady(UIView *material, const void *associationKey) {
+    if (!material || !associationKey) return NO;
+    LGLiveBackdropView *glass = objc_getAssociatedObject(material, associationKey);
+    return glass && glass.lgFilterAttached;
 }
 
 void LGRegisterMaterialHost(NSString *prefix,
@@ -225,21 +257,25 @@ static void lgRouteMaterialHost(UIView *material) {
 }
 
 static void lgReconcileInjectionsForDisable(void) {
-    // disabled hosts must restore stock views and remove live glass
+    // Restore only stock views for which this module captured the prior state.
     if (sGlassRecs.count) {
         for (UIView *glass in sGlassRecs.keyEnumerator.allObjects) {
             LGGlassRec *r = [sGlassRecs objectForKey:glass];
-            if (!r) continue;
-            if (!lgHostEnabled(r.prefix)) {
-                if (r.material) LGRemoveGlassFromMaterial(r.material, kGlassKey);
-                else            [glass removeFromSuperview];
-                [sGlassRecs removeObjectForKey:glass];
-            }
+            if (!r || lgHostEnabled(r.prefix)) continue;
+            if (r.material) LGRemoveGlassFromMaterial(r.material, kGlassKey);
+            else [glass removeFromSuperview];
+            [sGlassRecs removeObjectForKey:glass];
         }
     }
-    for (UIView *v in sSuppressed.keyEnumerator.allObjects) {
-        NSString *p = [sSuppressed objectForKey:v];
-        if (p && !lgHostEnabled(p)) { v.hidden = NO; [sSuppressed removeObjectForKey:v]; }
+    for (UIView *view in sSuppressed.keyEnumerator.allObjects) {
+        NSString *prefix = [sSuppressed objectForKey:view];
+        if (!prefix || lgHostEnabled(prefix)) continue;
+        NSNumber *original = [sSuppressedOriginalHidden objectForKey:view];
+        if (original) {
+            view.hidden = original.boolValue;
+            [sSuppressedOriginalHidden removeObjectForKey:view];
+        }
+        [sSuppressed removeObjectForKey:view];
     }
 }
 
@@ -274,7 +310,12 @@ __attribute__((constructor)) static void lgGlassInitEnableObserver(void) {
 - (void)layoutSubviews { %orig; lgRouteMaterialHost((UIView *)self); }
 
 - (void)setHidden:(BOOL)hidden {
-    if (LGMaterialHasGlass((UIView *)self, kGlassKey)) hidden = YES;
+    UIView *material = (UIView *)self;
+    if (!LGIsInternalStockMaterialVisibilityMutation(material)) {
+        LGLiveBackdropView *glass = objc_getAssociatedObject(material, kGlassKey);
+        if (glass) [glass lgStockMaterialVisibilityDidRequest:hidden];
+    }
+    if (LGMaterialGlassReady(material, kGlassKey)) hidden = YES;
     %orig(hidden);
 }
 

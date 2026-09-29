@@ -38,6 +38,8 @@ LGLiveBackdropView *LGInstallRegisteredGlassInMaterial(UIView *material,
                                                         UIEdgeInsets outset,
                                                         CGFloat cornerRadius,
                                                         NSString *groupName);
+// True only when this host's CA filter readback is valid; not final presentation.
+BOOL LGMaterialGlassReady(UIView *material, const void *associationKey);
 
 #pragma mark - material host router
 

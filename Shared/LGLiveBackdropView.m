@@ -70,6 +70,50 @@ static CFStringRef const kLGParametersReloadedNotification =
     CFSTR("dylv.liquidglass/ParametersReloaded");
 static NSHashTable<LGLiveBackdropView *> *sLGAllGlasses;
 static BOOL sLGFilterRefreshSetup;
+static NSHashTable<UIView *> *sLGInternalStockMutations;
+
+static void LGEnsureInternalStockMutations(void) {
+    @synchronized([LGLiveBackdropView class]) {
+        if (!sLGInternalStockMutations)
+            sLGInternalStockMutations = [NSHashTable weakObjectsHashTable];
+    }
+}
+
+static BOOL LGInternalStockMutationContains(UIView *material) {
+    @synchronized([LGLiveBackdropView class]) {
+        return [sLGInternalStockMutations containsObject:material];
+    }
+}
+
+static void LGInternalStockMutationAdd(UIView *material) {
+    @synchronized([LGLiveBackdropView class]) {
+        [sLGInternalStockMutations addObject:material];
+    }
+}
+
+static void LGInternalStockMutationRemove(UIView *material) {
+    @synchronized([LGLiveBackdropView class]) {
+        [sLGInternalStockMutations removeObject:material];
+    }
+}
+
+BOOL LGIsInternalStockMaterialVisibilityMutation(UIView *material) {
+    if (!material) return NO;
+    LGEnsureInternalStockMutations();
+    return LGInternalStockMutationContains(material);
+}
+
+static void LGSetStockMaterialHiddenInternally(UIView *material, BOOL hidden) {
+    if (!material) return;
+    LGEnsureInternalStockMutations();
+    LGInternalStockMutationAdd(material);
+    @try {
+        material.hidden = hidden;
+    } @finally {
+        LGInternalStockMutationRemove(material);
+    }
+}
+
 static BOOL LGSpecularEnabledForFilterType(NSString *type) {
     const LGHostDefinition *host = LGHostDefinitionForFilterType(type.UTF8String);
     if (host == &kLGHostRegistry[LGHostIdentifierCoverSheet]) return NO;
@@ -190,6 +234,7 @@ static CGFloat LGScaleForSize(CGSize s) {
 - (void)updateSpecular;
 - (void)applySpecularAngle:(CGFloat)angle;
 - (void)reapplyFilterForParameterReload;
+- (void)lgSetStockMaterialRequestedHidden:(BOOL)hidden;
 @end
 
 static void LGParametersReloaded(CFNotificationCenterRef center, void *observer,
@@ -342,6 +387,11 @@ static const CGFloat kLGGlassEdgeWidth = 1.0;
     CGFloat          _nativeBlurRadius;
     BOOL             _backdropConfigured;
     BOOL             _filterAttached;
+    __weak UIView   *_stockMaterialView;
+    BOOL             _stockMaterialRequestedHidden;
+    BOOL             _stockGlassOriginalHidden;
+    CGFloat          _stockGlassOriginalAlpha;
+    BOOL             _stockAlphaCaptured;
     uint32_t         _lgId;
     CGFloat          _appliedScale;
     CGFloat          _appliedBackdropZoom;
@@ -589,10 +639,69 @@ static const CGFloat kLGGlassEdgeWidth = 1.0;
     _specularLayer.endPoint = CGPointMake(0.5 - dx, 0.5 - dy);
 }
 
+- (void)lgBindStockMaterial:(UIView *)material {
+    if (!material || self.superview != material.superview) return;
+    if (_stockMaterialView != material) {
+        _stockMaterialView = material;
+        _stockMaterialRequestedHidden = material.hidden;
+        _stockGlassOriginalHidden = self.hidden;
+        _stockGlassOriginalAlpha = self.alpha;
+        _stockAlphaCaptured = YES;
+    }
+    [self lgApplyStockHealth];
+}
+
+- (void)lgApplyStockHealth {
+    UIView *material = _stockMaterialView;
+    if (!material) return;
+    BOOL requestedHidden = _stockMaterialRequestedHidden;
+    if (_filterAttached && self.superview == material.superview) {
+        LGSetStockMaterialHiddenInternally(material, YES);
+        self.hidden = _stockGlassOriginalHidden || requestedHidden;
+        self.alpha = 1.0;
+    } else {
+        LGSetStockMaterialHiddenInternally(material, requestedHidden);
+        self.hidden = YES;
+        if (_stockAlphaCaptured) self.alpha = _stockGlassOriginalAlpha;
+    }
+}
+
+- (void)lgSetStockMaterialRequestedHidden:(BOOL)hidden {
+    if (!_stockMaterialView) return;
+    _stockMaterialRequestedHidden = hidden;
+    LGSetStockMaterialHiddenInternally(_stockMaterialView,
+                                       _filterAttached ? YES : hidden);
+    self.hidden = _filterAttached
+        ? (_stockGlassOriginalHidden || hidden) : YES;
+}
+
+- (void)lgRestoreStockMaterial {
+    if (_stockMaterialView)
+        LGSetStockMaterialHiddenInternally(_stockMaterialView,
+                                            _stockMaterialRequestedHidden);
+    if (_stockAlphaCaptured) self.alpha = _stockGlassOriginalAlpha;
+    self.hidden = _stockGlassOriginalHidden;
+    _stockMaterialView = nil;
+    _stockAlphaCaptured = NO;
+}
+
+- (void)lgStockMaterialVisibilityDidRequest:(BOOL)hidden {
+    [self lgSetStockMaterialRequestedHidden:hidden];
+}
+
 - (void)applyFilters {
+    BOOL wasAttached = _filterAttached;
+    _filterAttached = NO;
+    if (wasAttached) [self lgApplyStockHealth];
     CALayer *layer = self.layer;
     Class backdropCls = NSClassFromString(@"CABackdropLayer");
-    if (!backdropCls || ![layer isKindOfClass:backdropCls]) return;
+    if (!backdropCls || ![layer isKindOfClass:backdropCls]) {
+        _filterAttached = NO;
+        [self lgApplyStockHealth];
+        if (self.lgFilterHealthHandler) self.lgFilterHealthHandler(NO);
+        if (!backdropCls) sblog("CA filter unavailable: no CABackdropLayer");
+        return;
+    }
 
     @try {
 
@@ -646,16 +755,24 @@ static const CGFloat kLGGlassEdgeWidth = 1.0;
             NSString *type = nil;
             @try { type = [existing.firstObject valueForKey:@"type"]; } @catch (...) {}
             if ([type isEqualToString:wantType]) {
+                [self lgApplyStockHealth];
+                if (self.lgFilterHealthHandler) self.lgFilterHealthHandler(YES);
                 return;
             }
         }
-        if (!filterCls) { sblog("CAFilter class not found"); return; }
+        if (!filterCls) {
+            sblog("CAFilter unavailable; preserve native stock surface");
+            [self lgApplyStockHealth];
+            if (self.lgFilterHealthHandler) self.lgFilterHealthHandler(NO);
+            return;
+        }
 
         id glassFilter = ((id (*)(Class, SEL, NSString *))objc_msgSend)(
             filterCls, NSSelectorFromString(@"filterWithType:"), wantType);
-
         if (!glassFilter) {
-            LGLog(@"glass#%u filterWithType nil (not registered yet?)", _lgId);
+            LGLog(@"glass#%u filter creation failed; native stock remains", _lgId);
+            [self lgApplyStockHealth];
+            if (self.lgFilterHealthHandler) self.lgFilterHealthHandler(NO);
             return;
         }
 
@@ -665,10 +782,21 @@ static const CGFloat kLGGlassEdgeWidth = 1.0;
         }
 
         layer.filters = @[glassFilter];
-        _filterAttached = YES;
-        [[NSNotificationCenter defaultCenter]
-            postNotificationName:@"LGLiveBackdropViewFilterDidAttach" object:self];
+        id installed = layer.filters.count == 1 ? layer.filters.firstObject : nil;
+        NSString *installedType = nil;
+        @try { installedType = [installed valueForKey:@"type"]; }
+        @catch (__unused NSException *exception) {}
+        _filterAttached = installed && [installedType isEqualToString:wantType];
+        [self lgApplyStockHealth];
+        if (self.lgFilterHealthHandler) self.lgFilterHealthHandler(_filterAttached);
+        if (_filterAttached)
+            [[NSNotificationCenter defaultCenter]
+                postNotificationName:@"LGLiveBackdropViewFilterDidAttach" object:self];
     } @catch (NSException *e) {
+        layer.filters = @[];
+        _filterAttached = NO;
+        [self lgApplyStockHealth];
+        if (self.lgFilterHealthHandler) self.lgFilterHealthHandler(NO);
         sblog("applyFilters exception: %s", e.reason.UTF8String);
     }
 }
@@ -718,17 +846,29 @@ void LGInjectGlassIntoMaterialGroupType(UIView *mat, const void *assocKey,
     LGLiveBackdropView *glass = objc_getAssociatedObject(mat, assocKey);
     if (!glass) {
         glass = [[LGLiveBackdropView alloc] initWithFrame:gf groupName:groupName filterType:filterType];
+        [glass lgBindStockMaterial:mat];
         __weak LGLiveBackdropView *weakGlass = glass;
+        UIView *stockMaterial = mat;
+        const void *savedAssociationKey = assocKey;
         for (NSNumber *delay in @[ @1.5, @3.0, @5.0, @8.0, @12.0 ]) {
             dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delay.doubleValue * NSEC_PER_SEC)),
                            dispatch_get_main_queue(), ^{
-                [weakGlass applyFilters];
+                LGLiveBackdropView *retryGlass = weakGlass;
+                if (!retryGlass || !stockMaterial.window ||
+                    objc_getAssociatedObject(stockMaterial, savedAssociationKey) != retryGlass)
+                    return;
+                [retryGlass applyFilters];
             });
         }
         [parent insertSubview:glass aboveSubview:mat];
         objc_setAssociatedObject(mat, assocKey, glass, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     }
     if (glass.superview != parent) [parent insertSubview:glass aboveSubview:mat];
+    [glass lgBindStockMaterial:mat];
+    if (!glass.lgFilterAttached) {
+        glass.hidden = YES;
+        [glass applyFilters];
+    }
     CGFloat radius = (cornerRadius >= 0.0) ? cornerRadius : mat.layer.cornerRadius;
     if (!CGRectEqualToRect(glass.frame, gf))          glass.frame              = gf;
     if (fabs(glass.layer.cornerRadius - radius) > 0.5) {
@@ -742,7 +882,7 @@ void LGInjectGlassIntoMaterialGroupType(UIView *mat, const void *assocKey,
     objc_setAssociatedObject(glass, kLGOutsetKey, [NSValue valueWithUIEdgeInsets:outset],
                              OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     objc_setAssociatedObject(glass, kLGRadiusKey, @(cornerRadius), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-    if (!mat.hidden) mat.hidden = YES;
+    [glass lgApplyStockHealth];
 }
 
 static void LGSyncGlassGeometry(UIView *mat, const void *assocKey,
@@ -751,6 +891,7 @@ static void LGSyncGlassGeometry(UIView *mat, const void *assocKey,
 void LGResyncGlassGeometry(UIView *mat, const void *assocKey) {
     LGLiveBackdropView *glass = objc_getAssociatedObject(mat, assocKey);
     if (!glass) return;
+    [glass lgApplyStockHealth];
     NSValue *ov  = objc_getAssociatedObject(glass, kLGOutsetKey);
     NSNumber *rv = objc_getAssociatedObject(glass, kLGRadiusKey);
     LGSyncGlassGeometry(mat, assocKey, ov ? ov.UIEdgeInsetsValue : UIEdgeInsetsZero,
@@ -772,15 +913,14 @@ static void LGSyncGlassGeometry(UIView *mat, const void *assocKey,
         [glass updateSpecular];
         [glass applyFilters];
     }
-    if (!mat.hidden) mat.hidden = YES;
+    [glass lgApplyStockHealth];
 }
 
 void LGRemoveGlassFromMaterial(UIView *mat, const void *assocKey) {
     LGLiveBackdropView *glass = objc_getAssociatedObject(mat, assocKey);
     if (!glass) return;
     objc_setAssociatedObject(mat, assocKey, nil, OBJC_ASSOCIATION_ASSIGN);
-    mat.hidden = NO;
-
+    [glass lgRestoreStockMaterial];
     [glass removeFromSuperview];
 }
 

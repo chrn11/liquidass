@@ -54,6 +54,13 @@ static NSHashTable<UIView *> *gLGKeyboardBackdrops;
 static NSHashTable<UIView *> *gLGKeyboardVisualEffects;
 static NSUInteger gLGKeyboardBackdropLogCount;
 static BOOL gLGKeyboardKeyplaneRefreshScheduled;
+static void LGKeyboardSetVisualEffectHidden(UIView *effectView, BOOL hidden);
+static void LGUpdateKeyboardVisualEffect(UIView *effectView);
+static void LGKeyboardUpdateVisualEffectsForWindow(UIWindow *window);
+static void LGUpdateKeyboardGlass(UIView *stock);
+static void LGKeyboardRendererDidFailOpen(UIWindow *window);
+static void LGKeyboardRendererDidFailOpen(UIWindow *window);
+static void LGKeyboardRendererDidRecover(UIWindow *window);
 
 static CGFloat LGKeyboardCornerRadius(void) {
     return fmin(60.0, fmax(0.0,
@@ -273,11 +280,16 @@ static BOOL LGIsKeyboardBackdrop(UIView *view) {
 }
 
 static void LGKeyboardSetStockHidden(UIView *stock, BOOL hidden) {
-    objc_setAssociatedObject(stock, kLGKeyboardSuppressingHiddenKey, @YES,
-                             OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-    stock.hidden = hidden;
-    objc_setAssociatedObject(stock, kLGKeyboardSuppressingHiddenKey, nil,
-                             OBJC_ASSOCIATION_ASSIGN);
+    if (stock) {
+        if (!objc_getAssociatedObject(stock, kLGKeyboardRequestedHiddenKey))
+            objc_setAssociatedObject(stock, kLGKeyboardRequestedHiddenKey, @(stock.hidden),
+                                     OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        objc_setAssociatedObject(stock, kLGKeyboardSuppressingHiddenKey, @YES,
+                                 OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        stock.hidden = hidden;
+        objc_setAssociatedObject(stock, kLGKeyboardSuppressingHiddenKey, nil,
+                                 OBJC_ASSOCIATION_ASSIGN);
+    }
 }
 
 static void LGRemoveKeyboardGlass(UIView *stock) {
@@ -302,6 +314,58 @@ static NSArray<UIView *> *LGKeyboardBackdropsInWindow(UIWindow *window) {
         }
     }
     return backdrops;
+}
+
+static void LGKeyboardRendererDidRecover(UIWindow *window) {
+    if (!window) return;
+    NSArray<UIView *> *backdrops = LGKeyboardBackdropsInWindow(window);
+    if (!backdrops.count) return;
+    UIView *primary = backdrops.firstObject;
+    for (UIView *candidate in backdrops) {
+        if (CGRectGetHeight(candidate.bounds) > CGRectGetHeight(primary.bounds))
+            primary = candidate;
+    }
+    LGLiveBackdropView *glass = objc_getAssociatedObject(primary,
+                                                          kLGKeyboardGlassKey);
+    if (!glass) {
+        LGUpdateKeyboardGlass(primary);
+        glass = objc_getAssociatedObject(primary, kLGKeyboardGlassKey);
+    }
+    if (!glass || !glass.lgFilterAttached || glass.window != window) return;
+    for (UIView *backdrop in backdrops) {
+        NSNumber *requested = objc_getAssociatedObject(
+            backdrop, kLGKeyboardRequestedHiddenKey);
+        BOOL requestedHidden = requested ? requested.boolValue : NO;
+        if (backdrop != primary) {
+            LGLiveBackdropView *secondary = objc_getAssociatedObject(
+                backdrop, kLGKeyboardGlassKey);
+            secondary.lgFilterHealthHandler = nil;
+            [secondary removeFromSuperview];
+            objc_setAssociatedObject(backdrop, kLGKeyboardGlassKey, nil,
+                                     OBJC_ASSOCIATION_ASSIGN);
+        }
+        LGKeyboardSetStockHidden(backdrop, YES);
+        if (backdrop == primary) glass.hidden = requestedHidden;
+    }
+    LGKeyboardUpdateVisualEffectsForWindow(window);
+}
+
+static void LGKeyboardRendererDidFailOpen(UIWindow *window) {
+    if (!window) return;
+    NSArray<UIView *> *backdrops = LGKeyboardBackdropsInWindow(window);
+    for (UIView *backdrop in backdrops) {
+        LGLiveBackdropView *glass =
+            objc_getAssociatedObject(backdrop, kLGKeyboardGlassKey);
+        glass.lgFilterHealthHandler = nil;
+        [glass removeFromSuperview];
+        objc_setAssociatedObject(backdrop, kLGKeyboardGlassKey, nil,
+                                 OBJC_ASSOCIATION_ASSIGN);
+        NSNumber *requested = objc_getAssociatedObject(
+            backdrop, kLGKeyboardRequestedHiddenKey);
+        LGKeyboardSetStockHidden(backdrop, requested ? requested.boolValue
+                                                      : backdrop.hidden);
+    }
+    LGKeyboardUpdateVisualEffectsForWindow(window);
 }
 
 static CGRect LGKeyboardMergedBackdropFrame(NSArray<UIView *> *backdrops,
@@ -361,6 +425,8 @@ static void LGUpdateKeyboardGlass(UIView *stock) {
 
     if (!lgHostEnabled(@"Keyboard")) {
         LGRemoveKeyboardGlass(stock);
+        if (LGIsRemoteKeyboardWindow(stock.window))
+            LGKeyboardUpdateVisualEffectsForWindow(stock.window);
         return;
     }
 
@@ -390,9 +456,9 @@ static void LGUpdateKeyboardGlass(UIView *stock) {
         LGKeyboardRefreshReportedGeometry(stock.window.screen);
     }
 
-    if (stock != primary) {
-        LGRemoveKeyboardGlass(stock);
-        LGKeyboardSetStockHidden(stock, YES);
+    for (UIView *stock in backdrops) {
+        NSNumber *saved = objc_getAssociatedObject(stock, kLGKeyboardRequestedHiddenKey);
+        LGKeyboardSetStockHidden(stock, saved ? saved.boolValue : stock.hidden);
     }
 
     UIView *container = primary.superview;
@@ -434,11 +500,25 @@ static void LGUpdateKeyboardGlass(UIView *stock) {
         objc_setAssociatedObject(primary, kLGKeyboardGlassKey, glass,
                                  OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         lgTrackGlass(glass, @"Keyboard", nil);
-    } else if (glass.superview != container) {
+    }
+    if (glass.superview != container) {
         [glass removeFromSuperview];
         [container addSubview:glass];
     }
 
+    __weak LGLiveBackdropView *weakGlass = glass;
+    __weak UIWindow *weakWindow = stock.window;
+    glass.lgFilterHealthHandler = ^(BOOL attached) {
+        LGLiveBackdropView *currentGlass = weakGlass;
+        UIWindow *currentWindow = weakWindow;
+        if (!currentGlass || !currentWindow) return;
+        if (attached) {
+            if (currentGlass.superview && currentGlass.window == currentWindow)
+                LGKeyboardRendererDidRecover(currentWindow);
+        } else {
+            LGKeyboardRendererDidFailOpen(currentWindow);
+        }
+    };
     glass.frame = mergedFrame;
     glass.layer.cornerRadius = LGKeyboardCornerRadius();
     glass.layer.masksToBounds = YES;
@@ -452,6 +532,24 @@ static void LGUpdateKeyboardGlass(UIView *stock) {
     glass.hidden =
         [objc_getAssociatedObject(primary, kLGKeyboardRequestedHiddenKey)
             boolValue];
+    BOOL filterReady = glass.lgFilterAttached;
+
+    if (!filterReady) {
+        // Keep the geometry container intact, but leave all UIKit backdrops visible.
+        glass.hidden = YES;
+        glass.alpha = 0.0;
+        [glass removeFromSuperview];
+        objc_setAssociatedObject(primary, kLGKeyboardGlassKey, nil,
+                                 OBJC_ASSOCIATION_ASSIGN);
+        for (UIView *backdrop in backdrops) {
+            NSNumber *requested = objc_getAssociatedObject(
+                backdrop, kLGKeyboardRequestedHiddenKey);
+            LGKeyboardSetStockHidden(backdrop,
+                requested ? requested.boolValue : backdrop.hidden);
+        }
+        LGKeyboardUpdateVisualEffectsForWindow(stock.window);
+        return;
+    }
     for (UIView *backdrop in backdrops) {
         if (backdrop != primary) LGRemoveKeyboardGlass(backdrop);
         LGKeyboardSetStockHidden(backdrop, YES);
@@ -470,13 +568,39 @@ static void LGKeyboardSetVisualEffectHidden(UIView *effectView, BOOL hidden) {
 
 static void LGUpdateKeyboardVisualEffect(UIView *effectView) {
     if (!effectView.window) return;
-    BOOL requestedHidden =
-        [objc_getAssociatedObject(effectView,
-                                  kLGKeyboardVisualEffectRequestedHiddenKey)
-            boolValue];
-
+    NSNumber *saved = objc_getAssociatedObject(
+        effectView, kLGKeyboardVisualEffectRequestedHiddenKey);
+    BOOL requestedHidden = saved ? saved.boolValue : effectView.hidden;
+    BOOL rendererReady = NO;
+    if (LGIsRemoteKeyboardWindow(effectView.window)) {
+        for (UIView *backdrop in LGKeyboardBackdropsInWindow(effectView.window)) {
+            UIView *candidate = objc_getAssociatedObject(backdrop, kLGKeyboardGlassKey);
+            if (candidate && [candidate isKindOfClass:LGLiveBackdropView.class] &&
+                ((LGLiveBackdropView *)candidate).lgFilterAttached) {
+                rendererReady = YES;
+                break;
+            }
+        }
+    }
+    BOOL shouldHide = lgHostEnabled(@"Keyboard") && rendererReady;
     LGKeyboardSetVisualEffectHidden(effectView,
-                                    lgHostEnabled(@"Keyboard") ? YES : requestedHidden);
+                                    shouldHide ? YES : requestedHidden);
+}
+
+static BOOL LGKeyboardEffectRendererReady(UIView *effectView) {
+    if (!effectView.window || !LGIsRemoteKeyboardWindow(effectView.window)) return NO;
+    for (UIView *backdrop in LGKeyboardBackdropsInWindow(effectView.window)) {
+        LGLiveBackdropView *candidate =
+            objc_getAssociatedObject(backdrop, kLGKeyboardGlassKey);
+        if (candidate && candidate.superview && candidate.lgFilterAttached) return YES;
+    }
+    return NO;
+}
+
+static void LGKeyboardUpdateVisualEffectsForWindow(UIWindow *window) {
+    if (!window) return;
+    for (UIView *view in gLGKeyboardVisualEffects.allObjects)
+        if (view.window == window) LGUpdateKeyboardVisualEffect(view);
 }
 
 %group LGKeyboardHooks
@@ -524,6 +648,7 @@ static void LGUpdateKeyboardVisualEffect(UIView *effectView) {
         LGIsRemoteKeyboardWindow(self.window)) {
         glass.hidden = hidden;
         %orig(YES);
+        if (glass.lgFilterAttached) LGKeyboardRendererDidRecover(self.window);
         return;
     }
     %orig(hidden);
@@ -562,7 +687,8 @@ static void LGUpdateKeyboardVisualEffect(UIView *effectView) {
     objc_setAssociatedObject(self, kLGKeyboardVisualEffectRequestedHiddenKey,
                              @(hidden), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     if (lgHostEnabled(@"Keyboard")) {
-        %orig(YES);
+        if (LGKeyboardEffectRendererReady(self)) %orig(YES);
+        else %orig(hidden);
         return;
     }
     %orig(hidden);

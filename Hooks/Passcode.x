@@ -48,12 +48,9 @@ static void handlePasscodeBackgroundMaterial(UIView *mat) {
     }
     tint.frame = host.bounds;
     [host bringSubviewToFront:tint];
-
     lgSuppressStock(mat, @"Passcode", YES);
     lgTrackGlass(tint, @"Passcode", nil);
 }
-
-#pragma mark - button host discovery + glass
 
 static UIView *pcButtonHost(UIView *button) {
     UIView *best = nil; CGFloat bestScore = CGFLOAT_MAX;
@@ -144,6 +141,24 @@ static void pcRestoreBg(UIView *host) {
     if (opaque) host.opaque = [opaque boolValue];
 }
 
+static void pcSetFilterFailureTint(UIView *host, CGFloat radius) {
+    host.backgroundColor = UIColor.clearColor;
+    UIView *tint = objc_getAssociatedObject(host, kPCTintKey);
+    if (!tint) {
+        tint = [[UIView alloc] initWithFrame:host.bounds];
+        tint.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+        objc_setAssociatedObject(host, kPCTintKey, tint, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
+    tint.userInteractionEnabled = NO;
+    if (tint.superview != host) [host addSubview:tint];
+    tint.frame = host.bounds;
+    tint.layer.cornerRadius = radius;
+    tint.layer.cornerCurve = kCACornerCurveCircular;
+    tint.layer.masksToBounds = YES;
+    tint.backgroundColor = pcTargetTint(NO);
+    [host bringSubviewToFront:tint];
+}
+
 static void injectPasscodeButton(UIView *button) {
     if (!lgHostEnabled(@"Passcode")) return;
     UIView *host = pcButtonHost(button);
@@ -171,7 +186,10 @@ static void injectPasscodeButton(UIView *button) {
     BOOL freshInject = NO;
     if (!glass) {
         glass = LGCreateRegisteredGlass(host.bounds, nil, @"Passcode");
-        if (!glass) return;
+        if (!glass) {
+            pcRestoreBg(host);
+            return;
+        }
         glass.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
         [host insertSubview:glass atIndex:0];
         objc_setAssociatedObject(host, kPCGlassKey, glass, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
@@ -183,6 +201,11 @@ static void injectPasscodeButton(UIView *button) {
     glass.layer.cornerCurve   = kCACornerCurveCircular;
     glass.layer.masksToBounds = YES;
     [glass applyFilters];
+    if (!glass.lgFilterAttached) {
+        glass.hidden = YES;
+        pcSetFilterFailureTint(host, r);
+        return;
+    }
     lgTrackGlass(glass, @"Passcode", nil);
 
     UIView *tint = objc_getAssociatedObject(host, kPCTintKey);

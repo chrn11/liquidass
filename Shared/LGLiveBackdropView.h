@@ -18,6 +18,8 @@ NSString *LGFilterTypeForHostPrefix(NSString *prefix);
 @interface LGLiveBackdropView : UIView
 
 @property (nonatomic, copy) NSString *lgFilterType;
+// CA layer/filter readback only; final render-server presentation is unverified.
+@property (nonatomic, copy) void (^lgFilterHealthHandler)(BOOL attached);
 
 @property (nonatomic, copy) NSNumber *lgSpecularEnabledOverride;
 
@@ -31,6 +33,13 @@ NSString *LGFilterTypeForHostPrefix(NSString *prefix);
 - (void)applyFilters;
 - (void)lgInvalidateFilterContents;
 - (BOOL)lgFilterAttached;
+- (void)lgStockMaterialVisibilityDidRequest:(BOOL)hidden;
+// Internal shared-router coordination; do not infer final renderer presentation.
+- (void)lgApplyStockHealth;
+
+// Shared MTMaterialView routing uses these to avoid treating our own
+// fail-open visibility writes as new UIKit visibility requests.
+BOOL LGIsInternalStockMaterialVisibilityMutation(UIView *material);
 
 @property (nonatomic, assign) CGFloat lgBackdropZoom;
 @end

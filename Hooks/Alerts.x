@@ -18,6 +18,12 @@ static void *kLGAlertHeaderRightInsetKey = &kLGAlertHeaderRightInsetKey;
 static void *kLGAlertDescriptionBaseFontKey = &kLGAlertDescriptionBaseFontKey;
 static void *kLGAlertActionLogSignatureKey = &kLGAlertActionLogSignatureKey;
 static void *kLGAlertHierarchyProbeKey = &kLGAlertHierarchyProbeKey;
+static void *kLGAlertInternalVisibilityMutationKey =
+    &kLGAlertInternalVisibilityMutationKey;
+static void *kLGAlertRequestedHiddenKey = &kLGAlertRequestedHiddenKey;
+static void *kLGAlertRequestedAlphaKey = &kLGAlertRequestedAlphaKey;
+static void *kLGAlertRetryScheduledKey = &kLGAlertRetryScheduledKey;
+static void *kLGAlertRetryCountKey = &kLGAlertRetryCountKey;
 
 static BOOL LGAlertsEnabled(void) {
     return lgHostEnabled(@"Alerts");
@@ -78,11 +84,46 @@ static void LGAlertCollectStockBackdrops(UIView *root, UIView *chrome,
     }
 }
 
+static void LGAlertRendererDidFailOpen(UIAlertController *controller);
+static void LGAlertScheduleRendererRetry(UIAlertController *controller,
+                                        LGLiveBackdropView *glass) {
+    if (!controller || !glass ||
+        [objc_getAssociatedObject(controller, kLGAlertRetryScheduledKey) boolValue])
+        return;
+    NSUInteger count = [objc_getAssociatedObject(controller,
+        kLGAlertRetryCountKey) unsignedIntegerValue];
+    if (count >= 6) return;
+    objc_setAssociatedObject(controller, kLGAlertRetryScheduledKey, @YES,
+                             OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    objc_setAssociatedObject(controller, kLGAlertRetryCountKey, @(count + 1),
+                             OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    NSTimeInterval delay = MIN(2.0, 0.20 * pow(2.0, (double)count));
+    __weak UIAlertController *weakController = controller;
+    __weak LGLiveBackdropView *weakGlass = glass;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW,
+        (int64_t)(delay * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        UIAlertController *currentController = weakController;
+        LGLiveBackdropView *currentGlass = weakGlass;
+        if (!currentController || !currentGlass ||
+            objc_getAssociatedObject(currentController, kLGAlertGlassKey) != currentGlass)
+            return;
+        objc_setAssociatedObject(currentController, kLGAlertRetryScheduledKey, nil,
+                                 OBJC_ASSOCIATION_ASSIGN);
+        UIView *retryChrome = LGAlertStockChromeView(currentController.view);
+        if (!retryChrome || !retryChrome.window) return;
+        [currentGlass applyFilters];
+    });
+}
+
+static void LGAlertInstallNativeGlass(UIAlertController *controller);
+static void LGAlertSuppressStockBackdrops(UIAlertController *controller,
+                                           UIView *chrome);
+static void LGAlertRestoreStockBackdrops(UIAlertController *controller);
+
 static void LGAlertSuppressStockBackdrops(UIAlertController *controller,
                                            UIView *chrome) {
     NSMutableArray<UIView *> *matches = [NSMutableArray array];
     LGAlertCollectStockBackdrops(chrome, chrome, matches);
-
     NSMutableArray<NSDictionary *> *states =
         objc_getAssociatedObject(controller, kLGAlertSuppressedViewsKey);
     if (!states) {
@@ -93,10 +134,7 @@ static void LGAlertSuppressStockBackdrops(UIAlertController *controller,
     for (UIView *view in matches) {
         BOOL remembered = NO;
         for (NSDictionary *state in states) {
-            if (state[@"view"] == view) {
-                remembered = YES;
-                break;
-            }
+            if (state[@"view"] == view) { remembered = YES; break; }
         }
         if (!remembered) {
             [states addObject:@{
@@ -105,8 +143,12 @@ static void LGAlertSuppressStockBackdrops(UIAlertController *controller,
                 @"alpha": @(view.alpha)
             }];
         }
+        objc_setAssociatedObject(view, kLGAlertInternalVisibilityMutationKey,
+                                 @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         view.hidden = YES;
         view.alpha = 0.0;
+        objc_setAssociatedObject(view, kLGAlertInternalVisibilityMutationKey,
+                                 nil, OBJC_ASSOCIATION_ASSIGN);
     }
 }
 
@@ -116,8 +158,23 @@ static void LGAlertRestoreStockBackdrops(UIAlertController *controller) {
     for (NSDictionary *state in states) {
         UIView *view = state[@"view"];
         if (!view) continue;
-        view.hidden = [state[@"hidden"] boolValue];
-        view.alpha = [state[@"alpha"] doubleValue];
+        objc_setAssociatedObject(view, kLGAlertInternalVisibilityMutationKey,
+                                 @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        NSNumber *requestedHidden = objc_getAssociatedObject(
+            view, kLGAlertRequestedHiddenKey);
+        BOOL restoreHidden = requestedHidden
+            ? requestedHidden.boolValue : [state[@"hidden"] boolValue];
+        NSNumber *requestedAlpha = objc_getAssociatedObject(
+            view, kLGAlertRequestedAlphaKey);
+        view.hidden = restoreHidden;
+        view.alpha = requestedAlpha ? requestedAlpha.doubleValue
+                                    : [state[@"alpha"] doubleValue];
+        objc_setAssociatedObject(view, kLGAlertInternalVisibilityMutationKey,
+                                 nil, OBJC_ASSOCIATION_ASSIGN);
+        objc_setAssociatedObject(view, kLGAlertRequestedHiddenKey, nil,
+                                 OBJC_ASSOCIATION_ASSIGN);
+        objc_setAssociatedObject(view, kLGAlertRequestedAlphaKey, nil,
+                                 OBJC_ASSOCIATION_ASSIGN);
     }
     objc_setAssociatedObject(controller, kLGAlertSuppressedViewsKey, nil,
                              OBJC_ASSOCIATION_ASSIGN);
@@ -126,10 +183,20 @@ static void LGAlertRestoreStockBackdrops(UIAlertController *controller) {
 static void LGAlertRemoveNativeGlass(UIAlertController *controller) {
     LGLiveBackdropView *glass =
         objc_getAssociatedObject(controller, kLGAlertGlassKey);
+    glass.lgFilterHealthHandler = nil;
     [glass removeFromSuperview];
     objc_setAssociatedObject(controller, kLGAlertGlassKey, nil,
                              OBJC_ASSOCIATION_ASSIGN);
     LGAlertRestoreStockBackdrops(controller);
+}
+
+static void LGAlertRendererDidFailOpen(UIAlertController *controller) {
+    if (!controller || !LGAlertsEnabled()) return;
+    LGLiveBackdropView *glass =
+        objc_getAssociatedObject(controller, kLGAlertGlassKey);
+    if (!glass || glass.hidden) return;
+    LGAlertRestoreStockBackdrops(controller);
+    glass.hidden = YES;
 }
 
 static void LGAlertInstallNativeGlass(UIAlertController *controller) {
@@ -158,7 +225,32 @@ static void LGAlertInstallNativeGlass(UIAlertController *controller) {
     glass.layer.cornerRadius = 35.0;
     if (@available(iOS 13.0, *)) glass.layer.cornerCurve = kCACornerCurveContinuous;
     glass.layer.masksToBounds = YES;
+    __weak UIAlertController *weakController = controller;
+    __weak LGLiveBackdropView *weakGlass = glass;
+    glass.lgFilterHealthHandler = ^(BOOL attached) {
+        UIAlertController *strongController = weakController;
+        LGLiveBackdropView *strongGlass = weakGlass;
+        if (!strongController || !strongGlass) return;
+        if (!attached) {
+            LGAlertRendererDidFailOpen(strongController);
+            LGAlertScheduleRendererRetry(strongController, strongGlass);
+            return;
+        }
+        objc_setAssociatedObject(strongController, kLGAlertRetryCountKey, nil,
+                                 OBJC_ASSOCIATION_ASSIGN);
+        UIView *currentChrome = LGAlertStockChromeView(strongController.view);
+        if (currentChrome && currentChrome.window &&
+            strongGlass.superview == currentChrome)
+            LGAlertSuppressStockBackdrops(strongController, currentChrome);
+    };
     [glass applyFilters];
+    if (!glass || !glass.lgFilterAttached) {
+        LGAlertRendererDidFailOpen(controller);
+        LGAlertScheduleRendererRetry(controller, glass);
+        return;
+    }
+    objc_setAssociatedObject(controller, kLGAlertRetryCountKey, nil,
+                             OBJC_ASSOCIATION_ASSIGN);
 
     LGAlertSuppressStockBackdrops(controller, chrome);
 }
@@ -816,13 +908,27 @@ static void LGAlertProbeHierarchy(UIAlertController *controller, NSString *reaso
 
 - (void)setHidden:(BOOL)hidden {
     if (LGAlertsEnabled() && LGAlertViewUsesAlertStyle((UIView *)self) &&
-        LGAlertViewIsInsideControllerChrome((UIView *)self)) hidden = YES;
+        LGAlertViewIsInsideControllerChrome((UIView *)self)) {
+        if (![objc_getAssociatedObject((UIView *)self,
+                                      kLGAlertInternalVisibilityMutationKey)
+                boolValue]) {
+            UIView *view = (UIView *)self;
+            objc_setAssociatedObject(view, kLGAlertRequestedHiddenKey, @(hidden),
+                                     OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        }
+        hidden = YES;
+    }
     %orig(hidden);
 }
 
 - (void)setAlpha:(CGFloat)alpha {
-    if (LGAlertsEnabled() && LGAlertViewUsesAlertStyle((UIView *)self) &&
-        LGAlertViewIsInsideControllerChrome((UIView *)self)) alpha = 0.0;
+    BOOL suppress = LGAlertsEnabled() && LGAlertViewUsesAlertStyle((UIView *)self) &&
+        LGAlertViewIsInsideControllerChrome((UIView *)self);
+    if (suppress && ![objc_getAssociatedObject((UIView *)self,
+            kLGAlertInternalVisibilityMutationKey) boolValue])
+        objc_setAssociatedObject((UIView *)self, kLGAlertRequestedAlphaKey,
+                                 @(alpha), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    if (suppress) alpha = 0.0;
     %orig(alpha);
 }
 

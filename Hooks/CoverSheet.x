@@ -20,10 +20,21 @@ static NSHashTable<UIView *> *sLGCoverSheetPanels;
 static NSHashTable<UIViewController *> *sLGCoverSheetWallpaperControllers;
 static CADisplayLink *sLGCoverSheetDisplayLink;
 static const void *kLGCoverSheetGlassKey = &kLGCoverSheetGlassKey;
+static CGFloat LGCoverSheetRestorePanelVisibility(UIView *panel);
+static void LGCoverSheetMarkInternalPanelHidden(UIView *panel, BOOL hidden);
+static void LGCoverSheetMarkInternalPanelAlpha(UIView *panel, CGFloat alpha);
+static BOOL LGCoverSheetGlassReadyForPanel(UIView *panel,
+                                            LGLiveBackdropView *glass);
+static void LGCoverSheetSyncPanel(UIView *panel);
+static void LGCoverSheetRendererDidFailOpen(UIView *panel);
 static const void *kLGCoverSheetWallpaperSnapshotKey =
     &kLGCoverSheetWallpaperSnapshotKey;
 static const void *kLGCoverSheetOriginalHiddenKey =
     &kLGCoverSheetOriginalHiddenKey;
+static const void *kLGCoverSheetRequestedHiddenKey =
+    &kLGCoverSheetRequestedHiddenKey;
+static const void *kLGCoverSheetRequestedAlphaKey =
+    &kLGCoverSheetRequestedAlphaKey;
 static const void *kLGCoverSheetOriginalAlphaKey =
     &kLGCoverSheetOriginalAlphaKey;
 static const void *kLGCoverSheetFadeKey = &kLGCoverSheetFadeKey;
@@ -32,6 +43,12 @@ static const void *kLGCoverSheetBorderKey = &kLGCoverSheetBorderKey;
 static const void *kLGCoverSheetMaskRadiusKey = &kLGCoverSheetMaskRadiusKey;
 static const void *kLGCoverSheetMaskOrientationKey =
     &kLGCoverSheetMaskOrientationKey;
+static const void *kLGCoverSheetDisplayLinkRetryTimeKey =
+    &kLGCoverSheetDisplayLinkRetryTimeKey;
+static const void *kLGCoverSheetFailOpenAppliedKey =
+    &kLGCoverSheetFailOpenAppliedKey;
+static const void *kLGCoverSheetInternalPanelVisibilityKey =
+    &kLGCoverSheetInternalPanelVisibilityKey;
 static const CGFloat kLGCoverSheetDefaultCornerRadiusPoints = 64.0;
 static BOOL sLGCoverSheetCommitEndPresented;
 static BOOL sLGCoverSheetLockedPasscodeTriggered;
@@ -794,6 +811,22 @@ static LGLiveBackdropView *LGCoverSheetEnsureGlass(UIView *panel) {
     }
     if (!glass) {
         glass = LGCreateRegisteredGlass(panel.frame, nil, @"CoverSheet");
+        if (!glass) return nil;
+        __weak UIView *weakPanel = panel;
+        __weak LGLiveBackdropView *weakGlass = glass;
+        glass.lgFilterHealthHandler = ^(BOOL attached) {
+            UIView *currentPanel = weakPanel;
+            LGLiveBackdropView *currentGlass = weakGlass;
+            if (!currentPanel || !currentGlass ||
+                objc_getAssociatedObject(currentPanel, kLGCoverSheetGlassKey) !=
+                    currentGlass) return;
+            if (!attached) {
+                LGCoverSheetRendererDidFailOpen(currentPanel);
+                return;
+            }
+            if (LGCoverSheetModeUsesGlass(sLGCoverSheetMode))
+                LGCoverSheetSyncPanel(currentPanel);
+        };
         glass.autoresizingMask = UIViewAutoresizingNone;
         glass.userInteractionEnabled = NO;
         glass.backgroundColor = UIColor.clearColor;
@@ -808,6 +841,9 @@ static LGLiveBackdropView *LGCoverSheetEnsureGlass(UIView *panel) {
     }
 
     [parent insertSubview:glass belowSubview:panel];
+    if (@available(iOS 13.0, *))
+        objc_setAssociatedObject(glass, @selector(lgStockMaterialVisibilityDidRequest:),
+                                 panel, OBJC_ASSOCIATION_ASSIGN);
     return glass;
 }
 
@@ -890,9 +926,33 @@ static void LGCoverSheetSyncGlassGeometry(UIView *panel,
     for (UIView *panel in sLGCoverSheetPanels.allObjects) {
         LGLiveBackdropView *glass =
             objc_getAssociatedObject(panel, kLGCoverSheetGlassKey);
-        if (glass && !glass.hidden) {
-            LGCoverSheetSyncGlassGeometry(panel, glass);
+        LGCoverSheetSyncGlassGeometry(panel, glass);
+        CFTimeInterval now = CACurrentMediaTime();
+        NSNumber *lastRetry = objc_getAssociatedObject(
+            panel, kLGCoverSheetDisplayLinkRetryTimeKey);
+        BOOL retryDue = !lastRetry || now - lastRetry.doubleValue >= 0.10;
+        if (!glass || !LGCoverSheetGlassReadyForPanel(panel, glass)) {
+            if (![objc_getAssociatedObject(panel,
+                    kLGCoverSheetFailOpenAppliedKey) boolValue]) {
+                CGFloat alpha = LGCoverSheetRestorePanelVisibility(panel);
+                LGCoverSheetMarkInternalPanelAlpha(panel, alpha);
+                glass.hidden = YES;
+                LGCoverSheetRemoveWallpaperSnapshot(panel);
+                objc_setAssociatedObject(panel, kLGCoverSheetFailOpenAppliedKey,
+                                         @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            }
+            if (retryDue) {
+                objc_setAssociatedObject(panel,
+                    kLGCoverSheetDisplayLinkRetryTimeKey, @(now),
+                    OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+                if (glass) [glass applyFilters];
+                LGCoverSheetSyncPanel(panel);
+            }
+            continue;
         }
+        objc_setAssociatedObject(panel, kLGCoverSheetFailOpenAppliedKey, nil,
+                                 OBJC_ASSOCIATION_ASSIGN);
+        LGCoverSheetSyncPanel(panel);
     }
     LGCoverSheetProfileSample(0.0, CACurrentMediaTime() - start, YES);
 }
@@ -918,18 +978,66 @@ static void LGCoverSheetSetDisplayLinkActive(BOOL active) {
     }
 }
 
+static void LGCoverSheetMarkInternalPanelHidden(UIView *panel, BOOL hidden) {
+    if (!panel) return;
+    objc_setAssociatedObject(panel, kLGCoverSheetInternalPanelVisibilityKey,
+                             @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    panel.hidden = hidden;
+    objc_setAssociatedObject(panel, kLGCoverSheetInternalPanelVisibilityKey,
+                             nil, OBJC_ASSOCIATION_ASSIGN);
+}
+
+static void LGCoverSheetMarkInternalPanelAlpha(UIView *panel, CGFloat alpha) {
+    if (!panel) return;
+    objc_setAssociatedObject(panel, kLGCoverSheetInternalPanelVisibilityKey,
+                             @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    panel.alpha = alpha;
+    objc_setAssociatedObject(panel, kLGCoverSheetInternalPanelVisibilityKey,
+                             nil, OBJC_ASSOCIATION_ASSIGN);
+}
+
 static CGFloat LGCoverSheetRestorePanelVisibility(UIView *panel) {
-    NSNumber *originalHidden =
-        objc_getAssociatedObject(panel, kLGCoverSheetOriginalHiddenKey);
-    NSNumber *originalAlpha =
-        objc_getAssociatedObject(panel, kLGCoverSheetOriginalAlphaKey);
-    CGFloat alpha = originalAlpha ? originalAlpha.doubleValue : panel.alpha;
-    if (originalHidden) panel.hidden = originalHidden.boolValue;
+    NSNumber *originalHidden = objc_getAssociatedObject(
+        panel, kLGCoverSheetOriginalHiddenKey);
+    NSNumber *requestedHidden = objc_getAssociatedObject(
+        panel, kLGCoverSheetRequestedHiddenKey);
+    NSNumber *originalAlpha = objc_getAssociatedObject(
+        panel, kLGCoverSheetOriginalAlphaKey);
+    NSNumber *requestedAlpha = objc_getAssociatedObject(
+        panel, kLGCoverSheetRequestedAlphaKey);
+    CGFloat alpha = requestedAlpha ? requestedAlpha.doubleValue
+        : (originalAlpha ? originalAlpha.doubleValue : panel.alpha);
+    BOOL hidden = requestedHidden ? requestedHidden.boolValue
+        : (originalHidden ? originalHidden.boolValue : panel.hidden);
+    if (originalHidden || requestedHidden)
+        LGCoverSheetMarkInternalPanelHidden(panel, hidden);
     objc_setAssociatedObject(panel, kLGCoverSheetOriginalHiddenKey, nil,
+                             OBJC_ASSOCIATION_ASSIGN);
+    objc_setAssociatedObject(panel, kLGCoverSheetRequestedHiddenKey, nil,
                              OBJC_ASSOCIATION_ASSIGN);
     objc_setAssociatedObject(panel, kLGCoverSheetOriginalAlphaKey, nil,
                              OBJC_ASSOCIATION_ASSIGN);
+    objc_setAssociatedObject(panel, kLGCoverSheetRequestedAlphaKey, nil,
+                             OBJC_ASSOCIATION_ASSIGN);
     return alpha;
+}
+
+static BOOL LGCoverSheetGlassReadyForPanel(UIView *panel, LGLiveBackdropView *glass) {
+    UIView *owner = objc_getAssociatedObject(glass,
+        @selector(lgStockMaterialVisibilityDidRequest:));
+    if (owner != panel) return NO;
+    return glass.lgFilterAttached;
+}
+
+static void LGCoverSheetRendererDidFailOpen(UIView *panel) {
+    if (!panel || !LGCoverSheetEnabled()) return;
+    CGFloat alpha = LGCoverSheetRestorePanelVisibility(panel);
+    LGCoverSheetMarkInternalPanelAlpha(panel, alpha);
+    LGLiveBackdropView *glass =
+        objc_getAssociatedObject(panel, kLGCoverSheetGlassKey);
+    glass.hidden = YES;
+    glass.alpha = 1.0;
+    LGCoverSheetRemoveWallpaperSnapshot(panel);
 }
 
 static void LGCoverSheetCrossfadeToLockscreen(UIView *panel,
@@ -973,7 +1081,7 @@ static void LGCoverSheetCrossfadeToHome(UIView *panel,
 
     objc_setAssociatedObject(panel, kLGCoverSheetFadeKey, @YES,
                              OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-    panel.hidden = YES;
+    LGCoverSheetMarkInternalPanelHidden(panel, YES);
     glass.hidden = NO;
     glass.alpha = 1.0;
     UIView *snapshot = LGCoverSheetWallpaperSnapshot(panel);
@@ -989,7 +1097,7 @@ static void LGCoverSheetCrossfadeToHome(UIView *panel,
         snapshot.alpha = 0.0;
     } completion:^(__unused BOOL finished) {
         CGFloat alpha = LGCoverSheetRestorePanelVisibility(panel);
-        panel.alpha = alpha;
+        LGCoverSheetMarkInternalPanelAlpha(panel, alpha);
         glass.hidden = YES;
         glass.alpha = 1.0;
         LGCoverSheetRemoveWallpaperSnapshot(panel);
@@ -1004,7 +1112,7 @@ static void LGCoverSheetSyncPanel(UIView *panel) {
     if (!LGCoverSheetEnabled()) {
         [panel.layer removeAllAnimations];
         CGFloat alpha = LGCoverSheetRestorePanelVisibility(panel);
-        panel.alpha = alpha;
+        LGCoverSheetMarkInternalPanelAlpha(panel, alpha);
         LGLiveBackdropView *glass =
             objc_getAssociatedObject(panel, kLGCoverSheetGlassKey);
         [glass removeFromSuperview];
@@ -1024,19 +1132,52 @@ static void LGCoverSheetSyncPanel(UIView *panel) {
 
     [CATransaction begin];
     [CATransaction setDisableActions:YES];
-    if (LGCoverSheetModeUsesGlass(sLGCoverSheetMode)) {
-        if (!objc_getAssociatedObject(panel,
-                                      kLGCoverSheetOriginalHiddenKey)) {
-            objc_setAssociatedObject(
-                panel, kLGCoverSheetOriginalHiddenKey, @(panel.hidden),
-                OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-            objc_setAssociatedObject(
-                panel, kLGCoverSheetOriginalAlphaKey, @(panel.alpha),
-                OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-        }
-        panel.hidden = YES;
+    if (LGCoverSheetModeUsesGlass(sLGCoverSheetMode) &&
+        !LGCoverSheetGlassReadyForPanel(panel, glass)) {
+        // Fail open: do not hide the real lock-screen panel until its backdrop
+        // filter is attached. CoverSheet's display link will retry next tick.
+        CGFloat alpha = LGCoverSheetRestorePanelVisibility(panel);
+        LGCoverSheetMarkInternalPanelAlpha(panel, alpha);
+        glass.hidden = YES;
         glass.alpha = 1.0;
-        if (beginDismissalFadeIn) {
+        LGCoverSheetRemoveWallpaperSnapshot(panel);
+        [CATransaction commit];
+        return;
+    }
+    if (LGCoverSheetModeUsesGlass(sLGCoverSheetMode)) {
+        NSNumber *originalHidden = objc_getAssociatedObject(
+            panel, kLGCoverSheetOriginalHiddenKey);
+        NSNumber *originalAlpha = objc_getAssociatedObject(
+            panel, kLGCoverSheetOriginalAlphaKey);
+        NSNumber *requestedHidden = objc_getAssociatedObject(
+            panel, kLGCoverSheetRequestedHiddenKey);
+        NSNumber *requestedAlpha = objc_getAssociatedObject(
+            panel, kLGCoverSheetRequestedAlphaKey);
+        if (!originalHidden && !originalAlpha) {
+            objc_setAssociatedObject(panel, kLGCoverSheetOriginalHiddenKey,
+                                     @(panel.hidden),
+                                     OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            objc_setAssociatedObject(panel, kLGCoverSheetOriginalAlphaKey,
+                                     @(panel.alpha),
+                                     OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            originalHidden = @(panel.hidden);
+            originalAlpha = @(panel.alpha);
+        }
+        BOOL nativeHidden = requestedHidden
+            ? requestedHidden.boolValue : originalHidden.boolValue;
+        CGFloat nativeAlpha = requestedAlpha
+            ? requestedAlpha.doubleValue : originalAlpha.doubleValue;
+        if (nativeHidden) {
+            LGCoverSheetMarkInternalPanelHidden(panel, YES);
+            glass.hidden = YES;
+            LGCoverSheetMarkInternalPanelAlpha(panel, nativeAlpha);
+        } else {
+            LGCoverSheetMarkInternalPanelHidden(panel, YES);
+            LGCoverSheetMarkInternalPanelAlpha(panel, 1.0);
+            glass.hidden = NO;
+            glass.alpha = nativeAlpha;
+        }
+        if (!nativeHidden && beginDismissalFadeIn) {
             [glass.layer removeAnimationForKey:
                 @"dylv.coversheet.dismissalFadeIn"];
             CABasicAnimation *fadeIn =
@@ -1050,7 +1191,7 @@ static void LGCoverSheetSyncPanel(UIView *panel) {
                                forKey:@"dylv.coversheet.dismissalFadeIn"];
         }
 
-        glass.hidden = NO;
+        glass.hidden = nativeHidden;
         UIView *snapshot = LGCoverSheetWallpaperSnapshot(panel);
         snapshot.hidden =
             sLGCoverSheetMode != LGCoverSheetModeDismissing;
@@ -1069,7 +1210,7 @@ static void LGCoverSheetSyncPanel(UIView *panel) {
             return;
         }
         CGFloat alpha = LGCoverSheetRestorePanelVisibility(panel);
-        panel.alpha = alpha;
+        LGCoverSheetMarkInternalPanelAlpha(panel, alpha);
         glass.hidden = YES;
         glass.alpha = 1.0;
         LGCoverSheetRemoveWallpaperSnapshot(panel);
@@ -1568,6 +1709,32 @@ prepareForDismissalTransitionForReversingTransition:(BOOL)reversing
     }
 
     %orig(appeared, NO);
+}
+
+%end
+
+%hook SBCoverSheetPanelBackgroundContainerView
+
+- (void)setHidden:(BOOL)hidden {
+    UIView *panel = (UIView *)self;
+    if (![objc_getAssociatedObject(panel,
+            kLGCoverSheetInternalPanelVisibilityKey) boolValue]) {
+        if (objc_getAssociatedObject(panel, kLGCoverSheetOriginalHiddenKey))
+            objc_setAssociatedObject(panel, kLGCoverSheetRequestedHiddenKey,
+                                     @(hidden), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
+    %orig(hidden);
+}
+
+- (void)setAlpha:(CGFloat)alpha {
+    UIView *panel = (UIView *)self;
+    if (![objc_getAssociatedObject(panel,
+            kLGCoverSheetInternalPanelVisibilityKey) boolValue] &&
+        objc_getAssociatedObject(panel, kLGCoverSheetOriginalAlphaKey)) {
+        objc_setAssociatedObject(panel, kLGCoverSheetRequestedAlphaKey,
+                                 @(alpha), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
+    %orig(alpha);
 }
 
 %end
