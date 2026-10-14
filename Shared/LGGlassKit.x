@@ -271,7 +271,10 @@ __attribute__((constructor)) static void lgGlassInitEnableObserver(void) {
     lgRouteMaterialHost((UIView *)self);
 }
 
-- (void)layoutSubviews { %orig; lgRouteMaterialHost((UIView *)self); }
+- (void)layoutSubviews {
+    %orig;
+    lgRouteMaterialHost((UIView *)self);
+}
 
 - (void)setHidden:(BOOL)hidden {
     if (LGMaterialHasGlass((UIView *)self, kGlassKey)) hidden = YES;
