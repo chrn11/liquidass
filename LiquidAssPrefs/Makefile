@@ -5,7 +5,7 @@ BUNDLE_NAME = LiquidAssPrefs
 LG_PACKAGE_VERSION := $(shell sed -n 's/^Version: //p' ../control | head -n 1)
 
 PREF_LOCAL_FILES := $(wildcard *.m)
-PREF_SHARED_FILES := ../Shared/LGSharedSupport.m ../Shared/LGLiveBackdropView.m ../Shared/LGFramework.m
+PREF_SHARED_FILES := ../Shared/LGSharedSupport.m ../Shared/LGLiveBackdropView.m ../Shared/LGMeshLens.m ../Shared/LGFramework.m
 LiquidAssPrefs_FILES = $(PREF_LOCAL_FILES) $(PREF_SHARED_FILES)
 LiquidAssPrefs_FRAMEWORKS = UIKit QuartzCore CoreText CoreGraphics CoreMotion
 LiquidAssPrefs_INSTALL_PATH = /Library/PreferenceBundles
