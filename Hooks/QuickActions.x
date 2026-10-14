@@ -2,6 +2,7 @@
 #import <QuartzCore/QuartzCore.h>
 #import "../Shared/LGLiveBackdropView.h"
 #import "../Shared/LGGlassKit.h"
+#import "../Shared/LGHostRegistry.h"
 #import <objc/runtime.h>
 
 static void *kQAGlassKey = &kQAGlassKey;
@@ -128,6 +129,7 @@ static void injectQuickActionsGlass(UIVisualEffectView *fx) {
             qaRestoreOriginalStyle(fx);
             qaRestoreStockBackdrop(fx);
         }
+        lgUntrackGlass(glass);
         [glass removeFromSuperview];
         objc_setAssociatedObject(fx, kQAGlassKey, nil, OBJC_ASSOCIATION_ASSIGN);
         return;
@@ -145,6 +147,57 @@ static void injectQuickActionsGlass(UIVisualEffectView *fx) {
     if (!sQuickActionHosts) sQuickActionHosts = [NSHashTable weakObjectsHashTable];
     [sQuickActionHosts addObject:fx];
     lgTrackGlass(glass, @"QuickActions", nil);
+    LGSurfaceDescriptorV1 surface = glass.lgSurfaceDescriptor;
+    const LGSurfaceDescriptorV1 previous = surface;
+    surface.shapeKind = (uint32_t)LGSurfaceShapeCapsule;
+    surface.flags |= LGSurfaceDescriptorEnabled |
+                     LGSurfaceDescriptorForegroundOwned |
+                     LGSurfaceDescriptorGeometryValid;
+    surface.captureGroup = (uint32_t)LGHostIdentifierQuickActions;
+    surface.captureOwnerGroup = (uint32_t)LGHostIdentifierQuickActions;
+    surface.captureOwnerGeneration = surface.hostGeneration;
+    surface.nestedMaterialPolicy = (uint32_t)LGSurfaceNestedMaterialAllow;
+    surface.backgroundProfile = (uint32_t)LGSurfaceBackgroundProfileForHost(@"QuickActions");
+    surface.qualityTier = (uint32_t)LGSurfaceQualityTierForHost(@"QuickActions");
+    surface.boundsOriginX = (float)CGRectGetMinX(container.bounds);
+    surface.boundsOriginY = (float)CGRectGetMinY(container.bounds);
+    surface.boundsWidth = (float)CGRectGetWidth(container.bounds);
+    surface.boundsHeight = (float)CGRectGetHeight(container.bounds);
+    surface.maskSource = (uint32_t)LGSurfaceMaskSourceLayerCornerRadius;
+    surface.geometrySpace = (uint32_t)LGSurfaceGeometryHostLocal;
+    surface.maskOriginX = (float)CGRectGetMinX(container.bounds);
+    surface.maskOriginY = (float)CGRectGetMinY(container.bounds);
+    surface.maskWidth = (float)CGRectGetWidth(container.bounds);
+    surface.maskHeight = (float)CGRectGetHeight(container.bounds);
+    surface.cornerRadius = (float)glass.layer.cornerRadius;
+    if (!LGSurfaceGeometryEqual(&previous, &surface))
+        surface.geometryGeneration = LGSurfaceGenerationNext(previous.geometryGeneration);
+    if (previous.backgroundProfile != surface.backgroundProfile || previous.qualityTier != surface.qualityTier)
+        surface.appearanceGeneration = LGSurfaceGenerationNext(previous.appearanceGeneration);
+    [glass lgUpdateSurfaceDescriptor:surface];
+    __weak UIVisualEffectView *weakHost = fx;
+    __weak LGLiveBackdropView *weakGlass = glass;
+    glass.lgFilterHealthHandler = ^(BOOL attached) {
+        UIVisualEffectView *host = weakHost;
+        LGLiveBackdropView *currentGlass = weakGlass;
+        if (!host || !currentGlass ||
+            objc_getAssociatedObject(host, kQAGlassKey) != currentGlass) return;
+        LGSurfaceDescriptorV1 current = currentGlass.lgSurfaceDescriptor;
+        if (attached) current.flags &= ~LGSurfaceDescriptorNativeFallback;
+        else current.flags |= LGSurfaceDescriptorNativeFallback;
+        [currentGlass lgUpdateSurfaceDescriptor:current];
+        if (attached) {
+            qaCaptureOriginalStyle(host);
+            if (@available(iOS 13.0, *)) {
+                host.overrideUserInterfaceStyle = UIUserInterfaceStyleLight;
+                host.contentView.overrideUserInterfaceStyle = UIUserInterfaceStyleLight;
+            }
+            qaSetBackdropHidden(host);
+        } else {
+            qaRestoreOriginalStyle(host);
+            qaRestoreStockBackdrop(host);
+        }
+    };
 }
 
 static void removeQuickActionsGlass(UIVisualEffectView *fx) {
@@ -152,6 +205,7 @@ static void removeQuickActionsGlass(UIVisualEffectView *fx) {
     qaRestoreOriginalStyle(fx);
     qaRestoreStockBackdrop(fx);
     if (glass) {
+        lgUntrackGlass(glass);
         [glass removeFromSuperview];
         objc_setAssociatedObject(fx, kQAGlassKey, nil, OBJC_ASSOCIATION_ASSIGN);
     }
@@ -166,6 +220,30 @@ static void LGReconcileQuickActionHosts(void) {
     }
 }
 
+%hook CSQuickActionsButton
+
+- (void)setHighlighted:(BOOL)highlighted {
+    %orig(highlighted);
+    UIView *button = (UIView *)self;
+    for (UIView *view = button.superview; view; view = view.superview) {
+        if (![view isKindOfClass:[UIVisualEffectView class]] ||
+            !isQuickActionsHost(view)) continue;
+        LGLiveBackdropView *glass = objc_getAssociatedObject(view, kQAGlassKey);
+        if (!glass) return;
+        LGSurfaceDescriptorV1 state = glass.lgSurfaceDescriptor;
+        state.interactionGeneration = state.interactionGeneration == UINT64_MAX
+            ? UINT64_MAX : state.interactionGeneration + 1;
+        state.interactionPhase = highlighted ? LGSurfaceInteractionDown
+                                             : LGSurfaceInteractionRelease;
+        state.pressProgress = highlighted ? 1.0f : 0.0f;
+        state.flags &= ~LGSurfaceDescriptorTouchValid;
+        [glass lgUpdateSurfaceDescriptor:state];
+        return;
+    }
+}
+
+%end
+
 %hook UIVisualEffectView
 - (void)didMoveToWindow {
     %orig;
@@ -173,6 +251,7 @@ static void LGReconcileQuickActionHosts(void) {
     if (!self_.window) { removeQuickActionsGlass((UIVisualEffectView *)self_); return; }
     if (isQuickActionsHost(self_)) injectQuickActionsGlass((UIVisualEffectView *)self_);
 }
+
 - (void)layoutSubviews {
     %orig;
     UIView *self_ = (UIView *)self;

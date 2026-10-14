@@ -4,6 +4,7 @@
 #import <objc/runtime.h>
 #import "../Shared/LGLiveBackdropView.h"
 #import "../Shared/LGGlassKit.h"
+#import "../Shared/LGHostRegistry.h"
 #import "../Shared/LGSharedSupport.h"
 #import "../Shared/LGCoverSheetState.h"
 
@@ -803,6 +804,7 @@ static LGLiveBackdropView *LGCoverSheetEnsureGlass(UIView *panel) {
                               CGRectGetHeight(panel.bounds);
         if (glassLandscape != panelLandscape) {
 
+            lgUntrackGlass(glass);
             [glass removeFromSuperview];
             objc_setAssociatedObject(panel, kLGCoverSheetGlassKey, nil,
                                      OBJC_ASSOCIATION_ASSIGN);
@@ -833,6 +835,18 @@ static LGLiveBackdropView *LGCoverSheetEnsureGlass(UIView *panel) {
         glass.layer.cornerRadius = 0.0;
         glass.layer.masksToBounds = NO;
         glass.hidden = YES;
+        LGSurfaceDescriptorV1 surface = glass.lgSurfaceDescriptor;
+        surface.role = (uint32_t)LGSurfaceRolePanel;
+        surface.shapeKind = (uint32_t)LGSurfaceShapeRoundedRectangle;
+        surface.captureGroup = (uint32_t)LGHostIdentifierForDefinition(
+            LGHostDefinitionForPreferencePrefix(@"CoverSheet".UTF8String));
+        surface.captureOwnerGroup = surface.captureGroup;
+        surface.captureOwnerGeneration = surface.hostGeneration;
+        surface.nestingDepth = 0;
+        surface.nestedMaterialPolicy = (uint32_t)LGSurfaceNestedMaterialAllow;
+        surface.flags |= LGSurfaceDescriptorEnabled | LGSurfaceDescriptorForegroundOwned;
+        surface.geometryGeneration = LGSurfaceGenerationNext(surface.geometryGeneration);
+        [glass lgUpdateSurfaceDescriptor:surface];
         objc_setAssociatedObject(panel, kLGCoverSheetGlassKey, glass,
                                  OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     }
@@ -882,6 +896,29 @@ static void LGCoverSheetSyncGlassGeometry(UIView *panel,
     }
 
     LGCoverSheetUpdateBottomCornerMask(glass);
+    LGSurfaceDescriptorV1 surface = glass.lgSurfaceDescriptor;
+    CGRect hostBounds = glass.bounds;
+    CGRect glassMask = glass.layer.mask ? glass.layer.mask.bounds : hostBounds;
+    const LGSurfaceDescriptorV1 previous = surface;
+    surface.role = (uint32_t)LGSurfaceRolePanel;
+    surface.shapeKind = (uint32_t)LGSurfaceShapeRoundedRectangle;
+    surface.maskSource = glass.layer.mask
+        ? (uint32_t)LGSurfaceMaskSourceExplicitPath
+        : (uint32_t)LGSurfaceMaskSourceLayerCornerRadius;
+    surface.geometrySpace = (uint32_t)LGSurfaceGeometryHostLocal;
+    surface.boundsOriginX = (float)CGRectGetMinX(hostBounds);
+    surface.boundsOriginY = (float)CGRectGetMinY(hostBounds);
+    surface.boundsWidth = (float)CGRectGetWidth(hostBounds);
+    surface.boundsHeight = (float)CGRectGetHeight(hostBounds);
+    surface.maskOriginX = (float)CGRectGetMinX(glassMask);
+    surface.maskOriginY = (float)CGRectGetMinY(glassMask);
+    surface.maskWidth = (float)CGRectGetWidth(glassMask);
+    surface.maskHeight = (float)CGRectGetHeight(glassMask);
+    surface.flags |= LGSurfaceDescriptorGeometryValid |
+                     LGSurfaceDescriptorForegroundOwned;
+    if (!LGSurfaceGeometryEqual(&previous, &surface))
+        surface.geometryGeneration = LGSurfaceGenerationNext(previous.geometryGeneration);
+    [glass lgUpdateSurfaceDescriptor:surface];
 
     if (LGCoverSheetModeUsesGlass(sLGCoverSheetMode)) {
 
@@ -922,7 +959,7 @@ static void LGCoverSheetSyncGlassGeometry(UIView *panel,
 - (void)lg_coverSheetDisplayLinkTick:(CADisplayLink *)displayLink {
     (void)displayLink;
     if (!LGCoverSheetModeUsesGlass(sLGCoverSheetMode)) return;
-    CFTimeInterval start = CACurrentMediaTime();
+    CFTimeInterval started = CACurrentMediaTime();
     for (UIView *panel in sLGCoverSheetPanels.allObjects) {
         LGLiveBackdropView *glass =
             objc_getAssociatedObject(panel, kLGCoverSheetGlassKey);
@@ -954,7 +991,7 @@ static void LGCoverSheetSyncGlassGeometry(UIView *panel,
                                  OBJC_ASSOCIATION_ASSIGN);
         LGCoverSheetSyncPanel(panel);
     }
-    LGCoverSheetProfileSample(0.0, CACurrentMediaTime() - start, YES);
+    LGCoverSheetProfileSample(0.0, CACurrentMediaTime() - started, YES);
 }
 @end
 
@@ -1115,6 +1152,7 @@ static void LGCoverSheetSyncPanel(UIView *panel) {
         LGCoverSheetMarkInternalPanelAlpha(panel, alpha);
         LGLiveBackdropView *glass =
             objc_getAssociatedObject(panel, kLGCoverSheetGlassKey);
+        lgUntrackGlass(glass);
         [glass removeFromSuperview];
         LGCoverSheetRemoveWallpaperSnapshot(panel);
         objc_setAssociatedObject(panel, kLGCoverSheetGlassKey, nil,
@@ -1264,6 +1302,7 @@ static void LGCoverSheetSetMode(LGCoverSheetMode mode) {
     } else {
         LGLiveBackdropView *glass =
             objc_getAssociatedObject(panel, kLGCoverSheetGlassKey);
+        lgUntrackGlass(glass);
         [glass removeFromSuperview];
         LGCoverSheetRemoveWallpaperSnapshot(panel);
         objc_setAssociatedObject(panel, kLGCoverSheetGlassKey, nil,

@@ -1067,6 +1067,7 @@ static UIColor *LGClockPullTint(UITraitCollection *traits) {
         visibleSourceView.alpha = self.originalVisibleSourceAlpha;
         visibleSourceView.layer.opacity = self.originalVisibleSourceLayerOpacity;
         self.glassView.maskView = nil;
+        lgUntrackGlass(self.glassView);
         [self.glassView removeFromSuperview];
         [self.pullBlurView removeFromSuperview];
         self.glassView = nil;
@@ -1089,6 +1090,7 @@ static UIColor *LGClockPullTint(UITraitCollection *traits) {
             if (self.glassView) {
                 self.glassView.hidden = YES;
                 self.glassView.maskView = nil;
+                lgUntrackGlass(self.glassView);
                 [self.glassView removeFromSuperview];
                 self.glassView = nil;
             }
@@ -1235,6 +1237,7 @@ static UIColor *LGClockPullTint(UITraitCollection *traits) {
                 [glass removeFromSuperview];
                 [renderContainer addSubview:glass];
             }
+            lgTrackGlass(glass, @"Clock", nil);
             if (pullBlur.superview != renderContainer) {
                 [pullBlur removeFromSuperview];
                 [renderContainer addSubview:pullBlur];
@@ -1276,6 +1279,24 @@ static UIColor *LGClockPullTint(UITraitCollection *traits) {
                 CGPathRef normalizedPath = CGPathCreateCopyByTransformingPath(glyphPath, &transform);
                 if (normalizedPath) {
                     maskLayer.path = normalizedPath;
+                    LGSurfaceDescriptorV1 descriptor = glass.lgSurfaceDescriptor;
+                    descriptor.role = (uint32_t)LGSurfaceRoleClock;
+                    descriptor.shapeKind = (uint32_t)LGSurfaceShapeGlyph;
+                    descriptor.maskSource = (uint32_t)LGSurfaceMaskSourceTextMask;
+                    descriptor.geometrySpace = (uint32_t)LGSurfaceGeometryHostLocal;
+                    descriptor.maskOriginX = (float)CGRectGetMinX(glass.bounds);
+                    descriptor.maskOriginY = (float)CGRectGetMinY(glass.bounds);
+                    descriptor.maskWidth = (float)CGRectGetWidth(glass.bounds);
+                    descriptor.maskHeight = (float)CGRectGetHeight(glass.bounds);
+                    descriptor.flags |= LGSurfaceDescriptorEnabled |
+                                        LGSurfaceDescriptorGeometryValid;
+                    descriptor.boundsOriginX = (float)CGRectGetMinX(glass.bounds);
+                    descriptor.boundsOriginY = (float)CGRectGetMinY(glass.bounds);
+                    descriptor.boundsWidth = (float)CGRectGetWidth(glass.bounds);
+                    descriptor.boundsHeight = (float)CGRectGetHeight(glass.bounds);
+                    descriptor.geometryGeneration = descriptor.geometryGeneration == UINT64_MAX
+                        ? UINT64_MAX : descriptor.geometryGeneration + 1;
+                    [glass lgUpdateSurfaceDescriptor:descriptor];
                     profilePrepareEnd = CACurrentMediaTime();
                     CFTimeInterval profilePublishStart = profilePrepareEnd;
                     glyphMaskPublishedThisApply = LGClockPublishPath(normalizedPath, glass.bounds.size, 1.0);
@@ -1314,6 +1335,7 @@ static UIColor *LGClockPullTint(UITraitCollection *traits) {
                 [renderContainer bringSubviewToFront:glass];
             } else {
                 glass.maskView = nil;
+                lgUntrackGlass(glass);
                 [glass removeFromSuperview];
                 self.glassView = nil;
                 if (self.pullBlurView) {
@@ -1440,6 +1462,7 @@ static UIColor *LGClockPullTint(UITraitCollection *traits) {
         self.visibleSourceView.layer.opacity = self.originalVisibleSourceLayerOpacity;
     }
     self.glassView.maskView = nil;
+    lgUntrackGlass(self.glassView);
     [self.glassView removeFromSuperview];
     [self.pullBlurView removeFromSuperview];
     self.glassView = nil;
@@ -1890,6 +1913,7 @@ static void LGPublishArtworkRect(UIView *artworkView) {
                         if (!clockGlassReady) {
                             if (state.glassView) {
                                 state.glassView.maskView = nil;
+                                lgUntrackGlass(state.glassView);
                                 [state.glassView removeFromSuperview];
                                 state.glassView = nil;
                             }

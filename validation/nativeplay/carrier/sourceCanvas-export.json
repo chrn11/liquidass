@@ -1,0 +1,75 @@
+{
+  "scope": "Local sourceCanvas-only export; EvidenceBrowser read-only exact-URL/API preflight then guarded state transaction; no screenshot or WebGL output",
+  "tabID": 0,
+  "preflightPageURL": "minis://shared/liquidass-glass-lab/web/index.html",
+  "transaction": {
+    "shader_time_exposed": true,
+    "pre_capture": {
+      "state": {
+        "glare": 0.65,
+        "background": "grid",
+        "thickness": 10,
+        "shape": "capsule",
+        "disabled": false,
+        "visibility": 1,
+        "mode": "final",
+        "bezel": 18,
+        "reduceMotion": false,
+        "moving": false,
+        "tint": 0,
+        "ior": 1.5,
+        "blur": 0.5,
+        "stages": {
+          "interact": 1,
+          "blur": 1,
+          "highlight": 1,
+          "refract": 1,
+          "tint": 1
+        }
+      },
+      "sample_performance_ms": 32042,
+      "shader_time_available": true,
+      "sample_epoch_ms": 1791373046972,
+      "sampled_at_utc": "2026-10-07T11:37:26.971Z",
+      "pointer_was_captured": false,
+      "shader_time_sec": 0,
+      "press": {
+        "pointer": null,
+        "press": 0,
+        "phase": "idle",
+        "touch": [
+          240,
+          180
+        ],
+        "velocity": 0,
+        "target": 0
+      }
+    },
+    "value": {
+      "width": 480,
+      "base64Returned": false,
+      "webShaderURL": "minis://shared/liquidass-glass-lab/web/optical.frag",
+      "height": 360,
+      "webURL": "minis://shared/liquidass-glass-lab/web/index.html",
+      "localWriteStatus": 201,
+      "bytes": 224672,
+      "export": "sourceCanvas-only PNG",
+      "waitedForRAF": false
+    }
+  },
+  "capture": {
+    "bytes": 224672,
+    "sha256": "028a69496776ec609800cf9bf27201e122c0075e82f25fc9bd1e4b0d8743515b"
+  },
+  "matchesStagedInputByteForByte": true,
+  "stagedInputSHA256": "028a69496776ec609800cf9bf27201e122c0075e82f25fc9bd1e4b0d8743515b",
+  "sourceCanvasDimensions": [
+    480,
+    360
+  ],
+  "outputFile": "/tmp/native-play-export-check.png",
+  "webOpticalSHA256": "8797d053b9ff7fa64a0254628638106f8959e14f76a3bf404c5dfe293d9d2907",
+  "glassCoreSHA256": "50016e9fca584a86dab0549a58634d04e830923414b9e8bc169aad5492a89a6b",
+  "sourceCanvasGeneratorSHA256": "8e80661b86cd035e7238e97a55c265974c03c788894fba395ce7fefde95f5b33",
+  "noNetworkOutsideLoopback": true
+}

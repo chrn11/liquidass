@@ -46,6 +46,8 @@
 "prefs.subtitle.variable_font_height" = "Height axis value for the iOS 26 clock font.";
 "prefs.subtitle.variable_font_softness" = "Softness axis value for the iOS 26 clock font.";
 "prefs.subtitle.global_enabled" = "Master switch for every surface.";
+"prefs.button_candidate.title" = "Settings Back Button Material Candidate";
+"prefs.button_candidate.subtitle" = "Experimental, default-off material for the exact back button in Apple Settings only; no other process or button is eligible.";
 
 "prefs.section.dock.title" = "Dock";
 "prefs.section.folder_icons.title" = "Folder Icons";

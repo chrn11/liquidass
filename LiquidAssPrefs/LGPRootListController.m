@@ -9,12 +9,18 @@
 #import <objc/runtime.h>
 #import <notify.h>
 
+static BOOL LGReadButtonMaterialCandidateEnabled(void) {
+    id value = LGReadPreference(@"PrefsButton.MaterialCandidate.Enabled", @NO);
+    return [value isKindOfClass:NSNumber.class] && [value boolValue];
+}
+
 @interface LGPRootListController () <UIScrollViewDelegate>
 @property (nonatomic, strong) UIScrollView *lg_scrollView;
 @property (nonatomic, strong) UIStackView *lg_stackView;
 @property (nonatomic, strong) NSArray<UIButton *> *lg_menuButtons;
 @property (nonatomic, strong) UIView *lg_respringBar;
 @property (nonatomic, strong) UISwitch *lg_globalToggle;
+@property (nonatomic, strong) UISwitch *lg_buttonCandidateToggle;
 @property (nonatomic, strong) UIButton *lg_safeModeButton;
 @property (nonatomic, assign) CFTimeInterval lg_lastFloatingGlassScrollRefreshTime;
 @end
@@ -44,6 +50,7 @@
     self.lg_menuButtons = @[surfacesButton];
     [self.lg_stackView addArrangedSubview:mainSection];
     [self.lg_stackView addArrangedSubview:[self globalToggleCard]];
+    [self.lg_stackView addArrangedSubview:[self buttonCandidateToggleCard]];
     [self.lg_stackView addArrangedSubview:[self groupedRootNavPanelForButtons:@[surfacesButton]]];
     [self.lg_stackView addArrangedSubview:miscSection];
     [self.lg_stackView addArrangedSubview:[self groupedRootNavPanelForButtons:@[moreOptionsButton, respringButton, safeModeButton, aboutButton]]];
@@ -86,6 +93,9 @@
 - (void)viewDidAppear:(BOOL)animated {
     [super viewDidAppear:animated];
     [self.lg_globalToggle setOn:[self isGlobalEnabled] animated:NO];
+    [self.lg_buttonCandidateToggle setOn:
+        LGReadButtonMaterialCandidateEnabled()
+        animated:NO];
     [self updateMenuAvailability];
     [self updateSafeModeAvailability];
     [self updateRespringBarAnimated:NO];
@@ -152,6 +162,9 @@
     if (!self.isViewLoaded) return;
     BOOL enabled = [self isGlobalEnabled];
     [self.lg_globalToggle setOn:enabled animated:YES];
+    [self.lg_buttonCandidateToggle setOn:
+        LGReadButtonMaterialCandidateEnabled()
+        animated:YES];
     [self updateMenuAvailability];
     [self updateRespringBarAnimated:YES];
 }
@@ -287,6 +300,63 @@
     [stack addArrangedSubview:headerRow];
     [stack addArrangedSubview:subtitleLabel];
 
+    [NSLayoutConstraint activateConstraints:@[
+        [stack.topAnchor constraintEqualToAnchor:card.topAnchor constant:13.0],
+        [stack.leadingAnchor constraintEqualToAnchor:card.leadingAnchor constant:14.0],
+        [stack.trailingAnchor constraintEqualToAnchor:card.trailingAnchor constant:-14.0],
+        [stack.bottomAnchor constraintEqualToAnchor:card.bottomAnchor constant:-13.0],
+    ]];
+    return card;
+}
+
+- (UIView *)buttonCandidateToggleCard {
+    UIView *card = [[UIView alloc] initWithFrame:CGRectZero];
+    card.backgroundColor = LGSubpageCardBackgroundColor();
+    card.layer.cornerRadius = 23.25;
+    card.layer.cornerCurve = kCACornerCurveContinuous;
+
+    UIStackView *stack = [[UIStackView alloc] initWithFrame:CGRectZero];
+    stack.axis = UILayoutConstraintAxisVertical;
+    stack.spacing = 9.0;
+    stack.translatesAutoresizingMaskIntoConstraints = NO;
+    [card addSubview:stack];
+
+    UILabel *title = [[UILabel alloc] initWithFrame:CGRectZero];
+    title.text = LGLocalized(@"prefs.button_candidate.title");
+    title.font = [UIFont systemFontOfSize:17.0 weight:UIFontWeightSemibold];
+    UILabel *subtitle = [[UILabel alloc] initWithFrame:CGRectZero];
+    subtitle.text = LGLocalized(@"prefs.button_candidate.subtitle");
+    subtitle.numberOfLines = 0;
+    subtitle.textColor = UIColor.secondaryLabelColor;
+    subtitle.font = [UIFont systemFontOfSize:13.0 weight:UIFontWeightRegular];
+
+    UISwitch *toggle = [[LGPrefsSwitchClass() alloc] initWithFrame:CGRectZero];
+    toggle.onTintColor = UIColor.systemBlueColor;
+    toggle.on = LGReadButtonMaterialCandidateEnabled();
+    self.lg_buttonCandidateToggle = toggle;
+    [toggle addAction:[UIAction actionWithHandler:^(__kindof UIAction *action) {
+        UISwitch *sender = (UISwitch *)action.sender;
+        LGWritePreferenceAndMaybeRequireRespring(
+            @"PrefsButton.MaterialCandidate.Enabled", @(sender.isOn));
+    }] forControlEvents:UIControlEventValueChanged];
+
+    UIView *row = [[UIView alloc] initWithFrame:CGRectZero];
+    row.translatesAutoresizingMaskIntoConstraints = NO;
+    [row addSubview:title];
+    [row addSubview:toggle];
+    title.translatesAutoresizingMaskIntoConstraints = NO;
+    toggle.translatesAutoresizingMaskIntoConstraints = NO;
+    [NSLayoutConstraint activateConstraints:@[
+        [title.leadingAnchor constraintEqualToAnchor:row.leadingAnchor],
+        [title.topAnchor constraintEqualToAnchor:row.topAnchor],
+        [title.bottomAnchor constraintEqualToAnchor:row.bottomAnchor],
+        [title.trailingAnchor constraintLessThanOrEqualToAnchor:toggle.leadingAnchor constant:-12.0],
+        [toggle.trailingAnchor constraintEqualToAnchor:row.trailingAnchor],
+        [toggle.centerYAnchor constraintEqualToAnchor:title.centerYAnchor],
+        [toggle.leadingAnchor constraintGreaterThanOrEqualToAnchor:title.trailingAnchor constant:12.0]
+    ]];
+    [stack addArrangedSubview:row];
+    [stack addArrangedSubview:subtitle];
     [NSLayoutConstraint activateConstraints:@[
         [stack.topAnchor constraintEqualToAnchor:card.topAnchor constant:13.0],
         [stack.leadingAnchor constraintEqualToAnchor:card.leadingAnchor constant:14.0],

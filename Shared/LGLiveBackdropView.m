@@ -1,5 +1,7 @@
 #import "LGLiveBackdropView.h"
+#import "LGGlassKit.h"
 #import "LGHostRegistry.h"
+#import "LGButtonPressureRoute.h"
 #import "LGCoverSheetState.h"
 #import <CoreMotion/CoreMotion.h>
 #import <QuartzCore/QuartzCore.h>
@@ -34,6 +36,25 @@ id LGGlassPreferenceValue(NSString *key) {
         }
         return sLGGlassPreferences[key];
     }
+}
+
+LGSurfaceBackgroundProfile LGSurfaceBackgroundProfileForHost(NSString *prefix) {
+    id value = prefix.length ? LGGlassPreferenceValue(
+        [prefix stringByAppendingString:@".BackgroundProfile"]) : nil;
+    value = value ?: (prefix.length ? LGGlassPreferenceValue(
+        [NSString stringWithFormat:@"%@.%@", LG_SURFACE_BACKGROUND_PROFILE_KEY, prefix]) : nil);
+    return LGSurfaceBackgroundProfileFromPreference(value ?:
+        LGGlassPreferenceValue(LG_SURFACE_BACKGROUND_PROFILE_KEY));
+}
+
+LGSurfaceQualityTier LGSurfaceQualityTierForHost(NSString *prefix) {
+    id value = prefix.length ? LGGlassPreferenceValue(
+        [prefix stringByAppendingString:@".QualityTier"]) : nil;
+    value = value ?: (prefix.length ? LGGlassPreferenceValue(
+        [NSString stringWithFormat:@"%@.%@", LG_SURFACE_QUALITY_TIER_KEY, prefix]) : nil);
+    value = value ?: LGGlassPreferenceValue(LG_SURFACE_QUALITY_TIER_KEY);
+    return value ? LGSurfaceQualityTierFromPreference(value)
+                 : LGSurfaceQualityTierFromGlobalQualityPreference(LGGlassPreferenceValue(@"Global.Quality"));
 }
 
 void LGInvalidateGlassPreferenceCache(void) {
@@ -187,6 +208,7 @@ static BOOL LGUsesPrefsControlCaptureScale(NSString *filterType) {
         case LGHostIdentifierPrefsSlider:
         case LGHostIdentifierPrefsSwitch:
         case LGHostIdentifierPrefsButton:
+        case LGHostIdentifierPrefsButtonCandidate:
         case LGHostIdentifierPrefsSegment:
             return YES;
         default:
@@ -195,6 +217,8 @@ static BOOL LGUsesPrefsControlCaptureScale(NSString *filterType) {
 }
 
 static CGFloat LGNativeBlurRadiusForFilterType(NSString *filterType) {
+    if (LGHostIdentifierForFilterType(filterType.UTF8String) ==
+        LGHostIdentifierPrefsButtonCandidate) return 0.0;
     const LGHostDefinition *host = LGHostDefinitionForFilterType(filterType.UTF8String);
     if (!host) return 0.0;
     NSString *prefix = [NSString stringWithUTF8String:host->preferencePrefix];
@@ -379,6 +403,9 @@ static void LGEnsureMotionHighlights(void) {
 static const CGFloat kLGGlassEdgeWidth = 1.0;
 
 @implementation LGLiveBackdropView {
+    LGSurfaceDescriptorV1 _lgSurfaceDescriptor;
+    BOOL _lgSurfaceDescriptorInitialized;
+    BOOL _lgSurfaceDescriptorHasHostBinding;
     NSString        *_lgGroupName;
     CAGradientLayer *_specularLayer;
     CAShapeLayer    *_specularMask;
@@ -398,12 +425,47 @@ static const CGFloat kLGGlassEdgeWidth = 1.0;
     BOOL             _parameterRefreshVariant;
     NSInteger        _lastRadiusStep;
     CGFloat          _appliedSpecularOpacity;
+    NSUInteger       _buttonPressureBucket;
+}
+
+- (BOOL)lgSetButtonOpticalPressureBucket:(NSUInteger)bucket {
+    if (!NSThread.isMainThread) return NO;
+    BOOL validBucket = bucket < LG_BUTTON_PRESSURE_LEVELS;
+    if (!validBucket) bucket = 0;
+    BOOL candidate = LGHostIdentifierForFilterType(_lgFilterType.UTF8String) ==
+        LGHostIdentifierPrefsButtonCandidate;
+    id gate = LGGlassPreferenceValue(@LG_BUTTON_PRESSURE_PREF);
+    id materialGate = LGGlassPreferenceValue(@"PrefsButton.MaterialCandidate.Enabled");
+    BOOL active = LG_BUTTON_PRESSURE_EXPERIMENTAL && candidate &&
+        [gate isKindOfClass:NSNumber.class] && [gate boolValue] &&
+        [materialGate isKindOfClass:NSNumber.class] && [materialGate boolValue] &&
+        self.window != nil && !self.hidden && self.alpha > 0.001 &&
+        fabs(CGRectGetWidth(self.bounds) - 44.0) < 0.01 &&
+        fabs(CGRectGetHeight(self.bounds) - 44.0) < 0.01 &&
+        fabs(self.layer.cornerRadius - 22.0) < 0.01;
+    NSUInteger desired = active ? bucket : 0;
+    if (_buttonPressureBucket == desired) return validBucket && (active || bucket == 0);
+    _buttonPressureBucket = desired;
+    // No shared state, no instance pointer guessing, and no event forwarding.
+    // A category change invalidates only this glass object's own CA filter.
+    _filterAttached = NO;
+    [self applyFilters];
+    return validBucket && (active || bucket == 0);
 }
 
 - (NSString *)lgEffectiveFilterType {
     if (!_lgFilterType.length)
         return [NSString stringWithUTF8String:kLGHostRegistry[LGHostIdentifierDefault].filterType];
     NSString *base = _lgFilterType;
+    if (LG_BUTTON_PRESSURE_EXPERIMENTAL && _buttonPressureBucket > 0 &&
+        LGHostIdentifierForFilterType(base.UTF8String) == LGHostIdentifierPrefsButtonCandidate) {
+        char name[96];
+        LGButtonPressureCategory category = {(unsigned)_buttonPressureBucket,
+            self.traitCollection.userInterfaceStyle == UIUserInterfaceStyleDark,
+            _parameterRefreshVariant};
+        if (LGButtonPressureTypeName(name, sizeof name, category))
+            return [NSString stringWithUTF8String:name];
+    }
 
     if (LGUsesDynamicRadiusType(base) && !CGRectIsEmpty(self.bounds)) {
         CGFloat shortest = MIN(CGRectGetWidth(self.bounds), CGRectGetHeight(self.bounds));
@@ -443,6 +505,40 @@ static const CGFloat kLGGlassEdgeWidth = 1.0;
     _appliedSpecularOpacity = -1.0;
     _lgShapeRect = CGRectNull;
     _lgFilterType = [filterType copy];
+    LGSurfaceRole role = LGSurfaceRolePanel;
+    enum LGHostIdentifier host = LGHostIdentifierForFilterType(filterType.UTF8String);
+    switch (host) {
+        case LGHostIdentifierClock: role = LGSurfaceRoleClock; break;
+        case LGHostIdentifierKeyboard: role = LGSurfaceRoleKeyboard; break;
+        case LGHostIdentifierTabBarSelection: role = LGSurfaceRoleTabSelection; break;
+        case LGHostIdentifierPrefsButton:
+        case LGHostIdentifierPrefsButtonCandidate:
+        case LGHostIdentifierQuickActions: role = LGSurfaceRoleButton; break;
+        case LGHostIdentifierPrefsSlider: role = LGSurfaceRoleSlider; break;
+        case LGHostIdentifierPrefsSwitch: role = LGSurfaceRoleSwitch; break;
+        default: break;
+    }
+    _lgSurfaceDescriptor = LGSurfaceDescriptorV1MakeDefault(role, 1);
+    const LGHostDefinition *definition = LGHostDefinitionForFilterType(filterType.UTF8String);
+    NSString *prefix = definition ? [NSString stringWithUTF8String:definition->preferencePrefix] : nil;
+    _lgSurfaceDescriptor.backgroundProfile = (uint32_t)LGSurfaceBackgroundProfileForHost(prefix);
+    _lgSurfaceDescriptor.qualityTier = (uint32_t)LGSurfaceQualityTierForHost(prefix);
+    _lgSurfaceDescriptor.boundsOriginX = 0.0f;
+    _lgSurfaceDescriptor.boundsOriginY = 0.0f;
+    _lgSurfaceDescriptor.boundsWidth = fmaxf(0.0f, (float)CGRectGetWidth(frame));
+    _lgSurfaceDescriptor.boundsHeight = fmaxf(0.0f, (float)CGRectGetHeight(frame));
+    _lgSurfaceDescriptor.maskSource = (uint32_t)LGSurfaceMaskSourceLayerCornerRadius;
+    _lgSurfaceDescriptor.geometrySpace = (uint32_t)LGSurfaceGeometryHostLocal;
+    _lgSurfaceDescriptor.maskOriginX = 0.0f;
+    _lgSurfaceDescriptor.maskOriginY = 0.0f;
+    _lgSurfaceDescriptor.maskWidth = _lgSurfaceDescriptor.boundsWidth;
+    _lgSurfaceDescriptor.maskHeight = _lgSurfaceDescriptor.boundsHeight;
+    if (_lgSurfaceDescriptor.boundsWidth > 0.0f &&
+        _lgSurfaceDescriptor.boundsHeight > 0.0f)
+        _lgSurfaceDescriptor.flags |= LGSurfaceDescriptorGeometryValid;
+    _lgSurfaceDescriptor.shapeKind = role == LGSurfaceRoleClock
+        ? (uint32_t)LGSurfaceShapeGlyph : (uint32_t)LGSurfaceShapeRectangle;
+    _lgSurfaceDescriptorInitialized = YES;
     static atomic_uint idCounter = 0;
     _lgId = atomic_fetch_add(&idCounter, 1) + 1;
     if (groupName.length) {
@@ -497,7 +593,22 @@ static const CGFloat kLGGlassEdgeWidth = 1.0;
     [self updateSpecular];
 }
 
-- (void)layoutSubviews  { [super layoutSubviews];  [self applyFilters]; [self updateSpecular]; }
+- (void)setBounds:(CGRect)bounds {
+    [super setBounds:bounds];
+    [self lgRefreshSurfaceGeometryIfNeeded];
+}
+
+- (void)setFrame:(CGRect)frame {
+    [super setFrame:frame];
+    [self lgRefreshSurfaceGeometryIfNeeded];
+}
+
+- (void)layoutSubviews {
+    [super layoutSubviews];
+    [self lgRefreshSurfaceGeometryIfNeeded];
+    [self applyFilters];
+    [self updateSpecular];
+}
 
 - (void)updateNativeBlurOverlayWithRadius:(CGFloat)radius {
     if (radius <= 0.0) {
@@ -532,6 +643,7 @@ static const CGFloat kLGGlassEdgeWidth = 1.0;
 - (void)setLgShapeRect:(CGRect)rect {
     if (CGRectEqualToRect(_lgShapeRect, rect)) return;
     _lgShapeRect = rect;
+    [self lgRefreshSurfaceGeometryIfNeeded];
     if (LGHostIdentifierForFilterType(_lgFilterType.UTF8String) ==
         LGHostIdentifierKeyboard) {
         _filterAttached = NO;
@@ -543,6 +655,7 @@ static const CGFloat kLGGlassEdgeWidth = 1.0;
 - (void)setLgShapeCornerRadius:(CGFloat)radius {
     if (fabs(_lgShapeCornerRadius - radius) < 0.01) return;
     _lgShapeCornerRadius = radius;
+    [self lgRefreshSurfaceGeometryIfNeeded];
     if (LGHostIdentifierForFilterType(_lgFilterType.UTF8String) ==
         LGHostIdentifierKeyboard) {
         _filterAttached = NO;
@@ -563,6 +676,14 @@ static const CGFloat kLGGlassEdgeWidth = 1.0;
     BOOL enabled = override ? override.boolValue
                             : LGSpecularEnabledForFilterType(_lgFilterType);
     const LGHostDefinition *host = LGHostDefinitionForFilterType(_lgFilterType.UTF8String);
+    if (host == &kLGHostRegistry[LGHostIdentifierPrefsButtonCandidate]) {
+        [_specularLayer removeFromSuperlayer];
+        _specularLayer = nil;
+        _specularMask = nil;
+        [_edge removeFromSuperlayer];
+        _edge = nil;
+        return;
+    }
     if (host == &kLGHostRegistry[LGHostIdentifierClock]) return;
     if (!enabled && !_specularLayer) return;
 
@@ -639,6 +760,116 @@ static const CGFloat kLGGlassEdgeWidth = 1.0;
     _specularLayer.endPoint = CGPointMake(0.5 - dx, 0.5 - dy);
 }
 
+- (LGSurfaceDescriptorV1)lgSurfaceDescriptor {
+    @synchronized(self) { return _lgSurfaceDescriptor; }
+}
+
+/* Copy-only geometry observation. A query must not invent an owner or a
+ * synthetic generation: an unsynchronized layout is rejected until its producer
+ * or owned UIView lifecycle commits the geometry. Producer-owned masks stay owned. */
+- (LGSurfaceDescriptorV1)lgLiveGeometryFromDescriptor:(LGSurfaceDescriptorV1)value {
+    CGRect bounds = self.bounds;
+    value.boundsOriginX = (float)CGRectGetMinX(bounds);
+    value.boundsOriginY = (float)CGRectGetMinY(bounds);
+    value.boundsWidth = (float)CGRectGetWidth(bounds);
+    value.boundsHeight = (float)CGRectGetHeight(bounds);
+    BOOL producerMask = value.maskSource == LGSurfaceMaskSourceTextMask ||
+                        value.maskSource == LGSurfaceMaskSourceImageAlpha ||
+                        (value.maskSource == LGSurfaceMaskSourceExplicitPath &&
+                         self.layer.mask && CGRectIsNull(_lgShapeRect));
+    if (!producerMask) {
+        BOOL explicitRect = !CGRectIsNull(_lgShapeRect) && !CGRectIsEmpty(_lgShapeRect);
+        CGRect mask = explicitRect ? _lgShapeRect : bounds;
+        CGFloat radius = explicitRect ? _lgShapeCornerRadius : self.layer.cornerRadius;
+        value.maskOriginX = (float)CGRectGetMinX(mask);
+        value.maskOriginY = (float)CGRectGetMinY(mask);
+        value.maskWidth = (float)CGRectGetWidth(mask);
+        value.maskHeight = (float)CGRectGetHeight(mask);
+        value.cornerRadius = (float)radius;
+        value.maskSource = explicitRect ? LGSurfaceMaskSourceExplicitRectangle
+                                       : LGSurfaceMaskSourceLayerCornerRadius;
+        value.geometrySpace = LGSurfaceGeometryHostLocal;
+        if (value.shapeKind != LGSurfaceShapeCircle && value.shapeKind != LGSurfaceShapeCapsule)
+            value.shapeKind = radius > 0.01 ? LGSurfaceShapeRoundedRectangle
+                                           : LGSurfaceShapeRectangle;
+    }
+    value.flags &= ~LGSurfaceDescriptorGeometryValid;
+    if (value.boundsWidth > 0.0f && value.boundsHeight > 0.0f &&
+        value.maskWidth > 0.0f && value.maskHeight > 0.0f)
+        value.flags |= LGSurfaceDescriptorGeometryValid;
+    return value;
+}
+
+- (void)lgRefreshSurfaceGeometryIfNeeded {
+    @synchronized(self) {
+        if (!_lgSurfaceDescriptorInitialized) return;
+        LGSurfaceDescriptorV1 value = [self lgLiveGeometryFromDescriptor:_lgSurfaceDescriptor];
+        if (!LGSurfaceGeometryEqual(&_lgSurfaceDescriptor, &value))
+            value.geometryGeneration = LGSurfaceGenerationNext(_lgSurfaceDescriptor.geometryGeneration);
+        if (LGSurfaceDescriptorV1IsValid(&value)) _lgSurfaceDescriptor = value;
+    }
+}
+
+- (LGSurfaceDescriptorV1)lgPresentationSurfaceDescriptorWithOwnerGroup:(uint32_t)ownerGroup
+                                                          ownerGeneration:(uint64_t)ownerGeneration
+                                                            nestingDepth:(uint32_t)nestingDepth
+                                                     nestedMaterialPolicy:(LGSurfaceNestedMaterialPolicy)policy {
+    @synchronized(self) {
+        LGSurfaceDescriptorV1 value = [self lgLiveGeometryFromDescriptor:_lgSurfaceDescriptor];
+        // These fields are query context; generation/group must match the stored binding.
+        if (!LGSurfaceGeometryEqual(&_lgSurfaceDescriptor, &value) ||
+            value.captureOwnerGeneration != ownerGeneration ||
+            value.captureOwnerGroup != ownerGroup) {
+            value.version = 0; // fail closed: no stale-owner or uncommitted-geometry laundering
+            return value;
+        }
+        value.nestingDepth = nestingDepth;
+        value.nestedMaterialPolicy = (uint32_t)policy;
+        if (_filterAttached) value.flags &= ~LGSurfaceDescriptorNativeFallback;
+        else value.flags |= LGSurfaceDescriptorNativeFallback;
+        return value;
+    }
+}
+
+- (BOOL)lgUpdateSurfaceDescriptor:(LGSurfaceDescriptorV1)descriptor {
+    if (!LGSurfaceDescriptorV1IsValid(&descriptor)) return NO;
+    @synchronized(self) {
+        if (!LGSurfaceDescriptorCanBindHostGeneration(
+                &_lgSurfaceDescriptor, _lgSurfaceDescriptorInitialized && _lgSurfaceDescriptorHasHostBinding,
+                &descriptor)) return NO;
+        _lgSurfaceDescriptor = descriptor;
+        _lgSurfaceDescriptorInitialized = YES;
+        _lgSurfaceDescriptorHasHostBinding = YES;
+    }
+    return YES;
+}
+
+- (BOOL)lgSetSurfaceProfile:(LGSurfaceBackgroundProfile)profile qualityTier:(LGSurfaceQualityTier)qualityTier {
+    if ((uint32_t)profile >= (uint32_t)LGSurfaceBackgroundProfileCount ||
+        (uint32_t)qualityTier >= (uint32_t)LGSurfaceQualityTierCount) return NO;
+    @synchronized(self) {
+        if (_lgSurfaceDescriptorInitialized &&
+            (_lgSurfaceDescriptor.backgroundProfile != (uint32_t)profile ||
+             _lgSurfaceDescriptor.qualityTier != (uint32_t)qualityTier)) {
+            _lgSurfaceDescriptor.backgroundProfile = (uint32_t)profile;
+            _lgSurfaceDescriptor.qualityTier = (uint32_t)qualityTier;
+            if (_lgSurfaceDescriptor.appearanceGeneration != UINT64_MAX)
+                _lgSurfaceDescriptor.appearanceGeneration++;
+        }
+    }
+    return YES;
+}
+
+- (void)lgSyncSurfaceRendererHealth:(BOOL)ready {
+    @synchronized(self) {
+        if (ready) _lgSurfaceDescriptor.flags &= ~LGSurfaceDescriptorNativeFallback;
+        else _lgSurfaceDescriptor.flags |= LGSurfaceDescriptorNativeFallback;
+        _lgSurfaceDescriptor.flags |= LGSurfaceDescriptorEnabled;
+    }
+}
+
+- (void)lgSurfaceRendererWillRetry { [self lgSyncSurfaceRendererHealth:NO]; }
+
 - (void)lgBindStockMaterial:(UIView *)material {
     if (!material || self.superview != material.superview) return;
     if (_stockMaterialView != material) {
@@ -690,13 +921,16 @@ static const CGFloat kLGGlassEdgeWidth = 1.0;
 }
 
 - (void)applyFilters {
+    [self lgRefreshSurfaceGeometryIfNeeded];
     BOOL wasAttached = _filterAttached;
     _filterAttached = NO;
+    [self lgSyncSurfaceRendererHealth:NO];
     if (wasAttached) [self lgApplyStockHealth];
     CALayer *layer = self.layer;
     Class backdropCls = NSClassFromString(@"CABackdropLayer");
     if (!backdropCls || ![layer isKindOfClass:backdropCls]) {
         _filterAttached = NO;
+        [self lgSyncSurfaceRendererHealth:NO];
         [self lgApplyStockHealth];
         if (self.lgFilterHealthHandler) self.lgFilterHealthHandler(NO);
         if (!backdropCls) sblog("CA filter unavailable: no CABackdropLayer");
@@ -787,6 +1021,7 @@ static const CGFloat kLGGlassEdgeWidth = 1.0;
         @try { installedType = [installed valueForKey:@"type"]; }
         @catch (__unused NSException *exception) {}
         _filterAttached = installed && [installedType isEqualToString:wantType];
+        [self lgSyncSurfaceRendererHealth:_filterAttached];
         [self lgApplyStockHealth];
         if (self.lgFilterHealthHandler) self.lgFilterHealthHandler(_filterAttached);
         if (_filterAttached)
@@ -795,6 +1030,7 @@ static const CGFloat kLGGlassEdgeWidth = 1.0;
     } @catch (NSException *e) {
         layer.filters = @[];
         _filterAttached = NO;
+        [self lgSyncSurfaceRendererHealth:NO];
         [self lgApplyStockHealth];
         if (self.lgFilterHealthHandler) self.lgFilterHealthHandler(NO);
         sblog("applyFilters exception: %s", e.reason.UTF8String);
@@ -806,7 +1042,6 @@ static const CGFloat kLGGlassEdgeWidth = 1.0;
     _parameterRefreshVariant = !_parameterRefreshVariant;
 
     _appliedScale = -1.0;
-    _filterAttached = NO;
     [self applyFilters];
     [self updateSpecular];
     [self.layer setNeedsDisplay];
@@ -920,6 +1155,7 @@ void LGRemoveGlassFromMaterial(UIView *mat, const void *assocKey) {
     LGLiveBackdropView *glass = objc_getAssociatedObject(mat, assocKey);
     if (!glass) return;
     objc_setAssociatedObject(mat, assocKey, nil, OBJC_ASSOCIATION_ASSIGN);
+    lgUntrackGlass(glass);
     [glass lgRestoreStockMaterial];
     [glass removeFromSuperview];
 }

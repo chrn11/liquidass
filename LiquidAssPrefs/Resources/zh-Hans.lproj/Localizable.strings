@@ -199,3 +199,5 @@
 /* TODO: Translate synced English fallback strings. */
 "prefs.control.clock_fps_limit" = "FPS Limit";
 "prefs.subtitle.clock_fps_limit" = "Limits clock animation updates.";
+"prefs.button_candidate.title" = "设置返回按钮材质候选";
+"prefs.button_candidate.subtitle" = "仅针对精确识别的设置返回按钮的实验材质；默认关闭，不影响其他按钮。";

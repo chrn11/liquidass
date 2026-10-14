@@ -1,5 +1,6 @@
 #pragma once
 #import <UIKit/UIKit.h>
+#import "LGSurfaceDescriptor.h"
 
 void LGLog(NSString *format, ...) NS_FORMAT_FUNCTION(1, 2);
 
@@ -12,14 +13,27 @@ void LGLog(NSString *format, ...) NS_FORMAT_FUNCTION(1, 2);
 #endif
 
 id LGGlassPreferenceValue(NSString *key);
-void LGInvalidateGlassPreferenceCache(void);
 NSString *LGFilterTypeForHostPrefix(NSString *prefix);
+LGSurfaceBackgroundProfile LGSurfaceBackgroundProfileForHost(NSString *prefix);
+LGSurfaceQualityTier LGSurfaceQualityTierForHost(NSString *prefix);
 
 @interface LGLiveBackdropView : UIView
 
 @property (nonatomic, copy) NSString *lgFilterType;
 // CA layer/filter readback only; final render-server presentation is unverified.
 @property (nonatomic, copy) void (^lgFilterHealthHandler)(BOOL attached);
+// Value-copy state only: renderer readiness remains the independent CA health channel.
+- (LGSurfaceDescriptorV1)lgSurfaceDescriptor;
+- (LGSurfaceDescriptorV1)lgPresentationSurfaceDescriptorWithOwnerGroup:(uint32_t)ownerGroup
+                                                          ownerGeneration:(uint64_t)ownerGeneration
+                                                                 nestingDepth:(uint32_t)nestingDepth
+                                                          nestedMaterialPolicy:(LGSurfaceNestedMaterialPolicy)policy;
+- (BOOL)lgUpdateSurfaceDescriptor:(LGSurfaceDescriptorV1)descriptor;
+- (BOOL)lgSetSurfaceProfile:(LGSurfaceBackgroundProfile)profile
+                 qualityTier:(LGSurfaceQualityTier)qualityTier;
+
+- (void)lgSyncSurfaceRendererHealth:(BOOL)ready;
+- (void)lgSurfaceRendererWillRetry;
 
 @property (nonatomic, copy) NSNumber *lgSpecularEnabledOverride;
 
@@ -32,6 +46,9 @@ NSString *LGFilterTypeForHostPrefix(NSString *prefix);
 
 - (void)applyFilters;
 - (void)lgInvalidateFilterContents;
+// Experimental producer only; actual CA/Backboard delivery requires its own
+// runtime gate. Bucket zero always restores this instance's normal filter type.
+- (BOOL)lgSetButtonOpticalPressureBucket:(NSUInteger)bucket;
 - (BOOL)lgFilterAttached;
 - (void)lgStockMaterialVisibilityDidRequest:(BOOL)hidden;
 // Internal shared-router coordination; do not infer final renderer presentation.

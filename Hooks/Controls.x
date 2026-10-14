@@ -10,6 +10,9 @@
 #import "../Shared/LGGlassKit.h"
 #import "../Shared/LGLiquidMotion.h"
 #import "../Shared/LGLensRectState.h"
+#import "../Shared/LGButtonMaterialCandidate.h"
+#import "../Shared/LGButtonOpticalState.h"
+#import "../Shared/LGButtonPressureRoute.h"
 
 static void *kLGSettingsSwitchOverlayKey = &kLGSettingsSwitchOverlayKey;
 static void *kLGSettingsSliderOverlayKey = &kLGSettingsSliderOverlayKey;
@@ -326,7 +329,32 @@ static UIColor *LGDetailTintBaseColor(void) {
 @property (nonatomic, weak) UINavigationController *navigationController;
 @property (nonatomic, weak) UIView *stockButton;
 @property (nonatomic, strong) UIViewPropertyAnimator *pressAnimator;
+@property (nonatomic, assign) LGButtonCandidateInstanceState candidateMaterialState;
+@property (nonatomic, assign) LGButtonOpticalState opticalState;
+@property (nonatomic, assign) uint64_t opticalGeometryGeneration;
+@property (nonatomic, assign) CGRect opticalLastBounds;
+@property (nonatomic, strong) CADisplayLink *opticalDisplayLink;
+@property (nonatomic, strong) id opticalResignObserver;
+- (void)lg_updateMaterialCandidate;
+- (void)lg_opticalRefreshEligibility;
+- (void)lg_opticalSubmit;
+- (void)lg_opticalSuspend;
+- (void)lg_opticalTick:(CADisplayLink *)link;
 @end
+
+// Weak link target avoids a view -> displayLink -> target -> view retain cycle.
+@interface LGButtonOpticalDisplayTarget : NSObject
+@property (nonatomic, weak) LGSettingsBackButton *owner;
+- (void)tick:(CADisplayLink *)link;
+@end
+@implementation LGButtonOpticalDisplayTarget
+- (void)tick:(CADisplayLink *)link {
+    if (self.owner) [self.owner lg_opticalTick:link];
+    else [link invalidate];
+}
+@end
+
+static UIView *LGDescendantNamed(UIView *root, NSString *name);
 
 static void LGSettingsPerformSoftHaptic(void) {
     if (@available(iOS 13.0, *)) {
@@ -357,18 +385,202 @@ static void LGSettingsPerformSoftHaptic(void) {
     [self addTarget:self action:@selector(lg_touchDown)
         forControlEvents:UIControlEventTouchDown];
     [self addTarget:self action:@selector(lg_pop) forControlEvents:UIControlEventTouchUpInside];
+    _opticalGeometryGeneration = 1;
+    _opticalLastBounds = CGRectNull;
+    LGOpticalReset(&_opticalState, _opticalGeometryGeneration);
+#if LG_BUTTON_PRESSURE_EXPERIMENTAL
+    __weak LGSettingsBackButton *weakSelf = self;
+    _opticalResignObserver = [NSNotificationCenter.defaultCenter
+        addObserverForName:UIApplicationWillResignActiveNotification
+        object:nil queue:NSOperationQueue.mainQueue usingBlock:^(__unused NSNotification *note) {
+            [weakSelf lg_opticalSuspend];
+        }];
+#endif
     return self;
+}
+- (void)dealloc {
+    [_opticalDisplayLink invalidate];
+    if (_opticalResignObserver)
+        [NSNotificationCenter.defaultCenter removeObserver:_opticalResignObserver];
+}
+- (void)didMoveToWindow {
+    [super didMoveToWindow];
+    [self lg_updateMaterialCandidate];
+    [self lg_opticalRefreshEligibility];
+    [self lg_opticalSubmit];
+}
+- (void)setEnabled:(BOOL)enabled {
+    [super setEnabled:enabled];
+    [self lg_updateMaterialCandidate];
+    [self lg_opticalRefreshEligibility];
+    [self lg_opticalSubmit];
+}
+- (void)setHidden:(BOOL)hidden {
+    [super setHidden:hidden];
+    [self lg_opticalRefreshEligibility];
+    [self lg_opticalSubmit];
+}
+- (void)setAlpha:(CGFloat)alpha {
+    [super setAlpha:alpha];
+    [self lg_opticalRefreshEligibility];
+    [self lg_opticalSubmit];
+}
+- (void)lg_updateMaterialCandidate {
+    id preference = LGGlassPreferenceValue(@"PrefsButton.MaterialCandidate.Enabled");
+    BOOL hasExactStockTarget = self.stockButton &&
+        [NSStringFromClass(self.stockButton.class) isEqualToString:@"_UIButtonBarButton"] &&
+        LGDescendantNamed(self.stockButton, @"_UIBackButtonMaskView") != nil;
+    BOOL targetProcessAllowed = [NSBundle.mainBundle.bundleIdentifier
+        isEqualToString:@"com.apple.Preferences"];
+    BOOL exactTargetClass = object_getClass(self) == LGSettingsBackButton.class &&
+        self.navigationController != nil &&
+        [NSStringFromClass(self.superview.class) isEqualToString:@"_UINavigationBarContentView"];
+    BOOL preferenceIsNSNumber = [preference isKindOfClass:NSNumber.class];
+    BOOL preferenceIsTrue = preferenceIsNSNumber && [preference boolValue];
+    BOOL requested = gLGSettingsControlsEnabled && LGButtonCandidateIsEligible(
+        preferenceIsNSNumber, preferenceIsTrue,
+        targetProcessAllowed, exactTargetClass, hasExactStockTarget,
+        self.window != nil && self.enabled);
+    if (self.candidateMaterialState.active == requested) {
+        [self lg_opticalRefreshEligibility];
+        [self lg_opticalSubmit];
+        return;
+    }
+
+    NSString *prefix = requested ? @"PrefsButtonCandidate" : @"PrefsButton";
+    LGLiveBackdropView *next = LGCreateRegisteredGlass(
+        self.glass ? self.glass.frame : self.bounds, nil, prefix);
+    if (!next) {
+        // Disabling must not leave the opt-in candidate active when allocating
+        // its legacy replacement fails. Keep the foreground control visible.
+        if (!requested) {
+            LGLiveBackdropView *previous = self.glass;
+            self.glass = nil;
+            if (previous) {
+                lgUntrackGlass(previous);
+                [previous removeFromSuperview];
+            }
+            LGButtonCandidateUpdateInstanceState(&_candidateMaterialState, false);
+            [self lg_opticalSuspend];
+        }
+        return;
+    }
+    next.userInteractionEnabled = NO;
+    [self insertSubview:next atIndex:0];
+    LGLiveBackdropView *previous = self.glass;
+    self.glass = next;
+    if (previous) {
+        lgUntrackGlass(previous);
+        [previous removeFromSuperview];
+    }
+    LGButtonCandidateUpdateInstanceState(&_candidateMaterialState, requested);
+    [self lg_opticalRefreshEligibility];
+    [self lg_opticalSubmit];
+    [self setNeedsLayout];
 }
 - (void)layoutSubviews {
     [super layoutSubviews];
     self.glass.frame = self.bounds;
-    CGFloat radius = CGRectGetHeight(self.bounds) * 0.5;
+    CGFloat radius = CGRectGetHeight(self.bounds) *
+        LG_BUTTON_CANDIDATE_CORNER_RADIUS_RATIO;
     self.layer.cornerRadius = radius;
     self.layer.cornerCurve = kCACornerCurveContinuous;
     self.glass.layer.cornerRadius = radius;
     self.glass.layer.cornerCurve = kCACornerCurveContinuous;
     self.glass.layer.masksToBounds = YES;
     self.glyph.frame = self.bounds;
+    if (!CGRectEqualToRect(_opticalLastBounds, self.bounds)) {
+        _opticalLastBounds = self.bounds;
+        if (_opticalGeometryGeneration < UINT64_MAX) _opticalGeometryGeneration++;
+        LGOpticalReset(&_opticalState, _opticalGeometryGeneration);
+    }
+    [self lg_opticalRefreshEligibility];
+    [self lg_opticalSubmit];
+}
+- (void)lg_opticalRefreshEligibility {
+    id gate = LGGlassPreferenceValue(@LG_BUTTON_PRESSURE_PREF);
+    BOOL visible = self.window != nil;
+    for (UIView *v = self; v && visible; v = v.superview)
+        visible = !v.hidden && v.alpha > 0.001;
+    BOOL active = UIApplication.sharedApplication.applicationState == UIApplicationStateActive;
+    if (self.window.windowScene)
+        active = active && self.window.windowScene.activationState == UISceneActivationStateForegroundActive;
+    BOOL geometry = fabs(CGRectGetWidth(self.bounds) - 44.0) < 0.01 &&
+                    fabs(CGRectGetHeight(self.bounds) - 44.0) < 0.01;
+    BOOL optedIn = LG_BUTTON_PRESSURE_EXPERIMENTAL && self.candidateMaterialState.active &&
+                   [gate isKindOfClass:NSNumber.class] && [gate boolValue] && geometry;
+    LGOpticalSetEligibility(&_opticalState, optedIn, self.enabled,
+        self.window != nil, visible, active, _opticalGeometryGeneration);
+}
+- (void)lg_opticalSubmit {
+    NSUInteger bucket = LGOpticalPressureIndex(&_opticalState, LG_BUTTON_PRESSURE_LEVELS);
+    BOOL accepted = [self.glass lgSetButtonOpticalPressureBucket:bucket];
+    if (bucket > 0 && !accepted) {
+        LGOpticalReset(&_opticalState, _opticalGeometryGeneration);
+        [self.glass lgSetButtonOpticalPressureBucket:0];
+    }
+    if (_opticalState.eligible && (_opticalState.wantsFrames || _opticalState.tracking)) {
+        if (!self.opticalDisplayLink) {
+            LGButtonOpticalDisplayTarget *target = [LGButtonOpticalDisplayTarget new];
+            target.owner = self;
+            self.opticalDisplayLink = [CADisplayLink displayLinkWithTarget:target selector:@selector(tick:)];
+            self.opticalDisplayLink.preferredFramesPerSecond = 60;
+            [self.opticalDisplayLink addToRunLoop:NSRunLoop.mainRunLoop forMode:NSRunLoopCommonModes];
+        }
+    } else {
+        [self.opticalDisplayLink invalidate];
+        self.opticalDisplayLink = nil;
+    }
+}
+- (void)lg_opticalTick:(__unused CADisplayLink *)link {
+    [self lg_opticalRefreshEligibility];
+    // Use the same monotone clock as touch observations: displayLink.timestamp
+    // can describe the preceding presentation and predate a just-seen touch.
+    LGOpticalTick(&_opticalState, CACurrentMediaTime());
+    if (_opticalState.tracking && !self.isTracking)
+        LGOpticalEnd(&_opticalState, CACurrentMediaTime(), true);
+    [self lg_opticalSubmit];
+}
+- (void)lg_opticalSuspend {
+    LGOpticalReset(&_opticalState, _opticalGeometryGeneration);
+    _opticalState.phase = LGOpticalSuspended;
+    [self lg_opticalSubmit];
+}
+- (BOOL)beginTrackingWithTouch:(UITouch *)touch withEvent:(UIEvent *)event {
+    BOOL accepted = [super beginTrackingWithTouch:touch withEvent:event];
+    [self lg_opticalRefreshEligibility];
+    CGPoint point = [touch locationInView:self];
+    LGOpticalBegin(&_opticalState, CACurrentMediaTime(), accepted,
+        [self pointInside:point withEvent:event],
+        point.x - CGRectGetMinX(self.bounds), point.y - CGRectGetMinY(self.bounds),
+        CGRectGetWidth(self.bounds), CGRectGetHeight(self.bounds));
+    [self lg_opticalSubmit];
+    return accepted;
+}
+- (BOOL)continueTrackingWithTouch:(UITouch *)touch withEvent:(UIEvent *)event {
+    BOOL continues = [super continueTrackingWithTouch:touch withEvent:event];
+    [self lg_opticalRefreshEligibility];
+    CGPoint point = [touch locationInView:self];
+    LGOpticalContinue(&_opticalState, CACurrentMediaTime(), continues,
+        [self pointInside:point withEvent:event],
+        point.x - CGRectGetMinX(self.bounds), point.y - CGRectGetMinY(self.bounds),
+        CGRectGetWidth(self.bounds), CGRectGetHeight(self.bounds));
+    [self lg_opticalSubmit];
+    return continues;
+}
+- (void)endTrackingWithTouch:(UITouch *)touch withEvent:(UIEvent *)event {
+    LGOpticalEnd(&_opticalState, CACurrentMediaTime(), false);
+    [super endTrackingWithTouch:touch withEvent:event];
+    [self lg_opticalRefreshEligibility];
+    [self lg_opticalSubmit];
+}
+- (void)cancelTrackingWithEvent:(UIEvent *)event {
+    [super cancelTrackingWithEvent:event];
+    // UIKit may call endTrackingWithTouch:nil from inside cancellation. Observe
+    // cancellation last so that nested original callbacks cannot relabel it.
+    LGOpticalEnd(&_opticalState, CACurrentMediaTime(), true);
+    [self lg_opticalRefreshEligibility];
+    [self lg_opticalSubmit];
 }
 - (void)lg_touchDown {
     LGSettingsPerformSoftHaptic();
@@ -1472,8 +1684,10 @@ static void LGUpdateSettingsBackButton(UINavigationBar *bar) {
     }
 
     CGFloat leading = MAX(16.0, bar.safeAreaInsets.left + 8.0);
-    CGFloat y = floor(CGRectGetMidY(content.bounds) - 22.0);
-    button.frame = CGRectMake(floor(leading), y, 44.0, 44.0);
+    CGFloat backButtonSide = LG_BUTTON_CANDIDATE_VIEW_SIZE_POINTS;
+    CGFloat y = floor(CGRectGetMidY(content.bounds) - backButtonSide * 0.5);
+    button.frame = CGRectMake(floor(leading), y, backButtonSide, backButtonSide);
+    [button lg_updateMaterialCandidate];
     stock.hidden = YES;
     stock.alpha = 0.0;
     stock.userInteractionEnabled = NO;
@@ -2605,6 +2819,27 @@ static void LGUpdateSettingsSidebar(UIView *container) {
 
 %end
 
+static void LGRefreshSettingsBackButtonsInTree(UIView *root) {
+    if ([root isKindOfClass:UINavigationBar.class])
+        LGUpdateSettingsBackButton((UINavigationBar *)root);
+    for (UIView *subview in root.subviews)
+        LGRefreshSettingsBackButtonsInTree(subview);
+}
+
+static void LGRefreshVisibleSettingsBackButtons(void) {
+    if (![NSBundle.mainBundle.bundleIdentifier isEqualToString:@"com.apple.Preferences"])
+        return;
+    if (!NSThread.isMainThread) {
+        dispatch_async(dispatch_get_main_queue(), ^{ LGRefreshVisibleSettingsBackButtons(); });
+        return;
+    }
+    for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
+        if (![scene isKindOfClass:UIWindowScene.class]) continue;
+        for (UIWindow *window in ((UIWindowScene *)scene).windows)
+            LGRefreshSettingsBackButtonsInTree(window);
+    }
+}
+
 %ctor {
     if (LGIsExcludedSystemProcess()) return;
     NSString *bundleIdentifier = NSBundle.mainBundle.bundleIdentifier ?: @"";
@@ -2626,6 +2861,7 @@ static void LGUpdateSettingsSidebar(UIView *container) {
 
     lgObservePreferenceReload(^{
         LGRefreshGlobalControlEnablement();
+        LGRefreshVisibleSettingsBackButtons();
         LGLog(@"global controls reload bundle=%s enabled=%d",
                    bundleIdentifier.UTF8String, gLGSettingsControlsEnabled);
     });

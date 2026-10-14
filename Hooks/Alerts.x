@@ -1,5 +1,6 @@
 #import "../Shared/LGSharedSupport.h"
 #import "../Shared/LGGlassKit.h"
+#import "../Shared/LGHostRegistry.h"
 #import "../Shared/LGLiveBackdropView.h"
 #import <objc/runtime.h>
 
@@ -184,6 +185,7 @@ static void LGAlertRemoveNativeGlass(UIAlertController *controller) {
     LGLiveBackdropView *glass =
         objc_getAssociatedObject(controller, kLGAlertGlassKey);
     glass.lgFilterHealthHandler = nil;
+    lgUntrackGlass(glass);
     [glass removeFromSuperview];
     objc_setAssociatedObject(controller, kLGAlertGlassKey, nil,
                              OBJC_ASSOCIATION_ASSIGN);
@@ -225,6 +227,45 @@ static void LGAlertInstallNativeGlass(UIAlertController *controller) {
     glass.layer.cornerRadius = 35.0;
     if (@available(iOS 13.0, *)) glass.layer.cornerCurve = kCACornerCurveContinuous;
     glass.layer.masksToBounds = YES;
+    if (objc_getAssociatedObject(controller, kLGAlertGlassKey) == glass) {
+        LGSurfaceDescriptorV1 surface = glass.lgSurfaceDescriptor;
+        surface.maskSource = (uint32_t)LGSurfaceMaskSourceLayerCornerRadius;
+        surface.shapeKind = (uint32_t)LGSurfaceShapeRoundedRectangle;
+        surface.captureGroup = (uint32_t)LGHostIdentifierForDefinition(
+            LGHostDefinitionForPreferencePrefix(@"Alerts".UTF8String));
+        surface.captureOwnerGroup = surface.captureGroup;
+        surface.captureOwnerGeneration = surface.hostGeneration;
+        surface.nestingDepth = 0;
+        surface.nestedMaterialPolicy = (uint32_t)LGSurfaceNestedMaterialAllow;
+        surface.cornerRadius = 35.0f;
+        surface.flags |= LGSurfaceDescriptorEnabled |
+                         LGSurfaceDescriptorForegroundOwned |
+                         LGSurfaceDescriptorGeometryValid;
+        surface.boundsOriginX = (float)CGRectGetMinX(glass.bounds);
+        surface.boundsOriginY = (float)CGRectGetMinY(glass.bounds);
+        surface.boundsWidth = (float)CGRectGetWidth(glass.bounds);
+        surface.boundsHeight = (float)CGRectGetHeight(glass.bounds);
+        CGRect maskBounds = glass.bounds;
+        surface.maskSource = (uint32_t)LGSurfaceMaskSourceLayerCornerRadius;
+        surface.maskOriginX = (float)CGRectGetMinX(maskBounds);
+        surface.maskOriginY = (float)CGRectGetMinY(maskBounds);
+        surface.maskWidth = (float)CGRectGetWidth(maskBounds);
+        surface.maskHeight = (float)CGRectGetHeight(maskBounds);
+        LGSurfaceBackgroundProfile profile = LGSurfaceBackgroundProfileForHost(@"Alerts");
+        LGSurfaceQualityTier quality = LGSurfaceQualityTierForHost(@"Alerts");
+        uint32_t nextProfile = (uint32_t)profile;
+        uint32_t nextQuality = (uint32_t)quality;
+        if (surface.backgroundProfile != nextProfile ||
+            surface.qualityTier != nextQuality) {
+            surface.appearanceGeneration = surface.appearanceGeneration == UINT64_MAX
+                ? UINT64_MAX : surface.appearanceGeneration + 1;
+        }
+        surface.backgroundProfile = nextProfile;
+        surface.qualityTier = nextQuality;
+        surface.geometryGeneration = surface.geometryGeneration == UINT64_MAX
+            ? UINT64_MAX : surface.geometryGeneration + 1;
+        [glass lgUpdateSurfaceDescriptor:surface];
+    }
     __weak UIAlertController *weakController = controller;
     __weak LGLiveBackdropView *weakGlass = glass;
     glass.lgFilterHealthHandler = ^(BOOL attached) {
@@ -637,6 +678,27 @@ static void LGAlertAnimateActionOpacity(UIView *representation, CGFloat opacity,
     objc_setAssociatedObject(representation, kLGAlertActionHighlightedKey,
                              @(highlighted), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     UIColor *color = LGAlertActionBackgroundColor(representation, highlighted);
+    UIAlertController *ownerController = nil;
+    for (UIResponder *responder = representation; responder;
+         responder = responder.nextResponder) {
+        if ([responder isKindOfClass:UIAlertController.class]) {
+            ownerController = (UIAlertController *)responder;
+            break;
+        }
+    }
+    LGLiveBackdropView *hostGlass = ownerController
+        ? objc_getAssociatedObject(ownerController, kLGAlertGlassKey) : nil;
+    if (hostGlass) {
+        LGSurfaceDescriptorV1 state = hostGlass.lgSurfaceDescriptor;
+        state.interactionGeneration = state.interactionGeneration == UINT64_MAX
+            ? UINT64_MAX : state.interactionGeneration + 1;
+        state.interactionPhase = highlighted
+            ? LGSurfaceInteractionDown : LGSurfaceInteractionRelease;
+        state.pressProgress = highlighted ? 0.75f : 0.0f;
+        state.flags |= LGSurfaceDescriptorForegroundOwned;
+        state.flags &= ~LGSurfaceDescriptorTouchValid;
+        [hostGlass lgUpdateSurfaceDescriptor:state];
+    }
     if (duration <= 0.0) {
         [background.layer removeAllAnimations];
         background.alpha = 1.0;

@@ -5,6 +5,11 @@
 #import "../Shared/LGLensRectState.h"
 #import "LGSymbolResolver.h"
 #import "../Shared/LGCoverSheetState.h"
+#import "../Shared/LGSurfaceDiagnostics.h"
+#import "../Shared/LGSurfaceDiagnosticIO.h"
+#include "../Shared/LGButtonMaterialCandidate.h"
+#include "../Shared/LGButtonOpticsShaderSource.h"
+#include "../Shared/LGButtonPressureRoute.h"
 #include <stdio.h>
 #include <stdarg.h>
 #include <string.h>
@@ -17,7 +22,9 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #include <sys/sysctl.h>
+#include <mach/mach_time.h>
 #include <dirent.h>
+#include <atomic>
 
 #if __has_include(<roothide.h>)
 #include <roothide.h>
@@ -44,6 +51,33 @@ static void lgClearAccessibilityFiles(void) {
 
     struct dirent *entry = NULL;
     while ((entry = readdir(directory))) {
+        // The diagnostic producer owns this file; restarting the consumer must
+        // not delete a completed producer snapshot or its in-flight temp file.
+        const char *diagnosticName = strrchr(LG_SURFACE_DIAGNOSTICS_PATH, '/') + 1;
+        size_t diagnosticLength = strlen(diagnosticName);
+        if (strcmp(entry->d_name, diagnosticName) == 0) continue;
+        if (strncmp(entry->d_name, diagnosticName, diagnosticLength) == 0 &&
+            entry->d_name[diagnosticLength] == '.') {
+            const char *suffix = entry->d_name + diagnosticLength;
+            bool actualTemp = strlen(suffix) == 11 && strcmp(suffix + 7, ".tmp") == 0;
+            for (size_t i = 1; actualTemp && i <= 6; ++i) {
+                char c = suffix[i];
+                actualTemp = (c >= '0' && c <= '9') || (c >= 'A' && c <= 'Z') ||
+                             (c >= 'a' && c <= 'z');
+            }
+            // Preserve unknown names and fresh in-flight writes. Only prune
+            // exact mkstemps leftovers older than a generous five-minute grace.
+            if (actualTemp) {
+                char temporary[PATH_MAX] = {};
+                snprintf(temporary, sizeof(temporary), "%s/%s", directoryPath, entry->d_name);
+                struct stat info = {};
+                time_t now = time(NULL);
+                if (lstat(temporary, &info) == 0 && S_ISREG(info.st_mode) &&
+                    info.st_uid == 501 && info.st_nlink == 1 &&
+                    now > info.st_mtime && now - info.st_mtime > 300) unlink(temporary);
+            }
+            continue;
+        }
         if (strncmp(entry->d_name, "liquidass", 9) != 0 &&
             strncmp(entry->d_name, "liquidglass", 11) != 0) continue;
         char path[PATH_MAX] = {};
@@ -311,6 +345,12 @@ typedef struct {
     float       fresnelGlareStrength;
     float       borderWidthPixels;
     simd_float4 tintColor;
+    float       buttonCandidate;
+    float       buttonCandidateMaxOffset;
+    simd_float2 buttonCandidateCenter;
+    float       buttonCandidatePointScale;
+    float       buttonCandidateCornerRadius;
+    float       buttonCandidateRendererScale;
 } LGUniforms;
 
 typedef void (*Render13Fn)(void*,
@@ -396,6 +436,7 @@ static size_t                      g_clockSharedMaskMappingSize = 0;
 static os_unfair_lock g_pipelineLock = OS_UNFAIR_LOCK_INIT;
 static os_unfair_lock g_clockMaskLock = OS_UNFAIR_LOCK_INIT;
 static bool           g_pipelineInit = false;
+static std::atomic<bool> g_buttonOpticsCompiled{false};
 static NSInteger      g_osMajorVersion = 0;
 
 static const char *kClockSharedMaskPath =
@@ -467,7 +508,17 @@ struct Uniforms {
     float  fresnelGlareStrength;
     float  borderWidthPixels;
     float4 tintColor;
+    float buttonCandidate;
+    float buttonCandidateMaxOffset;
+    float2 buttonCandidateCenter;
+    float buttonCandidatePointScale;
+    float buttonCandidateCornerRadius;
+    float buttonCandidateRendererScale;
 };
+
+#if LG_BUTTON_OPTICS_COMPILED
+//__LG_BUTTON_OPTICS_FORMULA__
+#endif
 
 float quartzGlassEdgeProfile(float distanceFromEdge,
                              float refractionHeight) {
@@ -772,6 +823,37 @@ float4 liquidGlassPixel(texture2d<float, access::sample> src,
                                : clamp(1.0 - max(0.0, signedDistance), 0.0, 1.0);
     }
 
+#if LG_BUTTON_OPTICS_COMPILED
+    bool buttonCandidate = u.buttonCandidate > 0.5 &&
+                           u.buttonCandidateMaxOffset > 0.0;
+    if (buttonCandidate) {
+        if (subShape || isCoverSheet || isKeyboard || u.useGlyphMask != 0.0)
+            return src.sample(s, captureUV);
+        LGButtonOpticsResult optics = LGButtonOpticsEvaluate(
+            px.x, px.y, fw, fh, u.buttonCandidateCenter.x,
+            u.buttonCandidateCenter.y, u.buttonCandidateCornerRadius,
+            bezel, u.glassThickness, u.refractiveIndex,
+            u.refractionScale, u.buttonCandidateMaxOffset,
+            u.buttonCandidatePointScale, u.buttonCandidateRendererScale, true);
+        if (!optics.valid || optics.signedDistance >= 0.0f)
+            return src.sample(s, captureUV);
+        float2 opticalUV = float2(optics.sampleU, optics.sampleV);
+        float4 opticalSample = src.sample(s, opticalUV);
+        if (opticalSample.a < 0.01f) opticalSample = src.sample(s, captureUV);
+        /* Source-plane radiance approximation: a second low-cost sample from
+         * the same live CA origTex. This is not an external environment map. */
+        float2 environmentUV = float2(optics.environmentU, optics.environmentV);
+        float4 environmentSample = src.sample(s, environmentUV);
+        if (environmentSample.a < 0.01f) environmentSample = opticalSample;
+        float environmentWeight = clamp(optics.environmentWeight, 0.0f, 0.28f);
+        float3 mixedPremul = float3(
+            LGBOEnvironmentMixPremultipliedChannel(opticalSample.r, opticalSample.a, environmentSample.r, environmentSample.a, environmentWeight),
+            LGBOEnvironmentMixPremultipliedChannel(opticalSample.g, opticalSample.a, environmentSample.g, environmentSample.a, environmentWeight),
+            LGBOEnvironmentMixPremultipliedChannel(opticalSample.b, opticalSample.a, environmentSample.b, environmentSample.a, environmentWeight));
+        return float4(mixedPremul, opticalSample.a);
+    }
+#endif
+
     if (u.useGlyphMask < 0.5 && !isCoverSheet && !isKeyboard &&
         R >= 0.5 && bezel > R) {
         float cornerScale = R >= shortest * 0.49 ? R
@@ -805,7 +887,6 @@ float4 liquidGlassPixel(texture2d<float, access::sample> src,
     }
     float2 dispPx = -textureDir * normDisp * bezel
                   * u.refractionScale * edgeOpacity;
-
     float dispersion = clamp(u.dispersionStrength, 0.0, 20.0);
     constexpr float zoomRampSpan = 0.3;
     float zoomMix = bezel > 0.001
@@ -921,15 +1002,42 @@ static void ensurePipeline(__unsafe_unretained id<MTLDevice> device) {
         g_pipelineInit = true; // set first so a compile failure doesnt spin
 
         NSError *err = nil;
-        NSString *src = [NSString stringWithUTF8String:kShaderSrc];
-        id<MTLLibrary> lib = [device newLibraryWithSource:src options:nil error:&err];
+        NSString *baseSource = [NSString stringWithUTF8String:kShaderSrc];
+        NSString *formulaSource = [NSString stringWithUTF8String:kLGButtonOpticsFormulaMSL];
+        NSString *marker = @"//__LG_BUTTON_OPTICS_FORMULA__";
+        if (!baseSource) {
+            lglog("Metal base source unavailable; retained stock pass");
+            os_unfair_lock_unlock(&g_pipelineLock);
+            return;
+        }
+        id<MTLLibrary> lib = nil;
+        if (formulaSource.length &&
+            [baseSource rangeOfString:marker].location != NSNotFound) {
+            NSString *src = [@"#define LG_BUTTON_OPTICS_COMPILED 1\n"
+                stringByAppendingString:[baseSource stringByReplacingOccurrencesOfString:marker
+                                                                            withString:formulaSource]];
+            lib = [device newLibraryWithSource:src options:nil error:&err];
+        }
+        g_buttonOpticsCompiled.store(lib != nil, std::memory_order_release);
         if (!lib) {
-            lglog("Metal compile failed: %s", err.localizedDescription.UTF8String);
+            lglog("Metal candidate unavailable: %s; trying compatibility library",
+                  err ? err.localizedDescription.UTF8String : "formula marker/source missing");
+            // Both declarations and call sites are preprocessor-guarded. This
+            // variant keeps the identical enlarged Uniforms ABI, but never
+            // parses or calls the candidate formula. No dummy shader is used.
+            NSString *compatibilitySource = [@"#define LG_BUTTON_OPTICS_COMPILED 0\n"
+                stringByAppendingString:baseSource];
+            err = nil;
+            lib = [device newLibraryWithSource:compatibilitySource options:nil error:&err];
+        }
+        if (!lib) {
+            lglog("Metal compatibility compile failed: %s", err.localizedDescription.UTF8String);
             os_unfair_lock_unlock(&g_pipelineLock);
             return;
         }
         g_shaderLibrary = lib;
-        lglog("shader library ready");
+        lglog("shader library ready candidateOptics=%d",
+              g_buttonOpticsCompiled.load(std::memory_order_acquire));
     }
     os_unfair_lock_unlock(&g_pipelineLock);
 }
@@ -1113,6 +1221,12 @@ static void ensureUniforms(__unsafe_unretained id<MTLDevice> device, uint64_t w,
     u->dispersionStrength      = 5.0f;
     u->fresnelGlareStrength    = 0.5f;
     u->borderWidthPixels       = 2.0f;
+    u->buttonCandidate         = 0.0f;
+    u->buttonCandidateMaxOffset = 0.0f;
+    u->buttonCandidateCenter = simd_make_float2(0.0f, 0.0f);
+    u->buttonCandidatePointScale = 0.0f;
+    u->buttonCandidateCornerRadius = 0.0f;
+    u->buttonCandidateRendererScale = 0.0f;
     lglog("uniforms buffer allocated (geometry refreshed per-frame)");
 }
 
@@ -1126,6 +1240,12 @@ static void updateUniformsForFrame(uint64_t w, uint64_t h) {
     u->resolution          = simd_make_float2(fw, fh);
     u->outputResolution    = simd_make_float2(fw, fh);
     u->wallpaperResolution = simd_make_float2(fw, fh);
+    u->buttonCandidate = 0.0f;
+    u->buttonCandidateMaxOffset = 0.0f;
+    u->buttonCandidateCenter = simd_make_float2(0.0f, 0.0f);
+    u->buttonCandidatePointScale = 0.0f;
+    u->buttonCandidateCornerRadius = 0.0f;
+    u->buttonCandidateRendererScale = 0.0f;
     u->lensOrigin          = simd_make_float2(0.f, 0.f);
     u->radius              = kCornerRadiusRatio * shortest;
     u->bezelWidth           = kMaxBezelPx;
@@ -1163,6 +1283,11 @@ struct LGRadiusRoute { int host; float radiusRatio; bool dark; };
 static std::unordered_map<uint32_t, LGRadiusRoute> g_radiusRoutes;
 struct LGHostRoute { int host; bool dark; };
 static std::unordered_map<uint32_t, LGHostRoute> g_refreshRoutes;
+#if LG_BUTTON_PRESSURE_EXPERIMENTAL
+// Startup-only immutable category lookup; never holds an instance/global press
+// value. The category comes from each callback's own existing CA filter atom.
+static std::unordered_map<uint32_t, LGButtonPressureCategory> g_buttonPressureRoutes;
+#endif
 static const int kDynamicRadiusSteps = 32;
 
 static bool lgUsesDynamicRadiusRoute(int host) {
@@ -1172,6 +1297,13 @@ static bool lgUsesDynamicRadiusRoute(int host) {
 
 static const LGHostParams *lgHostParamsForAtom(uint32_t atom, bool *dark) {
     if (dark) *dark = false;
+#if LG_BUTTON_PRESSURE_EXPERIMENTAL
+    auto pressureRoute = g_buttonPressureRoutes.find(atom);
+    if (pressureRoute != g_buttonPressureRoutes.end()) {
+        if (dark) *dark = pressureRoute->second.dark;
+        return &g_hostParams[LGHostIdentifierPrefsButtonCandidate];
+    }
+#endif
     auto route = g_radiusRoutes.find(atom);
     if (route != g_radiusRoutes.end()) {
         static thread_local LGHostParams routed;
@@ -1295,10 +1427,100 @@ static void lgReloadHostPrefs(void) {
           g_hostParams[4].bezelWidthPoints, g_hostParams[4].refractionScale);
 }
 
+/* Diagnostic-only receiver. Entirely off render callbacks: no atom lookup,
+ * uniform mutation, unsafe layer dereference or final-presentation claim. */
+static dispatch_queue_t g_surfaceDiagnosticQueue;
+static bool g_surfaceDiagnosticsEnabled;
+static LGSurfaceDiagnosticCursor g_surfaceDiagnosticCursor = {};
+static std::atomic_bool g_surfaceDiagnosticAcceptNotifications{false};
+static std::atomic_bool g_surfaceDiagnosticPending{false};
+static uint64_t g_surfaceDiagnosticLastRead;
+static uint32_t g_surfaceDiagnosticLastCount = UINT32_MAX;
+static uint32_t g_surfaceDiagnosticLastNested = UINT32_MAX;
+static uint32_t g_surfaceDiagnosticLastFallback = UINT32_MAX;
+static uint32_t g_surfaceDiagnosticLastFlags = UINT32_MAX;
+static bool g_surfaceDiagnosticRejected;
+
+static void lgReadSurfaceDiagnostics(void) {
+    if (!g_surfaceDiagnosticsEnabled) return;
+    uint64_t now = LGSurfaceDiagnosticMonotonicMilliseconds();
+    if (!now || (g_surfaceDiagnosticLastRead && now - g_surfaceDiagnosticLastRead < 250)) return;
+    g_surfaceDiagnosticLastRead = now;
+    LGSurfaceDiagnosticPacketV1 *packet = (LGSurfaceDiagnosticPacketV1 *)calloc(1, sizeof(*packet));
+    if (!packet) return;
+    // iOS mobile UID. This limits accidental foreign-writer input; same-UID
+    // authenticity still cannot be established by this diagnostic protocol.
+    bool accepted = LGSurfaceDiagnosticReadExact(LG_SURFACE_DIAGNOSTICS_PATH,
+        packet, sizeof(*packet), (uid_t)501) &&
+        LGSurfaceDiagnosticAccept(packet, sizeof(*packet), now, &g_surfaceDiagnosticCursor);
+    if (!accepted) {
+        free(packet);
+        if (!g_surfaceDiagnosticRejected)
+            lglog("surface-diagnostics: absent, stale, replayed or invalid; no renderer state changed");
+        g_surfaceDiagnosticRejected = true;
+        return;
+    }
+    uint32_t nested = 0, fallback = 0;
+    for (uint32_t i = 0; i < packet->count; ++i) {
+        nested += packet->entries[i].surface.nestingDepth > 0;
+        fallback += (packet->entries[i].surface.flags & LGSurfaceDescriptorNativeFallback) != 0;
+    }
+    if (g_surfaceDiagnosticRejected || packet->count != g_surfaceDiagnosticLastCount ||
+        nested != g_surfaceDiagnosticLastNested || fallback != g_surfaceDiagnosticLastFallback ||
+        packet->flags != g_surfaceDiagnosticLastFlags) {
+        lglog("surface-diagnostics: validated-only pid=%u epoch=%llx serial=%llu instances=%u nested=%u ca-fallback-metadata=%u truncated=%d; per-layer identity and pixels UNVERIFIED",
+            packet->producerPID, (unsigned long long)packet->producerEpoch,
+            (unsigned long long)packet->serial, packet->count, nested, fallback,
+            (packet->flags & LG_SURFACE_DIAGNOSTICS_TRUNCATED) != 0);
+    }
+    g_surfaceDiagnosticRejected = false;
+    g_surfaceDiagnosticLastCount = packet->count;
+    g_surfaceDiagnosticLastNested = nested;
+    g_surfaceDiagnosticLastFallback = fallback;
+    g_surfaceDiagnosticLastFlags = packet->flags;
+    free(packet);
+}
+
+static void lgSurfaceDiagnosticsDidPublish(CFNotificationCenterRef c, void *o,
+    CFStringRef n, const void *obj, CFDictionaryRef info) {
+    if (!g_surfaceDiagnosticAcceptNotifications.load(std::memory_order_acquire) ||
+        g_surfaceDiagnosticPending.exchange(true, std::memory_order_acq_rel)) return;
+    dispatch_async(g_surfaceDiagnosticQueue, ^{
+        lgReadSurfaceDiagnostics();
+        g_surfaceDiagnosticPending.store(false, std::memory_order_release);
+    });
+}
+
+static void lgConfigureSurfaceDiagnosticReceiver(bool enabled) {
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        g_surfaceDiagnosticQueue = dispatch_queue_create("dylv.liquidglass.diagnostic-reader", DISPATCH_QUEUE_SERIAL);
+        CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), NULL,
+            lgSurfaceDiagnosticsDidPublish, CFSTR(LG_SURFACE_DIAGNOSTICS_NOTE), NULL,
+            CFNotificationSuspensionBehaviorCoalesce);
+    });
+    if (!enabled) g_surfaceDiagnosticAcceptNotifications.store(false, std::memory_order_release);
+    dispatch_async(g_surfaceDiagnosticQueue, ^{
+        g_surfaceDiagnosticsEnabled = enabled;
+        if (!enabled) {
+            g_surfaceDiagnosticAcceptNotifications.store(false, std::memory_order_release);
+            // Preserve the replay cursor across disable/enable, but hold no packet.
+            g_surfaceDiagnosticLastRead = 0;
+            g_surfaceDiagnosticLastCount = UINT32_MAX;
+            return;
+        }
+        g_surfaceDiagnosticAcceptNotifications.store(true, std::memory_order_release);
+        // Await a NEW publish notification; do not treat an old file as this
+        // enable epoch's first snapshot.
+    });
+}
+
 static void lgPrefsReloadCallback(CFNotificationCenterRef c, void *o, CFStringRef n,
                                    const void *obj, CFDictionaryRef info) {
     lglog("prefs Reload received; re-reading %s", lgPrefsPath().UTF8String);
     lgReloadHostPrefs();
+    NSDictionary *diagnosticPrefs = [NSDictionary dictionaryWithContentsOfFile:lgPrefsPath()];
+    lgConfigureSurfaceDiagnosticReceiver(LGSurfaceDiagnosticsPreferenceEnabled(diagnosticPrefs[LG_SURFACE_DIAGNOSTICS_PREF]));
 
     CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(),
         kLGParametersReloadedNote, NULL, NULL, true);
@@ -1367,6 +1589,8 @@ static void ourCustomRender13(void *self, void *filter, void *layer, void *ctx,
         ? *(uint32_t *)((uint8_t *)filter + g_filterAtomOffset) : 0;
     bool darkTint = false;
     const LGHostParams *hp = lgHostParamsForAtom(ftype, &darkTint);
+    const bool buttonCandidateRequested =
+        !strcmp(hp->prefPrefix, "PrefsButtonCandidate");
     float shortestF = fminf((float)w, (float)h);
 
     auto radiusIt = g_radiusRoutes.find(ftype);
@@ -1385,6 +1609,13 @@ static void ourCustomRender13(void *self, void *filter, void *layer, void *ctx,
         ? g_fresnelGlareStrength : 0.0f;
     lu.tintColor          = darkTint ? simd_make_float4(hp->darkTintR, hp->darkTintG, hp->darkTintB, hp->darkTintStrength)
                                   : simd_make_float4(hp->tintR, hp->tintG, hp->tintB, hp->tintStrength);
+    if (buttonCandidateRequested) {
+        // Clear profile: old PrefsButton tint, dispersion and zoom are not inherited.
+        lu.tintColor = simd_make_float4(0.0f, 0.0f, 0.0f, 0.0f);
+        lu.dispersionStrength = 0.0f;
+        lu.fresnelGlareStrength = 0.0f;
+        lu.backdropZoom = 1.0f;
+    }
 
     if (!strcmp(hp->prefPrefix, "Keyboard")) {
         static int keyboardGeometryLogs = 0;
@@ -1568,6 +1799,69 @@ static void ourCustomRender13(void *self, void *filter, void *layer, void *ctx,
     }
     lu.outputResolution =
         simd_make_float2((float)destTex.width, (float)destTex.height);
+
+    const bool fullLayerShape = lu.useGlyphMask == 0.0f &&
+        lu.shapeScale >= 0.999f && lu.shapeSize.x <= 0.5f &&
+        lu.shapeSize.y <= 0.5f;
+    const bool candidateFormatsMatch = LGButtonCandidateFormatsCompatible(
+        buttonCandidateRequested, (uint32_t)origTex.pixelFormat,
+        (uint32_t)destTex.pixelFormat);
+    const bool candidateSamplingReady = origTex != destTex &&
+        (origTex.usage == MTLTextureUsageUnknown ||
+         (origTex.usage & MTLTextureUsageShaderRead) != 0);
+    LGButtonOpticsGeometry candidateGeometry = {};
+    const bool candidateGeometryValid = buttonCandidateRequested &&
+        LGButtonCandidateBuildGeometry(
+            (float)w, (float)h, (float)destTex.width, (float)destTex.height,
+            scale, &candidateGeometry);
+    if (buttonCandidateRequested &&
+        g_buttonOpticsCompiled.load(std::memory_order_acquire) &&
+        fullLayerShape && candidateFormatsMatch &&
+        candidateSamplingReady && candidateGeometryValid) {
+        lu.buttonCandidate = 1.0f;
+        lu.buttonCandidateMaxOffset = LGButtonCandidateMaxDisplacement(
+            (float)w, (float)h);
+        lu.buttonCandidateCenter = simd_make_float2(
+            candidateGeometry.centerX, candidateGeometry.centerY);
+        lu.buttonCandidatePointScale = fminf(candidateGeometry.pointScaleX,
+                                              candidateGeometry.pointScaleY);
+        lu.buttonCandidateCornerRadius = candidateGeometry.cornerRadius;
+        lu.buttonCandidateRendererScale = candidateGeometry.rendererScale;
+        lu.radius = candidateGeometry.cornerRadius;
+#if LG_BUTTON_PRESSURE_EXPERIMENTAL
+        auto pressureRoute = g_buttonPressureRoutes.find(ftype);
+        if (pressureRoute != g_buttonPressureRoutes.end()) {
+            float effectiveThickness = lu.glassThickness;
+            float refractionFactor = 1.0f;
+            if (LGButtonPressureMaterial(shortestF, hp->glassThickness,
+                    pressureRoute->second.bucket, &effectiveThickness, &refractionFactor)) {
+                // These are this callback's local uniforms, never a global
+                // instance state. The real shared optical formula consumes both.
+                lu.glassThickness = effectiveThickness;
+                lu.refractionScale = hp->refractionScale * refractionFactor;
+            }
+        }
+#endif
+        lu.bezelWidth = fminf(
+            hp->bezelWidthPoints * lu.buttonCandidatePointScale,
+            shortestF * 0.5f);
+        // Color/dispersion are intentionally not involved in this clear lens.
+        lu.tintColor = simd_make_float4(0.0f, 0.0f, 0.0f, 0.0f);
+        lu.dispersionStrength = 0.0f;
+        lu.fresnelGlareStrength = 0.0f;
+        lu.backdropZoom = 1.0f;
+    } else if (buttonCandidateRequested) {
+        lu.buttonCandidate = 0.0f;
+        lu.buttonCandidateMaxOffset = 0.0f;
+        static int sCandidateFallbackLogs = 0;
+        if (__sync_fetch_and_add(&sCandidateFallbackLogs, 1) < 8)
+            lglog("button-material-optics fallback shape=%d formats=%d sample=%d geometry=%d srcFmt=%u dstFmt=%u src=%llux%llu dst=%lux%lu callbackScale=%.3f; legacy shader retained",
+                  fullLayerShape, candidateFormatsMatch, candidateSamplingReady,
+                  candidateGeometryValid, (unsigned)origTex.pixelFormat,
+                  (unsigned)destTex.pixelFormat, w, h,
+                  (unsigned long)destTex.width, (unsigned long)destTex.height,
+                  scale);
+    }
 
     os_unfair_lock_lock(&g_loggedRenderAtomsLock);
     bool firstSuccessfulAtom = g_loggedRenderAtoms.insert(ftype).second;
@@ -2097,6 +2391,22 @@ static bool registerCustomFilter(void) {
         }
     }
 
+#if LG_BUTTON_PRESSURE_EXPERIMENTAL
+    // Exact circular Settings candidate only: 8 nonzero buckets x dark/light x
+    // refresh = 32 fixed names. No radius/touch/identity Cartesian product.
+    for (unsigned bucket = 1; bucket < LG_BUTTON_PRESSURE_LEVELS; ++bucket)
+        for (unsigned dark = 0; dark < 2; ++dark)
+            for (unsigned refresh = 0; refresh < 2; ++refresh) {
+                LGButtonPressureCategory category = {bucket, dark != 0, refresh != 0};
+                char name[96];
+                if (!LGButtonPressureTypeName(name, sizeof name, category)) continue;
+                uint32_t pressureAtom = g_internAtom(name);
+                if (!pressureAtom || g_buttonPressureRoutes.count(pressureAtom)) continue;
+                g_buttonPressureRoutes.emplace(pressureAtom, category);
+                lgRegisterCustomAtom(pressureAtom, registrationDescriptor);
+            }
+#endif
+
     g_filterRegistered = true;
     lglog("registerCustomFilter: done mode=%s descriptor=%p renderSlot=%d atom=0x%x hosts=%d",
           g_useHookPath ? "hook" : "clone", registrationDescriptor,
@@ -2120,6 +2430,7 @@ static void tweakInit(void) {
         NSNumber *debugLogging = bootPrefs[@"Debug.Logging.Enabled"];
         gLGBackboardDebugLogging = [debugLogging isKindOfClass:NSNumber.class]
             ? debugLogging.boolValue : false;
+        lgConfigureSurfaceDiagnosticReceiver(LGSurfaceDiagnosticsPreferenceEnabled(bootPrefs[LG_SURFACE_DIAGNOSTICS_PREF]));
     }
     if (gLGBackboardDebugLogging) {
         FILE *lf = fopen(LG_LOG_PATH, "w"); if (lf) fclose(lf);

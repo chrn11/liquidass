@@ -1,6 +1,8 @@
 #import "LGGlassKit.h"
 #import "LGLiveBackdropView.h"
 #import "LGHostRegistry.h"
+#import "LGSurfaceDiagnostics.h"
+#import "LGSurfaceDiagnosticIO.h"
 #import <objc/runtime.h>
 
 #pragma mark - class / ancestry helpers
@@ -55,9 +57,13 @@ BOOL lgHostEnabled(NSString *prefix) {
     id global = LGGlassPreferenceValue(@"Global.Enabled");
     if (![prefix isEqualToString:@"Global"] && [global isKindOfClass:[NSNumber class]] && ![global boolValue])
         return NO;
-    id v = LGGlassPreferenceValue([prefix stringByAppendingString:@".Enabled"]);
+    id value = LGGlassPreferenceValue([prefix stringByAppendingString:@".Enabled"]);
+    if (!value && [prefix isEqualToString:@"OpenFolder"])
+        value = LGGlassPreferenceValue(@"FolderOpen.Enabled");
+    if (!value && [prefix isEqualToString:@"AppLibSearch"])
+        value = LGGlassPreferenceValue(@"AppLibrary.Search.Enabled");
 
-    if (!v) {
+    if (![value isKindOfClass:[NSNumber class]]) {
         static NSDictionary<NSString *, NSString *> *legacyPrefixes;
         static dispatch_once_t once;
         dispatch_once(&once, ^{
@@ -70,9 +76,10 @@ BOOL lgHostEnabled(NSString *prefix) {
             };
         });
         NSString *legacy = legacyPrefixes[prefix];
-        if (legacy) v = LGGlassPreferenceValue([legacy stringByAppendingString:@".Enabled"]);
+        if (legacy) value = LGGlassPreferenceValue(
+            [legacy stringByAppendingString:@".Enabled"]);
     }
-    if ([v isKindOfClass:[NSNumber class]]) return [v boolValue];
+    if ([value isKindOfClass:[NSNumber class]]) return [value boolValue];
 
     if ([prefix isEqualToString:@"AppIcons"]) return NO;
     return YES;
@@ -84,8 +91,19 @@ BOOL lgHostEnabled(NSString *prefix) {
 @property (nonatomic, copy) NSString *prefix;
 @property (nonatomic, weak) UIView *glass;
 @property (nonatomic, weak) UIView *material;
+@property (nonatomic, assign) BOOL hasMaterialOwner;
+@property (nonatomic, assign) uint64_t hostGeneration;
+@property (nonatomic, assign) uint64_t diagnosticIdentifier;
 @end
 @implementation LGGlassRec @end
+
+static uint64_t LGGlassKitNextHostGeneration(void) {
+    static uint64_t generation = 0;
+    @synchronized([LGGlassRec class]) {
+        if (generation < UINT64_MAX) generation++;
+        return generation;
+    }
+}
 
 void *kGlassKey = &kGlassKey;
 
@@ -112,18 +130,293 @@ void lgObservePreferenceReload(void (^handler)(void)) {
     [sReloadHandlers addObject:[handler copy]];
 }
 
+static uint32_t LGGlassMaterialNestingDepth(UIView *material,
+                                                  LGLiveBackdropView *glass) {
+    UIView *ancestor = material ? material.superview : glass.superview;
+    uint32_t depth = 0;
+    for (; ancestor; ancestor = ancestor.superview) {
+        if (isExactClass(ancestor, @"MTMaterialView") && depth < UINT32_MAX)
+            depth++;
+    }
+    return depth;
+}
+
 void lgTrackGlass(UIView *glass, NSString *prefix, UIView *material) {
-    if (!glass || !prefix.length) return;
-    if (!sGlassRecs) sGlassRecs = [NSMapTable weakToStrongObjectsMapTable];
-    LGGlassRec *existing = [sGlassRecs objectForKey:glass];
-    if (existing) {
-        existing.prefix = prefix;
-        existing.material = material;
+    if (!NSThread.isMainThread || !glass || !prefix.length) return;
+    if (![glass isKindOfClass:LGLiveBackdropView.class]) {
+        // Legacy helpers such as the fullscreen Passcode UIView tint participate
+        // in disable/restore lifecycle, not in the glass descriptor protocol.
+        if (!sGlassRecs) sGlassRecs = [NSMapTable weakToStrongObjectsMapTable];
+        LGGlassRec *helper = [sGlassRecs objectForKey:glass] ?: [LGGlassRec new];
+        helper.glass = glass;
+        helper.prefix = prefix;
+        helper.material = material;
+        helper.hasMaterialOwner = material != nil;
+        [sGlassRecs setObject:helper forKey:glass];
         return;
     }
-    LGGlassRec *rec = [LGGlassRec new];
-    rec.prefix = prefix; rec.glass = glass; rec.material = material;
-    [sGlassRecs setObject:rec forKey:glass];
+    LGLiveBackdropView *glassView = (LGLiveBackdropView *)glass;
+    enum LGHostIdentifier boundHost = LGHostIdentifierForFilterType(glassView.lgFilterType.UTF8String);
+    const LGHostDefinition *prefixHost = LGHostDefinitionForPreferencePrefix(prefix.UTF8String);
+    if (boundHost >= LGHostIdentifierCount || prefixHost != &kLGHostRegistry[boundHost]) return;
+    if (!sGlassRecs) sGlassRecs = [NSMapTable weakToStrongObjectsMapTable];
+    LGGlassRec *existing = [sGlassRecs objectForKey:glassView];
+    if (existing) {
+        UIView *previousMaterial = existing.material;
+        BOOL ownerChanged = previousMaterial != material ||
+                            existing.hasMaterialOwner != (material != nil);
+        uint64_t hostGeneration = existing.hostGeneration;
+        if (!hostGeneration || ownerChanged)
+            hostGeneration = LGGlassKitNextHostGeneration();
+        LGSurfaceDescriptorV1 current = glassView.lgSurfaceDescriptor;
+        LGSurfaceDescriptorV1 previous = current;
+        current.hostGeneration = hostGeneration;
+        enum LGHostIdentifier identifier =
+            LGHostIdentifierForFilterType(glassView.lgFilterType.UTF8String);
+        switch (identifier) {
+            case LGHostIdentifierClock: current.role = LGSurfaceRoleClock; break;
+            case LGHostIdentifierKeyboard: current.role = LGSurfaceRoleKeyboard; break;
+            case LGHostIdentifierTabBarSelection: current.role = LGSurfaceRoleTabSelection; break;
+            case LGHostIdentifierQuickActions:
+            case LGHostIdentifierPrefsButton:
+            case LGHostIdentifierPrefsButtonCandidate: current.role = LGSurfaceRoleButton; break;
+            case LGHostIdentifierPrefsSlider: current.role = LGSurfaceRoleSlider; break;
+            case LGHostIdentifierPrefsSwitch: current.role = LGSurfaceRoleSwitch; break;
+            default: current.role = LGSurfaceRolePanel; break;
+        }
+        current.captureGroup = identifier < LGHostIdentifierCount
+            ? (uint32_t)identifier : UINT32_MAX;
+        if (identifier < LGHostIdentifierCount) {
+            NSString *hostPrefix = [NSString stringWithUTF8String:kLGHostRegistry[identifier].preferencePrefix];
+            current.backgroundProfile = (uint32_t)LGSurfaceBackgroundProfileForHost(hostPrefix);
+            current.qualityTier = (uint32_t)LGSurfaceQualityTierForHost(hostPrefix);
+        }
+        if (!LGSurfaceAppearanceEqual(&previous, &current))
+            current.appearanceGeneration = LGSurfaceGenerationNext(previous.appearanceGeneration);
+        if (!ownerChanged && !current.captureOwnerGeneration) {
+            current.captureOwnerGeneration = existing.hostGeneration;
+            current.captureOwnerGroup = current.captureGroup;
+        }
+        if (ownerChanged) {
+            current.captureOwnerGeneration = hostGeneration;
+            current.captureOwnerGroup = current.captureGroup;
+        }
+        uint32_t depth = LGGlassMaterialNestingDepth(material, glassView);
+        current.nestingDepth = depth;
+        current.nestedMaterialPolicy = (uint32_t)LGSurfaceNestedMaterialPolicyFromDepth(depth);
+        current.flags |= LGSurfaceDescriptorEnabled;
+        if (glassView.lgFilterAttached)
+            current.flags &= ~LGSurfaceDescriptorNativeFallback;
+        else
+            current.flags |= LGSurfaceDescriptorNativeFallback;
+        if (ownerChanged) {
+            if (!LGSurfaceDescriptorCanBindHostGeneration(
+                    &previous, YES, &current)) {
+                LGLog(@"descriptor-rebind rejected host=%@ previous-owner=%p next-owner=%p old-gen=%llu new-gen=%llu",
+                      prefix, previousMaterial, material,
+                      (unsigned long long)glassView.lgSurfaceDescriptor.captureOwnerGeneration,
+                      (unsigned long long)current.captureOwnerGeneration);
+                return;
+            }
+        }
+        if (![glassView lgUpdateSurfaceDescriptor:current]) {
+            LGLog(@"descriptor-update rejected host=%@ gen=%llu", prefix,
+                  (unsigned long long)hostGeneration);
+            return;
+        }
+        // Publish registry identity only after the descriptor accepted the owner.
+        existing.prefix = prefix;
+        existing.material = material;
+        existing.hasMaterialOwner = material != nil;
+        existing.hostGeneration = hostGeneration;
+        [sGlassRecs setObject:existing forKey:glassView];
+        return;
+    }
+    LGGlassRec *record = [LGGlassRec new];
+    record.glass = glassView;
+    record.material = material;
+    record.hasMaterialOwner = material != nil;
+    record.prefix = prefix;
+    record.hostGeneration = LGGlassKitNextHostGeneration();
+    record.diagnosticIdentifier = record.hostGeneration;
+    LGSurfaceDescriptorV1 current = glassView.lgSurfaceDescriptor;
+    const LGSurfaceDescriptorV1 previous = current;
+    current.hostGeneration = record.hostGeneration;
+    enum LGHostIdentifier identifier =
+        LGHostIdentifierForFilterType(glassView.lgFilterType.UTF8String);
+    switch (identifier) {
+        case LGHostIdentifierClock: current.role = LGSurfaceRoleClock; break;
+        case LGHostIdentifierKeyboard: current.role = LGSurfaceRoleKeyboard; break;
+        case LGHostIdentifierTabBarSelection: current.role = LGSurfaceRoleTabSelection; break;
+        case LGHostIdentifierQuickActions:
+        case LGHostIdentifierPrefsButton:
+        case LGHostIdentifierPrefsButtonCandidate: current.role = LGSurfaceRoleButton; break;
+        case LGHostIdentifierPrefsSlider: current.role = LGSurfaceRoleSlider; break;
+        case LGHostIdentifierPrefsSwitch: current.role = LGSurfaceRoleSwitch; break;
+        default: current.role = LGSurfaceRolePanel; break;
+    }
+    current.captureGroup = identifier < LGHostIdentifierCount
+        ? (uint32_t)identifier : UINT32_MAX;
+    if (identifier < LGHostIdentifierCount) {
+        NSString *hostPrefix = [NSString stringWithUTF8String:kLGHostRegistry[identifier].preferencePrefix];
+        current.backgroundProfile = (uint32_t)LGSurfaceBackgroundProfileForHost(hostPrefix);
+        current.qualityTier = (uint32_t)LGSurfaceQualityTierForHost(hostPrefix);
+    }
+    if (previous.captureOwnerGeneration && !LGSurfaceAppearanceEqual(&previous, &current))
+        current.appearanceGeneration = LGSurfaceGenerationNext(previous.appearanceGeneration);
+    current.captureOwnerGeneration = record.hostGeneration;
+    current.captureOwnerGroup = current.captureGroup;
+    uint32_t depth = LGGlassMaterialNestingDepth(material, glassView);
+    current.nestingDepth = depth;
+    current.nestedMaterialPolicy = (uint32_t)LGSurfaceNestedMaterialPolicyFromDepth(depth);
+    current.flags |= LGSurfaceDescriptorEnabled;
+    if (glassView.lgFilterAttached)
+        current.flags &= ~LGSurfaceDescriptorNativeFallback;
+    else
+        current.flags |= LGSurfaceDescriptorNativeFallback;
+    if (![glassView lgUpdateSurfaceDescriptor:current]) {
+        LGLog(@"descriptor-bind failed host=%@ gen=%llu current-gen=%llu geo=%llu/%llu appearance=%llu/%llu interaction=%llu/%llu",
+              prefix,
+              (unsigned long long)current.hostGeneration,
+              (unsigned long long)glassView.lgSurfaceDescriptor.hostGeneration,
+              (unsigned long long)current.geometryGeneration,
+              (unsigned long long)glassView.lgSurfaceDescriptor.geometryGeneration,
+              (unsigned long long)current.appearanceGeneration,
+              (unsigned long long)glassView.lgSurfaceDescriptor.appearanceGeneration,
+              (unsigned long long)current.interactionGeneration,
+              (unsigned long long)glassView.lgSurfaceDescriptor.interactionGeneration);
+        return;
+    }
+    [sGlassRecs setObject:record forKey:glassView];
+}
+
+void lgUntrackGlass(UIView *glass) {
+    if (!NSThread.isMainThread || !glass) return;
+    [sGlassRecs removeObjectForKey:glass];
+}
+
+static dispatch_source_t sSurfaceDiagnosticTimer;
+static dispatch_queue_t sSurfaceDiagnosticIOQueue;
+static uint64_t sSurfaceDiagnosticEpoch, sSurfaceDiagnosticSerial;
+static BOOL sSurfaceDiagnosticWriting;
+
+static BOOL LGSurfaceDiagnosticsEnabled(void) {
+    return [NSBundle.mainBundle.bundleIdentifier isEqualToString:@"com.apple.springboard"] &&
+           LGSurfaceDiagnosticsPreferenceEnabled(LGGlassPreferenceValue(LG_SURFACE_DIAGNOSTICS_PREF));
+}
+
+static void LGPublishSurfaceDiagnostics(void) {
+    if (!NSThread.isMainThread || !LGSurfaceDiagnosticsEnabled() || sSurfaceDiagnosticWriting) return;
+    LGSurfaceDiagnosticPacketV1 *packet = calloc(1, sizeof(*packet));
+    if (!packet) return;
+    packet->magic = LG_SURFACE_DIAGNOSTICS_MAGIC;
+    packet->version = LG_SURFACE_DIAGNOSTICS_VERSION;
+    packet->byteSize = sizeof(*packet);
+    packet->capacity = LG_SURFACE_DIAGNOSTICS_CAPACITY;
+    packet->producerPID = (uint32_t)getpid();
+    packet->producerEpoch = sSurfaceDiagnosticEpoch;
+    packet->serial = ++sSurfaceDiagnosticSerial;
+    packet->monotonicMilliseconds = LGSurfaceDiagnosticMonotonicMilliseconds();
+    packet->flags = LG_SURFACE_DIAGNOSTICS_ONLY;
+    NSArray<UIView *> *glasses = [sGlassRecs.keyEnumerator.allObjects
+        sortedArrayUsingComparator:^NSComparisonResult(UIView *a, UIView *b) {
+            uint64_t x = [sGlassRecs objectForKey:a].diagnosticIdentifier;
+            uint64_t y = [sGlassRecs objectForKey:b].diagnosticIdentifier;
+            return x == y ? NSOrderedSame : (x < y ? NSOrderedAscending : NSOrderedDescending);
+        }];
+    for (UIView *candidate in glasses) {
+        if (![candidate isKindOfClass:LGLiveBackdropView.class]) continue;
+        LGLiveBackdropView *glass = (LGLiveBackdropView *)candidate;
+        LGGlassRec *record = [sGlassRecs objectForKey:glass];
+        if (!record || !record.diagnosticIdentifier || !glass.window || !lgHostEnabled(record.prefix) ||
+            (record.hasMaterialOwner && !record.material)) continue;
+        uint32_t host = (uint32_t)LGHostIdentifierForFilterType(glass.lgFilterType.UTF8String);
+        if (host >= LGHostIdentifierCount) continue;
+        uint32_t depth = LGGlassMaterialNestingDepth(record.material, glass);
+        LGSurfaceDescriptorV1 value;
+        if (record.material && objc_getAssociatedObject(record.material, kGlassKey) == glass) {
+            // Exercise the owner/association-bound pure query only in diagnostics.
+            LGMaterialSurfaceDescriptor snapshot = {0};
+            if (!LGDescribeMaterialSurface(record.material, kGlassKey, &snapshot)) continue;
+            value = snapshot.surface;
+        } else {
+            value = [glass lgPresentationSurfaceDescriptorWithOwnerGroup:host
+                ownerGeneration:record.hostGeneration nestingDepth:depth
+                nestedMaterialPolicy:LGSurfaceNestedMaterialPolicyFromDepth(depth)];
+        }
+        if (!LGSurfaceDescriptorV1IsValid(&value) || value.hostGeneration != record.hostGeneration ||
+            value.captureOwnerGeneration != record.hostGeneration || value.captureGroup != host ||
+            value.captureOwnerGroup != host) continue;
+        if (packet->count == LG_SURFACE_DIAGNOSTICS_CAPACITY) {
+            packet->flags |= LG_SURFACE_DIAGNOSTICS_TRUNCATED;
+            break;
+        }
+        packet->entries[packet->count].surfaceIdentifier = record.diagnosticIdentifier;
+        packet->entries[packet->count++].surface = value;
+    }
+    sSurfaceDiagnosticWriting = YES;
+    dispatch_async(sSurfaceDiagnosticIOQueue, ^{
+        BOOL wrote = LGSurfaceDiagnosticWriteAtomic(LG_SURFACE_DIAGNOSTICS_PATH, packet, sizeof(*packet));
+        free(packet);
+        if (wrote) CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(),
+            CFSTR(LG_SURFACE_DIAGNOSTICS_NOTE), NULL, NULL, true);
+        dispatch_async(dispatch_get_main_queue(), ^{ sSurfaceDiagnosticWriting = NO; });
+    });
+}
+
+static void LGRefreshSurfaceDiagnosticPublisher(void) {
+    if (!NSThread.isMainThread) return;
+    if (!LGSurfaceDiagnosticsEnabled()) {
+        if (sSurfaceDiagnosticTimer) dispatch_source_cancel(sSurfaceDiagnosticTimer);
+        sSurfaceDiagnosticTimer = nil;
+        if (sSurfaceDiagnosticIOQueue)
+            dispatch_async(sSurfaceDiagnosticIOQueue, ^{ unlink(LG_SURFACE_DIAGNOSTICS_PATH); });
+        return;
+    }
+    if (sSurfaceDiagnosticTimer) return;
+    if (!sSurfaceDiagnosticIOQueue)
+        sSurfaceDiagnosticIOQueue = dispatch_queue_create("dylv.liquidglass.diagnostic-writer", DISPATCH_QUEUE_SERIAL);
+    // A new enable epoch must not be confused with the previous producer run.
+    do { arc4random_buf(&sSurfaceDiagnosticEpoch, sizeof(sSurfaceDiagnosticEpoch)); }
+    while (!sSurfaceDiagnosticEpoch);
+    sSurfaceDiagnosticSerial = 0;
+    sSurfaceDiagnosticTimer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, dispatch_get_main_queue());
+    dispatch_source_set_timer(sSurfaceDiagnosticTimer, dispatch_time(DISPATCH_TIME_NOW, 0),
+        NSEC_PER_SEC, NSEC_PER_SEC / 5);
+    dispatch_source_set_event_handler(sSurfaceDiagnosticTimer, ^{ LGPublishSurfaceDiagnostics(); });
+    dispatch_resume(sSurfaceDiagnosticTimer);
+}
+
+BOOL LGDescribeMaterialSurface(UIView *material, const void *associationKey,
+                               LGMaterialSurfaceDescriptor *outDescriptor) {
+    if (outDescriptor) *outDescriptor = (LGMaterialSurfaceDescriptor){0};
+    if (!NSThread.isMainThread || !material || !associationKey || !outDescriptor) return NO;
+    id candidate = objc_getAssociatedObject(material, associationKey);
+    if (![candidate isKindOfClass:LGLiveBackdropView.class]) return NO;
+    LGLiveBackdropView *glass = (LGLiveBackdropView *)candidate;
+    LGGlassRec *record = [sGlassRecs objectForKey:glass];
+    if (!record || !record.hasMaterialOwner || record.material != material) return NO;
+    // Query never mutates/binds; an unregistered or mismatched owner is not describable.
+    enum LGHostIdentifier identifier = LGHostIdentifierForFilterType(glass.lgFilterType.UTF8String);
+    if (identifier >= LGHostIdentifierCount) return NO;
+    uint32_t depth = LGGlassMaterialNestingDepth(material, glass);
+    LGSurfaceDescriptorV1 value = [glass lgPresentationSurfaceDescriptorWithOwnerGroup:(uint32_t)identifier
+                                                                         ownerGeneration:record.hostGeneration
+                                                                              nestingDepth:depth
+                                                                     nestedMaterialPolicy:LGSurfaceNestedMaterialPolicyFromDepth(depth)];
+    if (!LGSurfaceDescriptorV1IsValid(&value) ||
+        value.hostGeneration != record.hostGeneration ||
+        value.captureOwnerGeneration != record.hostGeneration ||
+        value.captureGroup != (uint32_t)identifier ||
+        value.captureOwnerGroup != (uint32_t)identifier) return NO;
+    if (!LGSurfaceDescriptorV1IsValid(&value)) return NO;
+    LGMaterialSurfaceDescriptor snapshot = {0};
+    snapshot.associationKey = associationKey;
+    snapshot.glass = glass;
+    snapshot.material = material;
+    snapshot.surface = value;
+    *outDescriptor = snapshot;
+    return YES;
 }
 
 void lgSuppressStock(UIView *v, NSString *prefix, BOOL setHidden) {
@@ -133,14 +426,12 @@ void lgSuppressStock(UIView *v, NSString *prefix, BOOL setHidden) {
         sSuppressedOriginalHidden = [NSMapTable weakToStrongObjectsMapTable];
 
     NSString *existingPrefix = [sSuppressed objectForKey:v];
-    if (!existingPrefix || ![existingPrefix isEqualToString:prefix]) {
+    if (!existingPrefix || ![existingPrefix isEqualToString:prefix])
         [sSuppressedOriginalHidden setObject:@(v.hidden) forKey:v];
-    }
     [sSuppressed setObject:[prefix copy] forKey:v];
     if (setHidden) v.hidden = YES;
 }
 
-#pragma mark - registered material lifecycle
 
 LGLiveBackdropView *LGCreateRegisteredGlass(CGRect frame,
                                              NSString *groupName,
@@ -151,10 +442,10 @@ LGLiveBackdropView *LGCreateRegisteredGlass(CGRect frame,
         LGLog(@"lifecycle rejected unknown host prefix=%@", prefix);
         return nil;
     }
-    return [[LGLiveBackdropView alloc]
-        initWithFrame:frame
-            groupName:groupName
-           filterType:filterType];
+    LGLiveBackdropView *glass = [[LGLiveBackdropView alloc]
+        initWithFrame:frame groupName:groupName filterType:filterType];
+    lgTrackGlass(glass, prefix, nil);
+    return glass;
 }
 
 LGLiveBackdropView *LGInstallRegisteredGlassInMaterial(UIView *material,
@@ -203,8 +494,11 @@ LGLiveBackdropView *LGInstallRegisteredGlassInMaterial(UIView *material,
 
 BOOL LGMaterialGlassReady(UIView *material, const void *associationKey) {
     if (!material || !associationKey) return NO;
-    LGLiveBackdropView *glass = objc_getAssociatedObject(material, associationKey);
-    return glass && glass.lgFilterAttached;
+    id candidate = objc_getAssociatedObject(material, associationKey);
+    // Diagnostic metadata MUST NOT gate stock visibility. Preserve P0's
+    // independent CA filter readback (which still is not final presentation).
+    return [candidate isKindOfClass:LGLiveBackdropView.class] &&
+           [(LGLiveBackdropView *)candidate lgFilterAttached];
 }
 
 void LGRegisterMaterialHost(NSString *prefix,
@@ -288,7 +582,22 @@ static void lgEnablePrefsReloadCallback(CFNotificationCenterRef c, void *o, CFSt
         lgReconcileInjectionsForDisable();
         LGLog(@"prefs Reload reconciled material hosts; extraHandlers=%lu",
               (unsigned long)sReloadHandlers.count);
+        for (UIView *candidate in sGlassRecs.keyEnumerator.allObjects) {
+            if (![candidate isKindOfClass:LGLiveBackdropView.class]) continue;
+            LGLiveBackdropView *tracked = (LGLiveBackdropView *)candidate;
+            LGGlassRec *record = [sGlassRecs objectForKey:tracked];
+            if (!record || !record.hostGeneration) continue;
+            enum LGHostIdentifier host =
+                LGHostIdentifierForFilterType(tracked.lgFilterType.UTF8String);
+            if (host < LGHostIdentifierCount) {
+                NSString *hostPrefix = [NSString stringWithUTF8String:kLGHostRegistry[host].preferencePrefix];
+                [tracked lgSetSurfaceProfile:LGSurfaceBackgroundProfileForHost(hostPrefix)
+                                 qualityTier:LGSurfaceQualityTierForHost(hostPrefix)];
+            }
+            [tracked applyFilters];
+        }
         for (void (^handler)(void) in [sReloadHandlers copy]) handler();
+        LGRefreshSurfaceDiagnosticPublisher();
     });
 }
 
@@ -296,6 +605,7 @@ __attribute__((constructor)) static void lgGlassInitEnableObserver(void) {
     CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(),
         NULL, lgEnablePrefsReloadCallback, CFSTR("dylv.liquidassprefs/Reload"),
         NULL, CFNotificationSuspensionBehaviorCoalesce);
+    dispatch_async(dispatch_get_main_queue(), ^{ LGRefreshSurfaceDiagnosticPublisher(); });
 }
 
 #pragma mark - shared material lifecycle

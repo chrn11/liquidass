@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 2,
+  "scope": "New default-off button body candidate: bounded source-plane radiance approximation from live origTex; no generic UIButton scope, no Apple-equivalence claim",
+  "app": {
+    "bundleIdentifier": "org.liquidass.native-play-lab",
+    "version": "1.3",
+    "candidateBuild": 14,
+    "scope": "existing approved NativePlayLab; same GPU self-check control, additional owned input assets only"
+  },
+  "source": {
+    "productionTree": "/var/minis/shared/liquidass-button-material-env-777f4c76-d9a5-42c9-a06f-51d5630fb7b8",
+    "productionTweakSHA256": "d9edaf5af734198aa5cf7cfec5355fd7596312088d85b1e33b27050f643a28d4",
+    "formulaIncSHA256": "a602854cff8a36526024cc0a5b9a538831ebcc426681fbcca17119e75e0cc0d6",
+    "shaderSourceHeaderSHA256": "0962c9dd11043195a9ce86dbeee805e67ef0beea5b009200e70c22ec3967561b",
+    "baseCandidateShaderSHA256": "5bd8bc443e91b2430cda5db428cc0ec257d0e5be677e775791463bc1432a67ad",
+    "baseCandidateShaderOrigin": "previous installed-build12 same-source MSL 5bd8bc; read-only copied bytes"
+  },
+  "validation": {
+    "sourceBindingAndFocusedSDK": {
+      "productionRawMSLMarker": {
+        "exactCount": 1,
+        "insideRawMSL": true,
+        "beforeCandidateCall": true
+      },
+      "sourceVariantSHA256": {
+        "main-expanded-formula.metal": "f72eacb107fc8b95fade07709aa2d9c0a645e841d6b7ff0eb595ef7cf6c42460",
+        "main-runtime-baseline.metal": "5bd8bc443e91b2430cda5db428cc0ec257d0e5be677e775791463bc1432a67ad",
+        "main-runtime-candidate.metal": "f21b394471fd9d3983502441852e3be0664eec7614a7bcd7652939077c06a72b",
+        "main-runtime-compatibility.metal": "f9af0d94df64b35f47b4a4075c0b8e90af8c0cb471404da4dd6f880b529b4413"
+      }
+    }
+  },
+  "design": {
+    "model": "source-plane radiance approximation; environment direction is projected into current origTex using the same rounded-dome normal and scaled by min(thickness,bezel), clamped to 0.45 of the existing 7/36 source-dimension displacement cap",
+    "samples": "one extra src.sample at derived environment UV; no fixed light colors, generated illumination map, tint, overlay, blur or background proxy",
+    "fresnelWeightCap": 0.28,
+    "transparentAlpha": "preserve optical/transmission sample alpha exactly; unpremultiply environment and transmission sample colors only for straight-color interpolation, premultiply by transmission alpha",
+    "identity": "disabled, thickness<=0, scale<=0, IOR<=1 return environment UV equal to source UV and zero weight",
+    "colorSpace": "sampled values are used in Metal native sample domain; RGBA8Unorm_sRGB test inputs are Metal-decoded to linear and render target re-encodes; no extra sRGB transform"
+  }
+}
