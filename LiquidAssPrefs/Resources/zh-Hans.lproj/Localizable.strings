@@ -199,3 +199,17 @@
 /* TODO: Translate synced English fallback strings. */
 "prefs.control.clock_fps_limit" = "FPS Limit";
 "prefs.subtitle.clock_fps_limit" = "Limits clock animation updates.";
+"prefs.section.liquidify_mesh.title" = "Liquidify 透镜";
+"prefs.section.liquidify_mesh.subtitle" = "只弯曲圆角玻璃的边缘，中间保持平直。锁屏时间、键盘和 Tab 栏仍用各自的滤镜。";
+"prefs.control.liquidify_mesh" = "网格透镜";
+"prefs.subtitle.liquidify_mesh" = "用边缘网格和一层轻磨砂替换整面扭曲。关掉后回到原来的滤镜。";
+"prefs.control.liquidify_refraction" = "折射";
+"prefs.subtitle.liquidify_refraction" = "边缘向外取样的距离。玻璃中间不动。";
+"prefs.control.liquidify_blur" = "磨砂";
+"prefs.subtitle.liquidify_blur" = "网格后面的轻模糊。设为 0 时中间是透的。";
+"prefs.control.liquidify_edge" = "边缘宽度";
+"prefs.subtitle.liquidify_edge" = "弯曲从外缘向内延伸的距离，单位为点。";
+"prefs.control.liquidify_outer" = "外沿";
+"prefs.subtitle.liquidify_outer" = "轮廓外侧额外取样的距离，单位为点。";
+"prefs.control.liquidify_resolution" = "网格密度";
+"prefs.subtitle.liquidify_resolution" = "圆角上的分段数。越高越贴着曲线。";

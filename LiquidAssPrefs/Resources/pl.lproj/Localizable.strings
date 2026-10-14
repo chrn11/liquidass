@@ -203,3 +203,19 @@
 /* TODO: Translate synced English fallback strings. */
 "prefs.control.clock_fps_limit" = "FPS Limit";
 "prefs.subtitle.clock_fps_limit" = "Limits clock animation updates.";
+
+/* TODO: Translate synced English fallback strings. */
+"prefs.section.liquidify_mesh.title" = "Liquidify Lens";
+"prefs.section.liquidify_mesh.subtitle" = "Bends only the rim of rounded glass. The center stays straight. Lock screen time, the keyboard, and the tab bar keep their own filters.";
+"prefs.control.liquidify_mesh" = "Mesh Lens";
+"prefs.subtitle.liquidify_mesh" = "Replace the full-surface warp with an edge mesh and a light frost. Turn this off to use the previous filter.";
+"prefs.control.liquidify_refraction" = "Refraction";
+"prefs.subtitle.liquidify_refraction" = "How far the rim samples the wallpaper. The middle of the glass does not move.";
+"prefs.control.liquidify_blur" = "Frost";
+"prefs.subtitle.liquidify_blur" = "Light blur behind the mesh. Zero leaves the center clear.";
+"prefs.control.liquidify_edge" = "Edge Width";
+"prefs.subtitle.liquidify_edge" = "How far into the glass the bend reaches, in points.";
+"prefs.control.liquidify_outer" = "Outer Rim";
+"prefs.subtitle.liquidify_outer" = "Extra sample past the silhouette, in points.";
+"prefs.control.liquidify_resolution" = "Mesh Density";
+"prefs.subtitle.liquidify_resolution" = "Segments along the corner. Higher follows the curve more closely.";
