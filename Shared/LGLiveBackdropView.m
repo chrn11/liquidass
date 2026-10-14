@@ -1,5 +1,6 @@
 #import "LGLiveBackdropView.h"
 #import "LGHostRegistry.h"
+#import "LGMeshLens.h"
 #import "LGCoverSheetState.h"
 #import <CoreMotion/CoreMotion.h>
 #import <QuartzCore/QuartzCore.h>
@@ -348,6 +349,9 @@ static const CGFloat kLGGlassEdgeWidth = 1.0;
     BOOL             _parameterRefreshVariant;
     NSInteger        _lastRadiusStep;
     CGFloat          _appliedSpecularOpacity;
+    BOOL             _meshLensActive;
+    NSString        *_appliedMeshSignature;
+    CGFloat          _appliedMeshBlur;
 }
 
 - (NSString *)lgEffectiveFilterType {
@@ -589,6 +593,50 @@ static const CGFloat kLGGlassEdgeWidth = 1.0;
     _specularLayer.endPoint = CGPointMake(0.5 - dx, 0.5 - dy);
 }
 
+- (BOOL)lgApplyMeshLensFilter:(Class)filterClass {
+    if (!LGMeshLensShouldApply(_lgFilterType, self.bounds)) return NO;
+    NSString *signature = LGMeshLensSignature(self.bounds, self.layer.cornerRadius);
+    CGFloat blur = LGMeshLensBlurRadius();
+    if (_meshLensActive && _filterAttached &&
+        [signature isEqualToString:_appliedMeshSignature] &&
+        fabs(_appliedMeshBlur - blur) < 0.05) {
+        return YES;
+    }
+
+    if (!filterClass) return NO;
+    id mesh = LGMeshLensTransform(self.bounds, self.layer.cornerRadius);
+    if (!mesh) return NO;
+
+    @try {
+        [self.layer setValue:mesh forKey:@"meshTransform"];
+        if (![self.layer valueForKey:@"meshTransform"]) return NO;
+        id blurFilter = ((id (*)(Class, SEL, NSString *))objc_msgSend)(
+            filterClass, NSSelectorFromString(@"filterWithType:"), @"gaussianBlur");
+        if (!blurFilter) {
+            [self.layer setValue:nil forKey:@"meshTransform"];
+            return NO;
+        }
+        [blurFilter setValue:@(blur) forKey:@"inputRadius"];
+        self.layer.filters = @[blurFilter];
+    } @catch (NSException *exception) {
+        LGLog(@"mesh lens rejected id=%u %@", _lgId, exception.reason);
+        @try { [self.layer setValue:nil forKey:@"meshTransform"]; }
+        @catch (__unused NSException *ignored) {}
+        return NO;
+    }
+
+    if (!_meshLensActive) {
+        LGLog(@"mesh lens on id=%u type=%@ %@", _lgId,
+              _lgFilterType ?: @"default", signature);
+    }
+    [self updateNativeBlurOverlayWithRadius:0.0];
+    _meshLensActive = YES;
+    _appliedMeshSignature = [signature copy];
+    _appliedMeshBlur = blur;
+    _filterAttached = YES;
+    return YES;
+}
+
 - (void)applyFilters {
     CALayer *layer = self.layer;
     Class backdropCls = NSClassFromString(@"CABackdropLayer");
@@ -639,6 +687,16 @@ static const CGFloat kLGGlassEdgeWidth = 1.0;
         NSString *wantType = [self lgEffectiveFilterType];
         NSArray *existing = layer.filters;
         Class filterCls = NSClassFromString(@"CAFilter");
+        if ([self lgApplyMeshLensFilter:filterCls]) return;
+
+        if (_meshLensActive) {
+            @try { [layer setValue:nil forKey:@"meshTransform"]; }
+            @catch (__unused NSException *exception) {}
+            _meshLensActive = NO;
+            _appliedMeshSignature = nil;
+            _filterAttached = NO;
+        }
+
         [self updateNativeBlurOverlayWithRadius:
             LGNativeBlurRadiusForFilterType(_lgFilterType ?: wantType)];
 

@@ -967,9 +967,40 @@ NSArray<NSDictionary *> *LGGlobalControlsItems(void) {
 }
 
 NSArray<NSDictionary *> *LGMoreOptionsItems(void) {
-    NSMutableArray<NSDictionary *> *items = [NSMutableArray arrayWithArray:@[
-        LGSectionSetting(LGLocalized(@"prefs.misc.options_section.title"),
-                         LGLocalized(@"prefs.misc.options_section.subtitle"))]];
+    NSMutableArray<NSDictionary *> *items = [NSMutableArray array];
+    [items addObject:LGSectionSetting(LGLocalized(@"prefs.section.liquidify_mesh.title"),
+                                      LGLocalized(@"prefs.section.liquidify_mesh.subtitle"))];
+    [items addObject:LGSwitchSetting(@"Liquidify.Mesh.Enabled",
+                                     LGLocalized(@"prefs.control.liquidify_mesh"),
+                                     LGLocalized(@"prefs.subtitle.liquidify_mesh"),
+                                     YES)];
+    NSArray<NSDictionary *> *meshSliders = @[
+        LGSliderSetting(@"Liquidify.RefractionStrength",
+                        LGLocalized(@"prefs.control.liquidify_refraction"),
+                        LGLocalized(@"prefs.subtitle.liquidify_refraction"),
+                        20.0, 10.0, 100.0, 0),
+        LGSliderSetting(@"Liquidify.BlurRadius",
+                        LGLocalized(@"prefs.control.liquidify_blur"),
+                        LGLocalized(@"prefs.subtitle.liquidify_blur"),
+                        2.0, 0.0, 10.0, 1),
+        LGSliderSetting(@"Liquidify.EdgeDistance",
+                        LGLocalized(@"prefs.control.liquidify_edge"),
+                        LGLocalized(@"prefs.subtitle.liquidify_edge"),
+                        12.0, 1.0, 48.0, 0),
+        LGSliderSetting(@"Liquidify.OuterEdge",
+                        LGLocalized(@"prefs.control.liquidify_outer"),
+                        LGLocalized(@"prefs.subtitle.liquidify_outer"),
+                        2.0, 0.0, 8.0, 1),
+        LGSliderSetting(@"Liquidify.CornerResolution",
+                        LGLocalized(@"prefs.control.liquidify_resolution"),
+                        LGLocalized(@"prefs.subtitle.liquidify_resolution"),
+                        12.0, 4.0, 14.0, 0),
+    ];
+    [items addObjectsFromArray:LGSettingsControlledByKey(meshSliders,
+                                                        @"Liquidify.Mesh.Enabled",
+                                                        @YES)];
+    [items addObject:LGSectionSetting(LGLocalized(@"prefs.misc.options_section.title"),
+                                      LGLocalized(@"prefs.misc.options_section.subtitle"))];
     [items addObject:LGSliderSetting(@"Renderer.FresnelGlareStrength",
                                      LGLocalized(@"prefs.control.fresnel_glare"),
                                      LGLocalized(@"prefs.subtitle.fresnel_glare"),
