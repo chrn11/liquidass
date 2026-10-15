@@ -126,7 +126,7 @@ static void LRDelay(NSTimeInterval duration, dispatch_block_t done) {
         @"scope":@"Actual frozen LGLocalButtonMaterialView with asynchronous own-App event-loop stages; no system source/UI capture",
         @"mode":@"STATIC_APP_SOURCE_TEST",@"SYSTEM_BACKGROUND_PROVIDER_NOT_IMPLEMENTED":@YES,
         @"pixelEvidence":@"NONE; framebufferOnly remains YES; prior shader pixels are separate evidence",
-        @"shaderExpectedSHA256":@"f21b394471fd9d3983502441852e3be0664eec7614a7bcd7652939077c06a72b",
+        @"shaderExpectedSHA256":@"c4dc2e5bcf9080c31a38770637da705d292cbbf7544e43dd30a0d41677541551",
         @"compileMacroLG_LOCAL_BUTTON_RENDERER_COMPILED":@1,
         @"execution":@"ASYNC_STAGED_MAIN_QUEUE; no nested CFRunLoop wait; production source maximum age remains100ms"} mutableCopy];
     if(!self.device||!self.queue||!self.input||!self.container.window||
@@ -190,7 +190,7 @@ static void LRDelay(NSTimeInterval duration, dispatch_block_t done) {
     BOOL ready=ra==LGLocalButtonRendererReadyForNextDraw&&rb==LGLocalButtonRendererReadyForNextDraw;
     if(ra==LGLocalButtonRendererReadyForNextDraw)self.lastAcceptedA=self.pa.lastContract.frameGeneration;
     LGLocalButtonSourceContract ca=self.pa.lastContract,cb=self.pb.lastContract;
-    LGLocalButtonUniforms ua={0},ub={0};BOOL ba=LGLocalButtonBuildUniforms(&ca,&a,132,132,3,&ua),bb=LGLocalButtonBuildUniforms(&cb,&b,132,132,3,&ub);
+    LGLocalButtonUniforms ua={0},ub={0};BOOL ba=LGLocalButtonBuildUniforms(&ca,&a,132,132,3,true,&ua),bb=LGLocalButtonBuildUniforms(&cb,&b,132,132,3,true,&ub);
     CFTimeInterval started=CACurrentMediaTime();
     LRAwait(started+2.0,^BOOL {
         return !ready || (self.va.lastCompletedSubmissionSerial>sa&&self.va.lastCommandBufferSucceeded&&!self.va.hidden&&

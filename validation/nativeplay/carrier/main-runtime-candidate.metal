@@ -35,6 +35,9 @@ struct Uniforms {
     float buttonCandidatePointScale;
     float buttonCandidateCornerRadius;
     float buttonCandidateRendererScale;
+    float2 buttonContactCenter;
+    float buttonContactPressure;
+    float buttonContactEnabled;
 };
 
 #if LG_BUTTON_OPTICS_COMPILED
@@ -78,7 +81,7 @@ float outside = LGBOHypot(outsideX, outsideY);
 float inside = LGBOMin(LGBOMax(qx, qy), 0.0f);
 return outside + inside - radius;
 }
-LGButtonOpticsResult LGButtonOpticsEvaluate(float x, float y, float width, float height, float centerX, float centerY, float radius, float bezel, float glassThickness, float refractiveIndex, float refractionScale, float displacementCap, float pointScale, float rendererScale, bool enabled) {
+LGButtonOpticsResult LGButtonOpticsEvaluateWithContact(float x, float y, float width, float height, float centerX, float centerY, float radius, float bezel, float glassThickness, float refractiveIndex, float refractionScale, float displacementCap, float pointScale, float rendererScale, bool enabled, bool contactEnabled, float contactX, float contactY, float contactPressure) {
 LGButtonOpticsResult out;
 out.signedDistance = 0.0f;
 out.offsetX = 0.0f;
@@ -138,6 +141,36 @@ float heightDerivative = heightAmplitude / (2.0f * root * normalization);
 float normalX = -heightDerivative * qGradientX;
 float normalY = -heightDerivative * qGradientY;
 float normalZ = 1.0f;
+bool contactInputValid = contactEnabled && isfinite(contactX) && isfinite(contactY) && isfinite(contactPressure);
+if (contactInputValid && contactPressure > 0.0f) {
+float boundedContactX = LGBOClamp(contactX, 0.0f, 1.0f);
+float boundedContactY = LGBOClamp(contactY, 0.0f, 1.0f);
+float boundedContactPressure = LGBOClamp(contactPressure, 0.0f, 1.0f);
+float contactDx = x - boundedContactX * width;
+float contactDy = y - boundedContactY * height;
+float contactRadius = pointScale * 7.0f;
+float contactRadiusSquared = contactRadius * contactRadius;
+float contactDistanceSquared = contactDx * contactDx + contactDy * contactDy;
+float contactQ = contactDistanceSquared / contactRadiusSquared;
+float contactDepth = -d;
+float contactFadeWidth = pointScale * 1.5f;
+float contactFadeT = LGBOClamp(contactDepth / contactFadeWidth, 0.0f, 1.0f);
+float contactEdgeFade = contactFadeT * contactFadeT * (3.0f - 2.0f * contactFadeT);
+float contactEdgeFadeDerivative = (contactFadeT > 0.0f && contactFadeT < 1.0f) ? 6.0f * contactFadeT * (1.0f - contactFadeT) / contactFadeWidth : 0.0f;
+if (contactQ < 1.0f && boundedContactPressure > 0.0f) {
+float contactShapeBase = 1.0f - contactQ;
+float contactShape = contactShapeBase * contactShapeBase * contactShapeBase;
+float contactShapeGradientX = -6.0f * contactDx / contactRadiusSquared * contactShapeBase * contactShapeBase;
+float contactShapeGradientY = -6.0f * contactDy / contactRadiusSquared * contactShapeBase * contactShapeBase;
+float contactAmplitude = LGBOMin(1.15f * pointScale, heightAmplitude * 0.20f) * boundedContactPressure;
+float contactHeightDelta = -contactAmplitude * contactShape * contactEdgeFade;
+float contactDepthGradientX = -outwardX;
+float contactDepthGradientY = -outwardY;
+float contactGradientX = -contactAmplitude * (contactShapeGradientX * contactEdgeFade + contactShape * contactEdgeFadeDerivative * contactDepthGradientX);
+float contactGradientY = -contactAmplitude * (contactShapeGradientY * contactEdgeFade + contactShape * contactEdgeFadeDerivative * contactDepthGradientY);
+if (isfinite(contactHeightDelta) && isfinite(contactGradientX) && isfinite(contactGradientY)) { out.height += contactHeightDelta; normalX -= contactGradientX; normalY -= contactGradientY; }
+}
+}
 float normalLength = LGBOHypot(LGBOHypot(normalX, normalY), normalZ);
 normalX /= normalLength;
 normalY /= normalLength;
@@ -186,6 +219,9 @@ if (environmentLength > environmentCap && environmentLength > 0.0f) { float fact
 out.environmentU = LGBOClamp(x + environmentOffsetX, 0.5f, width - 0.5f) / width;
 out.environmentV = LGBOClamp(y + environmentOffsetY, 0.5f, height - 0.5f) / height;
 return out;
+}
+LGButtonOpticsResult LGButtonOpticsEvaluate(float x, float y, float width, float height, float centerX, float centerY, float radius, float bezel, float glassThickness, float refractiveIndex, float refractionScale, float displacementCap, float pointScale, float rendererScale, bool enabled) {
+return LGButtonOpticsEvaluateWithContact(x, y, width, height, centerX, centerY, radius, bezel, glassThickness, refractiveIndex, refractionScale, displacementCap, pointScale, rendererScale, enabled, false, 0.0f, 0.0f, 0.0f);
 }
 float LGBOEnvironmentMixPremultipliedChannel(float transmittedPremul, float transmittedAlpha, float environmentPremul, float environmentAlpha, float weight) {
 float alpha = LGBOClamp(transmittedAlpha, 0.0f, 1.0f);
@@ -509,12 +545,14 @@ float4 liquidGlassPixel(texture2d<float, access::sample> src,
     if (buttonCandidate) {
         if (subShape || isCoverSheet || isKeyboard || u.useGlyphMask != 0.0)
             return src.sample(s, captureUV);
-        LGButtonOpticsResult optics = LGButtonOpticsEvaluate(
+        LGButtonOpticsResult optics = LGButtonOpticsEvaluateWithContact(
             px.x, px.y, fw, fh, u.buttonCandidateCenter.x,
             u.buttonCandidateCenter.y, u.buttonCandidateCornerRadius,
             bezel, u.glassThickness, u.refractiveIndex,
             u.refractionScale, u.buttonCandidateMaxOffset,
-            u.buttonCandidatePointScale, u.buttonCandidateRendererScale, true);
+            u.buttonCandidatePointScale, u.buttonCandidateRendererScale, true,
+            u.buttonContactEnabled > 0.5f, u.buttonContactCenter.x,
+            u.buttonContactCenter.y, u.buttonContactPressure);
         if (!optics.valid || optics.signedDistance >= 0.0f)
             return src.sample(s, captureUV);
         float2 opticalUV = float2(optics.sampleU, optics.sampleV);

@@ -16,6 +16,9 @@ python3 "$ROOT/scripts/generate_local_button_shader.py"
 xcrun --sdk macosx clang -std=c11 -Wall -Wextra -Werror \
   "$ROOT/scripts/test_local_button_source_contract.c" -framework CoreGraphics -lm -o "$OUT/host-contract-test"
 "$OUT/host-contract-test"
+# All new numeric/Metal compilation is executed here on macOS only. A runner
+# with no Metal device reports GPU NOT_RUN rather than manufacturing PASS.
+CONTACT_RESULTS="$OUT/contact-tests" bash "$ROOT/scripts/test_button_contact_macos.sh"
 CFLAGS=(-target arm64-apple-ios16.5 -isysroot "$SDK" -miphoneos-version-min=16.5 -fobjc-arc -fblocks -O1 -Werror=format -DLG_LOCAL_BUTTON_RENDERER_COMPILED=1 -I"$C" -I"$ROOT/Shared" -I"$ROOT/validation/nativeplay")
 # Exactly one actual source class and the same existing NativePlayLab carrier.
 xcrun --sdk iphoneos clang "${CFLAGS[@]}" -c "$C/NativePlayLabViewController.m" -o "$O/NativePlayLabViewController.o"

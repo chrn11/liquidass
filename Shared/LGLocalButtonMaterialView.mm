@@ -9,7 +9,7 @@
 #import <string.h>
 
 static const char kExpectedLocalShaderSHA256[] =
-    "f21b394471fd9d3983502441852e3be0664eec7614a7bcd7652939077c06a72b";
+    "c4dc2e5bcf9080c31a38770637da705d292cbbf7544e43dd30a0d41677541551";
 
 @interface LGLocalButtonMaterialView ()
 @property(nonatomic,weak) UIView *targetView;
@@ -338,7 +338,8 @@ static const char kExpectedLocalShaderSHA256[] =
     LGLocalButtonSourceContract c=frame.contract;
     float rendererScale=(float)self.targetView.window.screen.scale;
     return LGLocalButtonBuildUniforms(&c,&state,
-        (float)drawableSize.width,(float)drawableSize.height,rendererScale,out);
+        (float)drawableSize.width,(float)drawableSize.height,rendererScale,
+        self.explicitOptIn,out);
 }
 
 - (void)drawInMTKView:(MTKView *)view {

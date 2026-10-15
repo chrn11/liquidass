@@ -15,7 +15,7 @@ static inline simd_float4 simd_make_float4(float x,float y,float z,float w) { si
 #include "LGButtonMaterialCandidate.h"
 #include "LGHostRegistry.h"
 
-/* Exact 208-byte field order of the frozen production Uniforms / full MSL. */
+/* Original frozen 208-byte production Uniforms prefix + local-only contact tail. */
 typedef struct {
     simd_float2 resolution, outputResolution, screenResolution, cardOrigin;
     simd_float2 wallpaperResolution, lensOrigin;
@@ -30,19 +30,28 @@ typedef struct {
     simd_float2 buttonCandidateCenter;
     float buttonCandidatePointScale, buttonCandidateCornerRadius;
     float buttonCandidateRendererScale;
+    simd_float2 buttonContactCenter; /* normalized local source coordinates */
+    float buttonContactPressure;
+    float buttonContactEnabled; /* explicit local-source opt-in only */
 } LGLocalButtonUniforms;
 #if defined(__cplusplus)
-static_assert(sizeof(LGLocalButtonUniforms)==208, "local renderer Uniforms ABI drift");
+static_assert(sizeof(LGLocalButtonUniforms)==224, "local renderer contact Uniforms ABI drift");
 static_assert(offsetof(LGLocalButtonUniforms,wallpaperOrigin)==72, "Uniforms offset drift");
 static_assert(offsetof(LGLocalButtonUniforms,tintColor)==160, "Uniforms offset drift");
 static_assert(offsetof(LGLocalButtonUniforms,buttonCandidateCenter)==184, "Uniforms offset drift");
 static_assert(offsetof(LGLocalButtonUniforms,buttonCandidateRendererScale)==200, "Uniforms offset drift");
+static_assert(offsetof(LGLocalButtonUniforms,buttonContactCenter)==208, "contact center offset drift");
+static_assert(offsetof(LGLocalButtonUniforms,buttonContactPressure)==216, "contact pressure offset drift");
+static_assert(offsetof(LGLocalButtonUniforms,buttonContactEnabled)==220, "contact gate offset drift");
 #else
-_Static_assert(sizeof(LGLocalButtonUniforms)==208, "local renderer Uniforms ABI drift");
+_Static_assert(sizeof(LGLocalButtonUniforms)==224, "local renderer contact Uniforms ABI drift");
 _Static_assert(offsetof(LGLocalButtonUniforms,wallpaperOrigin)==72, "Uniforms offset drift");
 _Static_assert(offsetof(LGLocalButtonUniforms,tintColor)==160, "Uniforms offset drift");
 _Static_assert(offsetof(LGLocalButtonUniforms,buttonCandidateCenter)==184, "Uniforms offset drift");
 _Static_assert(offsetof(LGLocalButtonUniforms,buttonCandidateRendererScale)==200, "Uniforms offset drift");
+_Static_assert(offsetof(LGLocalButtonUniforms,buttonContactCenter)==208, "contact center offset drift");
+_Static_assert(offsetof(LGLocalButtonUniforms,buttonContactPressure)==216, "contact pressure offset drift");
+_Static_assert(offsetof(LGLocalButtonUniforms,buttonContactEnabled)==220, "contact gate offset drift");
 #endif
 
 typedef struct {
@@ -72,7 +81,7 @@ static inline bool LGLocalButtonPressureUniformFromState(
 static inline bool LGLocalButtonBuildUniforms(
     const LGLocalButtonSourceContract *c, const LGButtonOpticalState *state,
     float drawableWidth, float drawableHeight, float rendererScale,
-    LGLocalButtonUniforms *out) {
+    bool explicitLocalOptIn, LGLocalButtonUniforms *out) {
     if (!c || !state || !out || !state->eligible ||
         !isfinite(c->pointScale) || c->pointScale<0.5f || c->pointScale>4.0f ||
         fabs((double)c->textureWidth-44.0*c->pointScale)>1.0 ||
@@ -106,5 +115,16 @@ static inline bool LGLocalButtonBuildUniforms(
     u.buttonCandidatePointScale=c->pointScale;
     u.buttonCandidateCornerRadius=g.cornerRadius;
     u.buttonCandidateRendererScale=rendererScale;
+    const bool contactPhase=state->phase==LGOpticalTrackingInside ||
+        state->phase==LGOpticalTrackingOutside || state->phase==LGOpticalReleasing ||
+        state->phase==LGOpticalCancelled;
+    if (explicitLocalOptIn && state->touchValid && contactPhase &&
+        state->pressure>0.0f && isfinite(state->touchX) && isfinite(state->touchY) &&
+        state->touchX>=0.0f && state->touchX<=1.0f &&
+        state->touchY>=0.0f && state->touchY<=1.0f) {
+        u.buttonContactCenter=simd_make_float2(state->touchX,state->touchY);
+        u.buttonContactPressure=fminf(1.0f,fmaxf(0.0f,state->pressure));
+        u.buttonContactEnabled=1.0f;
+    }
     *out=u;return true;
 }

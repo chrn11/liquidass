@@ -50,7 +50,7 @@ LGBO_STMT(float inside = LGBOMin(LGBOMax(qx, qy), 0.0f);)
 LGBO_STMT(return outside + inside - radius;)
 LGBO_FUNCTION_END
 
-LGBO_FUNCTION_BEGIN(LGButtonOpticsResult, LGButtonOpticsEvaluate, (float x, float y, float width, float height, float centerX, float centerY, float radius, float bezel, float glassThickness, float refractiveIndex, float refractionScale, float displacementCap, float pointScale, float rendererScale, bool enabled))
+LGBO_FUNCTION_BEGIN(LGButtonOpticsResult, LGButtonOpticsEvaluateWithContact, (float x, float y, float width, float height, float centerX, float centerY, float radius, float bezel, float glassThickness, float refractiveIndex, float refractionScale, float displacementCap, float pointScale, float rendererScale, bool enabled, bool contactEnabled, float contactX, float contactY, float contactPressure))
 LGBO_STMT(LGButtonOpticsResult out;)
 LGBO_STMT(out.signedDistance = 0.0f;)
 LGBO_STMT(out.offsetX = 0.0f;)
@@ -110,6 +110,36 @@ LGBO_STMT(float heightDerivative = heightAmplitude / (2.0f * root * normalizatio
 LGBO_STMT(float normalX = -heightDerivative * qGradientX;)
 LGBO_STMT(float normalY = -heightDerivative * qGradientY;)
 LGBO_STMT(float normalZ = 1.0f;)
+LGBO_STMT(bool contactInputValid = contactEnabled && isfinite(contactX) && isfinite(contactY) && isfinite(contactPressure);)
+LGBO_STMT(if (contactInputValid && contactPressure > 0.0f) {)
+LGBO_STMT(float boundedContactX = LGBOClamp(contactX, 0.0f, 1.0f);)
+LGBO_STMT(float boundedContactY = LGBOClamp(contactY, 0.0f, 1.0f);)
+LGBO_STMT(float boundedContactPressure = LGBOClamp(contactPressure, 0.0f, 1.0f);)
+LGBO_STMT(float contactDx = x - boundedContactX * width;)
+LGBO_STMT(float contactDy = y - boundedContactY * height;)
+LGBO_STMT(float contactRadius = pointScale * 7.0f;)
+LGBO_STMT(float contactRadiusSquared = contactRadius * contactRadius;)
+LGBO_STMT(float contactDistanceSquared = contactDx * contactDx + contactDy * contactDy;)
+LGBO_STMT(float contactQ = contactDistanceSquared / contactRadiusSquared;)
+LGBO_STMT(float contactDepth = -d;)
+LGBO_STMT(float contactFadeWidth = pointScale * 1.5f;)
+LGBO_STMT(float contactFadeT = LGBOClamp(contactDepth / contactFadeWidth, 0.0f, 1.0f);)
+LGBO_STMT(float contactEdgeFade = contactFadeT * contactFadeT * (3.0f - 2.0f * contactFadeT);)
+LGBO_STMT(float contactEdgeFadeDerivative = (contactFadeT > 0.0f && contactFadeT < 1.0f) ? 6.0f * contactFadeT * (1.0f - contactFadeT) / contactFadeWidth : 0.0f;)
+LGBO_STMT(if (contactQ < 1.0f && boundedContactPressure > 0.0f) {)
+LGBO_STMT(float contactShapeBase = 1.0f - contactQ;)
+LGBO_STMT(float contactShape = contactShapeBase * contactShapeBase * contactShapeBase;)
+LGBO_STMT(float contactShapeGradientX = -6.0f * contactDx / contactRadiusSquared * contactShapeBase * contactShapeBase;)
+LGBO_STMT(float contactShapeGradientY = -6.0f * contactDy / contactRadiusSquared * contactShapeBase * contactShapeBase;)
+LGBO_STMT(float contactAmplitude = LGBOMin(1.15f * pointScale, heightAmplitude * 0.20f) * boundedContactPressure;)
+LGBO_STMT(float contactHeightDelta = -contactAmplitude * contactShape * contactEdgeFade;)
+LGBO_STMT(float contactDepthGradientX = -outwardX;)
+LGBO_STMT(float contactDepthGradientY = -outwardY;)
+LGBO_STMT(float contactGradientX = -contactAmplitude * (contactShapeGradientX * contactEdgeFade + contactShape * contactEdgeFadeDerivative * contactDepthGradientX);)
+LGBO_STMT(float contactGradientY = -contactAmplitude * (contactShapeGradientY * contactEdgeFade + contactShape * contactEdgeFadeDerivative * contactDepthGradientY);)
+LGBO_STMT(if (isfinite(contactHeightDelta) && isfinite(contactGradientX) && isfinite(contactGradientY)) { out.height += contactHeightDelta; normalX -= contactGradientX; normalY -= contactGradientY; })
+LGBO_STMT(})
+LGBO_STMT(})
 LGBO_STMT(float normalLength = LGBOHypot(LGBOHypot(normalX, normalY), normalZ);)
 LGBO_STMT(normalX /= normalLength;)
 LGBO_STMT(normalY /= normalLength;)
@@ -158,6 +188,12 @@ LGBO_STMT(if (environmentLength > environmentCap && environmentLength > 0.0f) { 
 LGBO_STMT(out.environmentU = LGBOClamp(x + environmentOffsetX, 0.5f, width - 0.5f) / width;)
 LGBO_STMT(out.environmentV = LGBOClamp(y + environmentOffsetY, 0.5f, height - 0.5f) / height;)
 LGBO_STMT(return out;)
+LGBO_FUNCTION_END
+
+/* Preserve the frozen no-contact API for the existing Backboard path and
+ * legacy tests. The local renderer opts into the extended shared function. */
+LGBO_FUNCTION_BEGIN(LGButtonOpticsResult, LGButtonOpticsEvaluate, (float x, float y, float width, float height, float centerX, float centerY, float radius, float bezel, float glassThickness, float refractiveIndex, float refractionScale, float displacementCap, float pointScale, float rendererScale, bool enabled))
+LGBO_STMT(return LGButtonOpticsEvaluateWithContact(x, y, width, height, centerX, centerY, radius, bezel, glassThickness, refractiveIndex, refractionScale, displacementCap, pointScale, rendererScale, enabled, false, 0.0f, 0.0f, 0.0f);)
 LGBO_FUNCTION_END
 
 /* Mix in the native Metal sample domain, preserving premultiplication and

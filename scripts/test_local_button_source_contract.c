@@ -73,7 +73,7 @@ int main(void) {
     assert(!LGLocalButtonMayRender(true,true,true,true,false,true));
     assert(!LGLocalButtonMayRender(true,true,true,true,true,false));
     assert(LGLocalButtonMayRender(true,true,true,true,true,true));
-    assert(sizeof(LGLocalButtonUniforms)==208);
+    assert(sizeof(LGLocalButtonUniforms)==224);
     LGButtonOpticsGeometry g={};
     assert(LGButtonCandidateBuildGeometry(132,132,132,132,1.0f,&g));
     assert(fabsf(g.centerX-66)<0.01f && fabsf(g.centerY-66)<0.01f);
@@ -118,19 +118,19 @@ int main(void) {
     assert(LGLocalSourceExpiryDelay(&c,1.2)==0);
     LGButtonOpticalState observed={0};observed.eligible=true;observed.geometryGeneration=9;
     LGLocalButtonUniforms idle={0},pressed={0};
-    assert(LGLocalButtonBuildUniforms(&c,&observed,132,132,3,&idle));
+    assert(LGLocalButtonBuildUniforms(&c,&observed,132,132,3,false,&idle));
     assert(idle.glassThickness==108 && idle.refractionScale==2);
     assert(fabsf(idle.refractiveIndex-1.6f)<1e-6 && idle.bezelWidth==48);
     assert(idle.tintColor.w==0 && idle.buttonCandidatePointScale==3);
     assert(idle.buttonCandidateRendererScale==3 && idle.radius==66);
     observed.pressure=1;
-    assert(LGLocalButtonBuildUniforms(&c,&observed,132,132,3,&pressed));
+    assert(LGLocalButtonBuildUniforms(&c,&observed,132,132,3,false,&pressed));
     assert(fabsf(pressed.glassThickness-52.8f)<1e-4 && fabsf(pressed.refractionScale-1.8f)<1e-5);
-    observed.pressure=NAN;assert(!LGLocalButtonBuildUniforms(&c,&observed,132,132,3,&pressed));
+    observed.pressure=NAN;assert(!LGLocalButtonBuildUniforms(&c,&observed,132,132,3,false,&pressed));
     observed.pressure=0;observed.geometryGeneration=8;
-    assert(!LGLocalButtonBuildUniforms(&c,&observed,132,132,3,&pressed));
+    assert(!LGLocalButtonBuildUniforms(&c,&observed,132,132,3,false,&pressed));
     observed.geometryGeneration=9;c.pointScale=NAN;
-    assert(!LGLocalButtonBuildUniforms(&c,&observed,132,132,3,&pressed));
+    assert(!LGLocalButtonBuildUniforms(&c,&observed,132,132,3,false,&pressed));
     // Source clear must not forget which texture belongs to the last accepted
     // immutable frame. The ObjC caller supplies a zeroing-weak object equality.
     LGLocalButtonSourceContract last=fixture(),repeat=last;
