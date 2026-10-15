@@ -145,7 +145,7 @@
     "validation/nativeplay/carrier/PlayMaterialShared.h": "10d5abd68253a20d385354d82d7bd51f4bc000047534f1d3c88b2e0f9c26d5fd",
     "validation/nativeplay/carrier/InputGray.png": "81aa64bb3f40dd54f57c52c8a1e4a2cb85467eb520f109609018f0863b48539e",
     "validation/nativeplay/carrier/main-expanded-formula.metal": "f72eacb107fc8b95fade07709aa2d9c0a645e841d6b7ff0eb595ef7cf6c42460",
-    "validation/nativeplay/carrier/LocalRendererRuntimeProbe.h": "a1aedb817f112cbab57f16e63813e0542a68a2ac230eb5dbe793ad40c11ed8fc",
+    "validation/nativeplay/carrier/LocalRendererRuntimeProbe.h": "e8c3a3206e64ce9ec7cd8978f8caaf4180c4c995ea6d7ac7b3faaa6d07bcc701",
     "validation/nativeplay/carrier/NativePlayLabViewController.h": "6d95cc8c9f5eb5c0393c2016252fd7f3fee0aa8eb40e762509bf36d664df9844",
     "validation/nativeplay/carrier/LGButtonOpticalState.h": "c42c0b5614262e968a12c0378bc162f0fcad6f5f301e4159acdc1fa8b277dc20",
     "validation/nativeplay/carrier/main-runtime-baseline.metal": "5bd8bc443e91b2430cda5db428cc0ec257d0e5be677e775791463bc1432a67ad",
@@ -165,7 +165,7 @@
     "validation/nativeplay/carrier/InputWhite.png": "421d5fe123cb431f776a786da0a7ecfec40ebee5e4616e3243c1942e1fca0d76",
     "validation/nativeplay/carrier/sourceCanvas-export.json": "7a9d8528e5df6ac9a55e35319ff3774100298a99ee0309f29e41799f7e17f197",
     "validation/nativeplay/LocalRendererRuntimeProbe.mm": "52d2634f605805a83bb36a21728137879e0c39ce5b714633782e34a672dfe962",
-    "validation/nativeplay/LocalRendererRuntimeProbe.h": "a1aedb817f112cbab57f16e63813e0542a68a2ac230eb5dbe793ad40c11ed8fc"
+    "validation/nativeplay/LocalRendererRuntimeProbe.h": "e8c3a3206e64ce9ec7cd8978f8caaf4180c4c995ea6d7ac7b3faaa6d07bcc701"
   },
   "defaultSystemCandidateOff": true,
   "runtimeSourceProvider": "Own static asset ONLY, not a system-background provider",
