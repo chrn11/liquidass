@@ -104,6 +104,7 @@ static void LRDelay(NSTimeInterval duration, dispatch_block_t done) {
 @property(nonatomic,copy) void (^completion)(NSString *,NSString *);
 @property(nonatomic) BOOL finished;
 @property(nonatomic) uint64_t lastAcceptedA;
+@property(nonatomic) LGButtonOpticalState contactReplayA,contactReplayB;
 - (void)start;
 - (void)setup;
 - (void)drawStep:(NSUInteger)step;
@@ -182,9 +183,38 @@ static void LRDelay(NSTimeInterval duration, dispatch_block_t done) {
 }
 - (void)drawStep:(NSUInteger)step {
     if(self.finished)return;
-    if(step>=3){[self identity];return;}
+    if(step>=8){[self identity];return;}
     float pressure=step==1?1:0;
     LGButtonOpticalState a=LRState(501,pressure),b=LRState(502,pressure);
+    if(step>=3) {
+        if(step==3) {
+            a=LRState(501,0);b=LRState(502,0);
+            LGOpticalBegin(&a,1,true,true,11,22,44,44);
+            LGOpticalBegin(&b,1,true,true,33,22,44,44);
+            LGOpticalTick(&a,1.10);LGOpticalTick(&b,1.10);
+        } else {
+            a=self.contactReplayA;b=self.contactReplayB;
+            if(step==4) {
+                LGOpticalContinue(&a,1.12,true,true,33,28,44,44);
+                LGOpticalContinue(&b,1.12,true,true,11,16,44,44);
+            } else if(step==5) {
+                LGOpticalEnd(&a,1.13,false);LGOpticalEnd(&b,1.13,true);
+                LGOpticalTick(&a,1.18);LGOpticalTick(&b,1.18);
+            } else if(step==6) {
+                LGOpticalTick(&a,3.0);LGOpticalTick(&b,3.0);
+            } else {
+                LGOpticalReset(&a,501);LGOpticalReset(&b,502);
+                LGOpticalSetEligibility(&a,false,true,true,true,true,501);
+                LGOpticalSetEligibility(&b,false,true,true,true,true,502);
+                // Rendering disabled/ineligible is separately checked by guards.
+                // Here re-enable a clean idle state to prove no residual contact.
+                LGOpticalSetEligibility(&a,true,true,true,true,true,501);
+                LGOpticalSetEligibility(&b,true,true,true,true,true,502);
+            }
+        }
+        self.contactReplayA=a;self.contactReplayB=b;
+        pressure=a.pressure;
+    }
     uint64_t sa=self.va.lastCompletedSubmissionSerial,sb=self.vb.lastCompletedSubmissionSerial;
     LGLocalButtonRendererResult ra=[self.va submitOpticalState:a enabled:YES],rb=[self.vb submitOpticalState:b enabled:YES];
     BOOL ready=ra==LGLocalButtonRendererReadyForNextDraw&&rb==LGLocalButtonRendererReadyForNextDraw;
@@ -208,9 +238,27 @@ static void LRDelay(NSTimeInterval duration, dispatch_block_t done) {
           @"sourceTimestampA":@(ca.frameTimestampMonotonic),@"elapsed":@(CACurrentMediaTime()-started),
           @"systemSource":@NO,@"pixelReadback":@NO};
         [self.draws addObject:frame];
-        [self record:[NSString stringWithFormat:@"D_actual_draw_GPU_complete_step%lu",(unsigned long)step] pass:done&&ba&&bb details:frame];
+        NSMutableDictionary *contactFrame=[frame mutableCopy];
+        contactFrame[@"localUniformABIBytes"]=@(sizeof(LGLocalButtonUniforms));
+        contactFrame[@"touchValidA"]=@(a.touchValid);contactFrame[@"touchValidB"]=@(b.touchValid);
+        contactFrame[@"contactUniformEnabledA"]=@(ua.buttonContactEnabled>0.5f);
+        contactFrame[@"contactUniformEnabledB"]=@(ub.buttonContactEnabled>0.5f);
+        contactFrame[@"contactXYA"]=@[@(ua.buttonContactCenter.x),@(ua.buttonContactCenter.y)];
+        contactFrame[@"contactXYB"]=@[@(ub.buttonContactCenter.x),@(ub.buttonContactCenter.y)];
+        contactFrame[@"contactPressureA"]=@(ua.buttonContactPressure);
+        contactFrame[@"statePhaseA"]=@(a.phase);contactFrame[@"statePhaseB"]=@(b.phase);
+        BOOL expectedContact=step>=3 && step<=5;
+        BOOL correctContact=(ua.buttonContactEnabled>0.5f)==expectedContact &&
+                            (ub.buttonContactEnabled>0.5f)==expectedContact;
+        if(expectedContact) correctContact=correctContact && a.touchValid && b.touchValid &&
+            fabs(ua.buttonContactCenter.x-a.touchX)<.00001 && fabs(ub.buttonContactCenter.x-b.touchX)<.00001 &&
+            fabs(ua.buttonContactPressure-a.pressure)<.00001;
+        contactFrame[@"contactTupleMatchesExactState"]=@(correctContact);
+        [self.draws removeLastObject];[self.draws addObject:contactFrame];
+        [self record:[NSString stringWithFormat:@"D_actual_draw_GPU_complete_step%lu",(unsigned long)step]
+            pass:done&&ba&&bb&&correctContact details:contactFrame];
         // A completed serial is required, not ReadyForNextDraw or visibility.
-        if(done)dispatch_async(dispatch_get_main_queue(),^{[self drawStep:step+1];});
+        if(done&&correctContact)dispatch_async(dispatch_get_main_queue(),^{[self drawStep:step+1];});
         else [self guards];
     });
 }

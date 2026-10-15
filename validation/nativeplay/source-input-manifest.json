@@ -15,7 +15,7 @@
     "docs/local-button-renderer.md"
   ],
   "buildBundle": "org.liquidass.native-play-lab",
-  "buildNumber": "19",
+  "buildNumber": "20",
   "inputSHA256": {
     ".github/workflows/local-renderer-macos.yml": "b160bb3edf8b6c15abfaa7d74c316f155d729ebbcfb59095157e1d3e3c4a74b5",
     ".github/workflows/main.yml": "b5cf74cdccb47d409f381ba5077dd480f62d9d63c0aa83ad1d233488ee0e8b82",
@@ -134,8 +134,8 @@
     "scripts/legacy_button_optics_formula_fixture.inc": "a602854cff8a36526024cc0a5b9a538831ebcc426681fbcca17119e75e0cc0d6",
     "scripts/legacy_local_button_shader_fixture.h": "cf875dfa681fb2456f71e8fed97c923a84206e317528687c1b3ab602c234bcc8",
     "scripts/test_button_candidate_integration.py": "98e8cb82b553cc1ddb9ed18ee5232ea4524db287f3c904ad313e912cef7016c3",
-    "scripts/test_button_contact_macos.sh": "ca743ce51c2c6c012329da5ae2210c9ef5653b9d472796bb33d4edc7c5dca649",
-    "scripts/test_button_contact_metal.mm": "fa5fff2940217ced5e42addc0a10ebe8fec4c80a90b5227dd0106d5f8c186669",
+    "scripts/test_button_contact_macos.sh": "f94537d8576b1a4446781aa9055871d5af507e12eb5009ba4962b57b4c005739",
+    "scripts/test_button_contact_metal.mm": "2f104e1e258fc0bff0eb5c5d58267bd2a01fa74bd27cb8a6091888954bb5c5e3",
     "scripts/test_button_contact_optics.c": "18cb6ca7b5cd1c9d60615df921770d3af13b9f21b375c20047cb16edc5dacda3",
     "scripts/test_button_contact_source.py": "1b7a31e2d0ec3fd42ad73baf2d517d3f0d777778b7cc71b560b00095b5ddfd23",
     "scripts/test_button_material_candidate.c": "c6f2b4e00f8a0fa079add32c678381bc0b3a13d38599a917a219174e80062d4d",
@@ -150,17 +150,17 @@
     "scripts/test_surfaces.py": "a1c8fc3314e1790d51b1368a957b43e0a8710f21e6ea266f685a6e43a022a1f6",
     "tools/localizations.rb": "3e912602765fdccca09be8fac61e8186d64bdf2856204ebb1a44aeb7edc6e2f0",
     "validation/nativeplay/LocalRendererRuntimeProbe.h": "e8c3a3206e64ce9ec7cd8978f8caaf4180c4c995ea6d7ac7b3faaa6d07bcc701",
-    "validation/nativeplay/LocalRendererRuntimeProbe.mm": "e73bc30eed6e4047a2f6147a0c107fd417acfac7fc7f22fb8b05cc99727139b6",
+    "validation/nativeplay/LocalRendererRuntimeProbe.mm": "f4d610c90c8b680f561b11785d861d3ae576a70ffc262501a80b935ee7d45d2c",
     "validation/nativeplay/README.md": "0c4790cb08e7075421fe79e517c7f893a8bb5d99be0f695ad85b75fbbbd99763",
     "validation/nativeplay/build-macos.sh": "c0f65d95412a941db99914ffc9505c3c23ff9fceb05b96301b91d6e96c9ec4aa",
-    "validation/nativeplay/carrier/Info.plist": "e80ca7274b054582097b5861fcb60b60b0d7820765413b1c0c64693aec0fc80b",
+    "validation/nativeplay/carrier/Info.plist": "9d2dfa4cc0fa0b4a3e42a4d92477b29ce3fe3c77a3ecac93c8a30e4c05c53238",
     "validation/nativeplay/carrier/InputBlack.png": "045a261ac526e40889b45db33c6f99c4c459900693f2dd6ba719b416645cb307",
     "validation/nativeplay/carrier/InputBotanical.png": "028a69496776ec609800cf9bf27201e122c0075e82f25fc9bd1e4b0d8743515b",
     "validation/nativeplay/carrier/InputGray.png": "81aa64bb3f40dd54f57c52c8a1e4a2cb85467eb520f109609018f0863b48539e",
     "validation/nativeplay/carrier/InputWhite.png": "421d5fe123cb431f776a786da0a7ecfec40ebee5e4616e3243c1942e1fca0d76",
     "validation/nativeplay/carrier/LGButtonMaterialCandidate.h": "a379980ddfa1ac8bf10adcb0d54694aa78ed1b74526419aaad34f05f467cc5c9",
-    "validation/nativeplay/carrier/LGButtonOpticalState.h": "c42c0b5614262e968a12c0378bc162f0fcad6f5f301e4159acdc1fa8b277dc20",
-    "validation/nativeplay/carrier/LGButtonOpticsFormula.inc": "a602854cff8a36526024cc0a5b9a538831ebcc426681fbcca17119e75e0cc0d6",
+    "validation/nativeplay/carrier/LGButtonOpticalState.h": "7c919d5d14936e9e8b219385808e20233b536fdf4780449e912cc43d857c1788",
+    "validation/nativeplay/carrier/LGButtonOpticsFormula.inc": "365d2f9759ce8363f659dd63fe12ee524340096af3ef68b680219f13a2d7acdb",
     "validation/nativeplay/carrier/LGButtonOpticsShaderSource.h": "0962c9dd11043195a9ce86dbeee805e67ef0beea5b009200e70c22ec3967561b",
     "validation/nativeplay/carrier/LGButtonPressureRoute.h": "9b776a0133a2b1618651efc7d791ba0b817a4467e3ce1ff04eaedaf16e715091",
     "validation/nativeplay/carrier/LocalRendererRuntimeProbe.h": "e8c3a3206e64ce9ec7cd8978f8caaf4180c4c995ea6d7ac7b3faaa6d07bcc701",
@@ -177,8 +177,11 @@
     "validation/nativeplay/carrier/main.m": "6583e7ec2ee3eb29f6d496b4bdaa0879bd92b6bc9ffdcab21e98aac9752c3a36",
     "validation/nativeplay/carrier/manifest.json": "621e51e1981963e0009c45df32a74f8f0c06d36ce4013c64b9ed969978bfd7f3",
     "validation/nativeplay/carrier/sourceCanvas-export.json": "7a9d8528e5df6ac9a55e35319ff3774100298a99ee0309f29e41799f7e17f197",
+    "validation/nativeplay/contact-inputs/botanical-132.bgra": "28333c44ab7fed26a6c7dbc1636e158b9b16534d0c2650d9e965e62ab4fe520a",
+    "validation/nativeplay/contact-inputs/grid-132.bgra": "b4fd90fc81c3b877e3f9d8c7c7f432a20ef34ca034222ec16cda0cab92e3b9ae",
+    "validation/nativeplay/contact-inputs/source-provenance.json": "b4c513a952bc66b5f94516d6849f52dd32dad529bcba68610a15afa60f9af487",
     "validation/nativeplay/package_ci_app.py": "5193b4fb8e969203ef050718aad15d0ae4f34d799e6cc13dfdce3e79e92251f8",
-    "validation/nativeplay/verify_ci_inputs.py": "a29ada4c37d280c8cb0bc49c9e8816d34acffdff0c8e7c30ba40bba86676e3dc"
+    "validation/nativeplay/verify_ci_inputs.py": "e0bc113c08d23e67208093930eff4bf3d9ca0411c3b3440aa692240e7ecb6a51"
   },
   "defaultSystemCandidateOff": true,
   "runtimeSourceProvider": "Own static asset ONLY, not a system-background provider",
@@ -192,7 +195,7 @@
   "SDKPath": "iPhoneOS16.5.sdk",
   "SDKExpectedMetadata": "16.4",
   "codeSigning": "NOT_PERFORMED",
-  "selfcheckExecution": "ASYNC_STAGED_MAIN_QUEUE; no nested CFRunLoop waiting; original100msguardunchanged",
+  "selfcheckExecution": "ASYNC MAIN; exact class scalar0/8/0 plus valid left/right/move/release/cancel/reset contact snapshots, synthetic not UIKit",
   "sourceIdentityFix": {
     "manifestSHA256": "0c6f3afc6fff2bc762887c64339f12cb9675360265ae2d357819665f3909946b",
     "classSHA256": "29ad02bdbddf1ad3cff0f24de34269e12b54e4b50ef80402342acc5613195a8c",
@@ -208,5 +211,22 @@
     "legacyABI": 208,
     "scope": "Actual local contact optics + persistent same-frame source identity; default off; not a system source/visual acceptance"
   },
-  "expectedShaderSHA256": "c4dc2e5bcf9080c31a38770637da705d292cbbf7544e43dd30a0d41677541551"
+  "expectedShaderSHA256": "c4dc2e5bcf9080c31a38770637da705d292cbbf7544e43dd30a0d41677541551",
+  "contactRegressionPhases": {
+    "expectedEnabledSteps": [
+      3,
+      4,
+      5
+    ],
+    "clearedSteps": [
+      0,
+      1,
+      2,
+      6,
+      7
+    ],
+    "localUniformABI": 224,
+    "oldBackboardABI": 208,
+    "actualUIEventTrace": false
+  }
 }

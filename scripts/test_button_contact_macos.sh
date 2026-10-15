@@ -30,7 +30,9 @@ xcrun --sdk macosx clang -std=c11 -Wall -Wextra -Werror -I"$ROOT/Shared" \
 xcrun --sdk macosx clang++ -std=c++17 -fobjc-arc -fblocks \
   -I"$ROOT/Shared" -I"$ROOT/scripts" \
   "$ROOT/scripts/test_button_contact_metal.mm" \
-  -framework Foundation -framework Metal -framework CoreGraphics -o "$TMP/contact_gpu"
+  -framework Foundation -framework Metal -framework CoreGraphics -framework ImageIO -o "$TMP/contact_gpu"
+export CONTACT_RESULTS="$RESULTS"
+export CONTACT_INPUT_ROOT="$ROOT/validation/nativeplay/contact-inputs"
 set +e
 "$TMP/contact_gpu" > "$RESULTS/gpu-contact.log" 2>&1
 GPU_RC=$?

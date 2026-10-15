@@ -17,7 +17,7 @@ typedef struct {
     float pressure, target, touchX, touchY;
     uint64_t geometryGeneration;
     LGOpticalPhase phase;
-    bool hasTime, tracking, eligible, wantsFrames;
+    bool hasTime, tracking, touchValid, eligible, wantsFrames;
 } LGButtonOpticalState;
 
 static inline void LGOpticalReset(LGButtonOpticalState *s,
@@ -64,8 +64,10 @@ static inline bool LGOpticalTick(LGButtonOpticalState *s,double now) {
     if (!isfinite(s->pressure)) s->pressure=0;
     s->pressure=fminf(1.0f,fmaxf(0.0f,s->pressure));
     if (fabsf(s->pressure-s->target)<0.0005f) s->pressure=s->target;
-    if (!s->tracking && s->pressure==0 && s->target==0)
+    if (!s->tracking && s->pressure==0 && s->target==0) {
         s->phase=LGOpticalIdle;
+        s->touchValid=false;
+    }
     s->wantsFrames=fabsf(s->pressure-s->target)>0.0f;
     return s->wantsFrames;
 }
@@ -73,10 +75,11 @@ static inline bool LGOpticalTick(LGButtonOpticalState *s,double now) {
 static inline bool LGOpticalObservePoint(LGButtonOpticalState *s,
                                           float x, float y,
                                           float width,float height) {
-    if (!s || !isfinite(x) || !isfinite(y) || !isfinite(width) ||
+    if (!s || !s->eligible || !isfinite(x) || !isfinite(y) || !isfinite(width) ||
         !isfinite(height) || width<=0 || height<=0) return false;
     s->touchX=fminf(1.0f,fmaxf(0.0f,x/width));
     s->touchY=fminf(1.0f,fmaxf(0.0f,y/height));
+    s->touchValid=true;
     return true;
 }
 
@@ -107,6 +110,8 @@ static inline void LGOpticalContinue(LGButtonOpticalState *s,double now,
         s->phase=originalInside ? LGOpticalTrackingInside : LGOpticalTrackingOutside;
     }
     s->wantsFrames=s->pressure!=s->target;
+    if (!s->tracking && s->pressure==0.0f && s->target==0.0f)
+        s->touchValid=false;
 }
 
 static inline void LGOpticalEnd(LGButtonOpticalState *s,double now,
@@ -117,6 +122,7 @@ static inline void LGOpticalEnd(LGButtonOpticalState *s,double now,
     s->phase=s->eligible ? (cancelled ? LGOpticalCancelled : LGOpticalReleasing)
                         : LGOpticalSuspended;
     s->wantsFrames=s->eligible && s->pressure!=0;
+    if (s->pressure==0.0f) s->touchValid=false;
 }
 
 /* Quantization is a bounded observation value, not a CA transport guarantee. */
