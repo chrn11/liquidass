@@ -164,7 +164,7 @@
     "validation/nativeplay/carrier/main-runtime-compatibility.metal": "f9af0d94df64b35f47b4a4075c0b8e90af8c0cb471404da4dd6f880b529b4413",
     "validation/nativeplay/carrier/InputWhite.png": "421d5fe123cb431f776a786da0a7ecfec40ebee5e4616e3243c1942e1fca0d76",
     "validation/nativeplay/carrier/sourceCanvas-export.json": "7a9d8528e5df6ac9a55e35319ff3774100298a99ee0309f29e41799f7e17f197",
-    "validation/nativeplay/LocalRendererRuntimeProbe.mm": "52d2634f605805a83bb36a21728137879e0c39ce5b714633782e34a672dfe962",
+    "validation/nativeplay/LocalRendererRuntimeProbe.mm": "376684766594032ce9305767ecf5d4cf9b9b01bc2815838233c878be860f3daf",
     "validation/nativeplay/LocalRendererRuntimeProbe.h": "e8c3a3206e64ce9ec7cd8978f8caaf4180c4c995ea6d7ac7b3faaa6d07bcc701"
   },
   "defaultSystemCandidateOff": true,

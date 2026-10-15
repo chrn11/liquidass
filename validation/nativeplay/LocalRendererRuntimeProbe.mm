@@ -85,6 +85,15 @@ static BOOL LRWaitForDraw(LGLocalButtonMaterialView *a,uint64_t sa,LGLocalButton
     return NO;
 }
 
+static void LRWaitMinimumDuration(NSTimeInterval duration) {
+    CFTimeInterval deadline=CACurrentMediaTime()+duration;
+    // One CFRunLoopRunInMode(..., true) may return after the first source and
+    // does not guarantee that the requested elapsed time has passed.
+    while (CACurrentMediaTime()<deadline)
+        CFRunLoopRunInMode(kCFRunLoopDefaultMode,
+            MIN(0.005,deadline-CACurrentMediaTime()),true);
+}
+
 void RunLocalRendererRuntimeProbe(id<MTLDevice> device,id<MTLCommandQueue> queue,
                                   id<MTLTexture> appInputTexture,UIView *container,
                                   void (^completion)(NSString *,NSString *)) {
@@ -176,17 +185,20 @@ void RunLocalRendererRuntimeProbe(id<MTLDevice> device,id<MTLCommandQueue> queue
         [checks addObject:@{@"check":@"F_feature_enabled_false_stops_source",@"pass":@(featureOffPass),@"result":LRResultName(rOff),@"hidden":@(va.hidden)}];
         uint64_t beforeExpiry=va.lastCompletedSubmissionSerial;LGLocalButtonRendererResult rExpire=[va submitOpticalState:sA enabled:YES];
         BOOL expireDraw=(rExpire==LGLocalButtonRendererReadyForNextDraw)&&LRWaitForDraw(va,beforeExpiry,nil,0,3.0);uint64_t expirySerial=va.lastCompletedSubmissionSerial;CFTimeInterval completionObserved=CACurrentMediaTime();uint64_t expiryGeneration=pA.lastContract.frameGeneration;
-        CFRunLoopRunInMode(kCFRunLoopDefaultMode,.150,true);
+        LRWaitMinimumDuration(.150);
         BOOL expiryHidden=va.hidden;BOOL finalLeaseEnded=NO;
         @synchronized(pA.leases){for(NSDictionary *e in pA.leases.events)if([e[@"generation"] unsignedLongLongValue]==expiryGeneration&&[e[@"endedAtMonotonic"] doubleValue]>=completionObserved)finalLeaseEnded=YES;}
         [checks addObject:@{@"check":@"E_one_shot_100ms_timer_hides_without_new_draw",@"pass":@(expireDraw&&expiryHidden),@"result":LRResultName(rExpire),@"completedSerial":@(expirySerial),@"hiddenAfter150ms":@(expiryHidden),@"noNewDrawAfterCompletion":@YES}];
         [checks addObject:@{@"check":@"G_leaseEnded_after_GPU_completion_for_expired_frame",@"pass":@(expireDraw&&finalLeaseEnded),@"frameGeneration":@(expiryGeneration),@"leaseEndedAfterCompletionObservation":@(finalLeaseEnded)}];
-        uint64_t beforePending=va.lastCompletedSubmissionSerial;LGLocalButtonRendererResult pending=[va submitOpticalState:sA enabled:YES];[va invalidateLocalSource];CFRunLoopRunInMode(kCFRunLoopDefaultMode,.150,true);BOOL pendingNoRevive=(pending==LGLocalButtonRendererReadyForNextDraw&&va.hidden&&va.lastCompletedSubmissionSerial==beforePending);
+        uint64_t beforePending=va.lastCompletedSubmissionSerial;LGLocalButtonRendererResult pending=[va submitOpticalState:sA enabled:YES];[va invalidateLocalSource];LRWaitMinimumDuration(.150);BOOL pendingNoRevive=(pending==LGLocalButtonRendererReadyForNextDraw&&va.hidden&&va.lastCompletedSubmissionSerial==beforePending);
         [checks addObject:@{@"check":@"G_invalidate_before_pending_draw_keeps_instance_hidden",@"pass":@(pendingNoRevive),@"readyBeforeInvalidate":@(pending==LGLocalButtonRendererReadyForNextDraw),@"hiddenAfter150ms":@(va.hidden),@"completedSerialUnchanged":@(va.lastCompletedSubmissionSerial==beforePending)}];
-        report[@"leaseAccounting"]=@{@"activeA":@(pA.leases.active),@"maximumOutstandingFrameLeasesA":@(pA.leases.maximum),@"endedA":@(pA.leases.ended),@"leaseEventsA":[pA.leases.events copy],@"activeB":@(pB.leases.active),@"maximumOutstandingFrameLeasesB":@(pB.leases.maximum),@"endedB":@(pB.leases.ended),@"leaseEventsB":[pB.leases.events copy],@"threeGPUCommandsInFlightOnOneInstanceObserved":@(pA.leases.maximum>=4),@"interpretation":@"lease count includes current frame and transient provider handoff; only >=4 would evidence current+three retained GPU frames"};
+        // Metadata leases are not a measurement of simultaneous GPU commands.
+        // Keep stress coverage unknown unless a real command counter is added.
+        report[@"leaseAccounting"]=@{@"activeA":@(pA.leases.active),@"maximumOutstandingFrameLeasesA":@(pA.leases.maximum),@"endedA":@(pA.leases.ended),@"leaseEventsA":[pA.leases.events copy],@"activeB":@(pB.leases.active),@"maximumOutstandingFrameLeasesB":@(pB.leases.maximum),@"endedB":@(pB.leases.ended),@"leaseEventsB":[pB.leases.events copy],@"threeGPUCommandsInFlightOnOneInstanceObserved":@NO,@"interpretation":@"Frame-lease count does not prove simultaneous GPU command count; three-in-flight stress NOT_RUN"};
         BOOL realPass=allDraws&&ownerPass&&stalePass&&genPass&&disabledTargetPass&&detachedPass&&inactivePass&&featureOffPass&&expireDraw&&expiryHidden&&finalLeaseEnded&&pendingNoRevive;
+        for (NSDictionary *check in checks) realPass=realPass && [check[@"pass"] boolValue];
         report[@"checks"]=checks;report[@"drawFrames"]=draws;report[@"acceptanceStatus"]=realPass?@"REAL_CLASS_DRAW_AND_GPU_COMPLETION_PASS_WITH_STRESS_LIMITS":@"REAL_CLASS_RUNTIME_PARTIAL_OR_FAIL";
-        report[@"runtimeLimitations"]=[@{@"systemBackgroundProvider":@"NOT_IMPLEMENTED",@"pixelReadback":@"NOT_RUN; framebufferOnly YES",@"threeInFlightGPUCapStress":(pA.leases.maximum>=4?@"OBSERVED":@"NOT_OBSERVED"),@"oldCompletedCallbackAfterInvalidationRace":@"NOT_OBSERVED; only pending-frame invalidation safety checked",@"systemLiveBackdrop":@NO,@"realUIKitTouch":@NO} mutableCopy];
+        report[@"runtimeLimitations"]=[@{@"systemBackgroundProvider":@"NOT_IMPLEMENTED",@"pixelReadback":@"NOT_RUN; framebufferOnly YES",@"threeInFlightGPUCapStress":@"NOT_OBSERVED: frame leases are not GPU concurrency measurement",@"oldCompletedCallbackAfterInvalidationRace":@"NOT_OBSERVED; only pending-frame invalidation safety checked",@"systemLiveBackdrop":@NO,@"realUIKitTouch":@NO} mutableCopy];
         [va invalidateLocalSource];[vb invalidateLocalSource];[va removeFromSuperview];[vb removeFromSuperview];[ta removeFromSuperview];[tb removeFromSuperview];
     }
     report[@"checks"]=checks;
