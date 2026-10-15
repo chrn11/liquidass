@@ -10,12 +10,12 @@ for _ in range(h[4]):
 assert 0x1d not in commands,'Unexpected signature load command'
 for p in c.iterdir():
  if p.is_file() and p.suffix in ['.plist','.json','.png','.metal','.h']:(app/p.name).write_bytes(p.read_bytes())
-info=plistlib.loads((app/'Info.plist').read_bytes());assert info['CFBundleIdentifier']=='org.liquidass.native-play-lab';info['CFBundleVersion']='16';info['CFBundleShortVersionString']='1.3';(app/'Info.plist').write_bytes(plistlib.dumps(info,fmt=plistlib.FMT_BINARY,sort_keys=False))
-manifest=json.loads((app/'manifest.json').read_text());manifest.setdefault('app',{}).update({'bundleIdentifier':'org.liquidass.native-play-lab','candidateBuild':16,'version':'1.3','scope':'same existing App, self-check only, macOS Actions'})
+info=plistlib.loads((app/'Info.plist').read_bytes());assert info['CFBundleIdentifier']=='org.liquidass.native-play-lab';info['CFBundleVersion']=json.loads((root/'validation/nativeplay/source-input-manifest.json').read_text())['buildNumber'];info['CFBundleShortVersionString']='1.3';(app/'Info.plist').write_bytes(plistlib.dumps(info,fmt=plistlib.FMT_BINARY,sort_keys=False))
+manifest=json.loads((app/'manifest.json').read_text());manifest.setdefault('app',{}).update({'bundleIdentifier':'org.liquidass.native-play-lab','candidateBuild':int(info['CFBundleVersion']),'version':'1.3','scope':'same existing App, self-check only, macOS Actions'})
 manifest.setdefault('source',{}).update({'nativePlayLensSHA256':sha(c/'PlayLens.metal'),'nativeControllerSHA256':sha(c/'NativePlayLabViewController.m'),'nativeMaterialSharedSHA256':sha(c/'PlayMaterialShared.h')})
 manifest.setdefault('resources',{})['InputBotanical.png']=sha(c/'InputBotanical.png');(app/'manifest.json').write_text(json.dumps(manifest,indent=2))
 files={str(p.relative_to(app)):sha(p) for p in app.iterdir() if p.is_file()};exe=app/'NativePlayLab';exe.chmod(0o755)
-ipa=out/'NativePlayLab-local-renderer-build16-UNSIGNED.ipa'
+ipa=out/('NativePlayLab-local-renderer-build'+info['CFBundleVersion']+'-UNSIGNED.ipa')
 with zipfile.ZipFile(ipa,'w',zipfile.ZIP_DEFLATED) as z:
  for p in app.iterdir():
   if p.is_file():z.write(p,'Payload/NativePlayLab.app/'+p.name)

@@ -15,7 +15,7 @@
     "docs/local-button-renderer.md"
   ],
   "buildBundle": "org.liquidass.native-play-lab",
-  "buildNumber": "16",
+  "buildNumber": "17",
   "inputSHA256": {
     ".github/workflows/main.yml": "b5cf74cdccb47d409f381ba5077dd480f62d9d63c0aa83ad1d233488ee0e8b82",
     ".gitignore": "73a4f039255087cd57fec09863c6350359d043ba35abb72fd1a87900dd69b4fb",
@@ -156,7 +156,7 @@
     "validation/nativeplay/carrier/main-runtime-candidate.metal": "f21b394471fd9d3983502441852e3be0664eec7614a7bcd7652939077c06a72b",
     "validation/nativeplay/carrier/main.m": "6583e7ec2ee3eb29f6d496b4bdaa0879bd92b6bc9ffdcab21e98aac9752c3a36",
     "validation/nativeplay/carrier/NativePlayLabViewController.m": "4a5407754289c781559d5c251ebe81e9f38c04d1733c72247546e61e6d0a1e75",
-    "validation/nativeplay/carrier/Info.plist": "8ad1fcb271fe058a7a2353c1f7207d959f8ab89dd9e92fb62d2d7a6a30f1476a",
+    "validation/nativeplay/carrier/Info.plist": "e32106355e1198871290dcdda783a9f5f50076ec6748b0e25cd5b38f05b3f855",
     "validation/nativeplay/carrier/manifest.json": "621e51e1981963e0009c45df32a74f8f0c06d36ce4013c64b9ed969978bfd7f3",
     "validation/nativeplay/carrier/LGButtonMaterialCandidate.h": "a379980ddfa1ac8bf10adcb0d54694aa78ed1b74526419aaad34f05f467cc5c9",
     "validation/nativeplay/carrier/main-final-manifest.json": "f20a82f2b7b9705413d557370e39e6fd2f9f086bc3c432d59aaff0d466c846d9",
@@ -164,7 +164,7 @@
     "validation/nativeplay/carrier/main-runtime-compatibility.metal": "f9af0d94df64b35f47b4a4075c0b8e90af8c0cb471404da4dd6f880b529b4413",
     "validation/nativeplay/carrier/InputWhite.png": "421d5fe123cb431f776a786da0a7ecfec40ebee5e4616e3243c1942e1fca0d76",
     "validation/nativeplay/carrier/sourceCanvas-export.json": "7a9d8528e5df6ac9a55e35319ff3774100298a99ee0309f29e41799f7e17f197",
-    "validation/nativeplay/LocalRendererRuntimeProbe.mm": "376684766594032ce9305767ecf5d4cf9b9b01bc2815838233c878be860f3daf",
+    "validation/nativeplay/LocalRendererRuntimeProbe.mm": "5c6b946e501578168cb28590985f37c2f1bb243e5b5192f691932ae7cedfea5e",
     "validation/nativeplay/LocalRendererRuntimeProbe.h": "e8c3a3206e64ce9ec7cd8978f8caaf4180c4c995ea6d7ac7b3faaa6d07bcc701"
   },
   "defaultSystemCandidateOff": true,
@@ -178,5 +178,6 @@
   "SDKSourceCommit": "0222fd5413cf4b9af096f37b4621afa2688572f7",
   "SDKPath": "iPhoneOS16.5.sdk",
   "SDKExpectedMetadata": "16.4",
-  "codeSigning": "NOT_PERFORMED"
+  "codeSigning": "NOT_PERFORMED",
+  "selfcheckExecution": "ASYNC_STAGED_MAIN_QUEUE; no nested CFRunLoop waiting; original100msguardunchanged"
 }
