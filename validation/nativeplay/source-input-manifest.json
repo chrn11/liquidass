@@ -15,7 +15,7 @@
     "docs/local-button-renderer.md"
   ],
   "buildBundle": "org.liquidass.native-play-lab",
-  "buildNumber": "17",
+  "buildNumber": "18",
   "inputSHA256": {
     ".github/workflows/main.yml": "b5cf74cdccb47d409f381ba5077dd480f62d9d63c0aa83ad1d233488ee0e8b82",
     ".gitignore": "73a4f039255087cd57fec09863c6350359d043ba35abb72fd1a87900dd69b4fb",
@@ -131,13 +131,13 @@
     "scripts/test_surface_generation.c.py": "60cc5d9c06ecb785e2fb1a13c224b9562d686d59d2ff2c0680aab5954a83a19b",
     "scripts/test_surfaces.py": "a1c8fc3314e1790d51b1368a957b43e0a8710f21e6ea266f685a6e43a022a1f6",
     "tools/localizations.rb": "3e912602765fdccca09be8fac61e8186d64bdf2856204ebb1a44aeb7edc6e2f0",
-    "Shared/LGLocalButtonSourceContract.h": "160b3dfdde193ab64990ec04d4a026e8b6b50fa99ee376a662868532036da606",
+    "Shared/LGLocalButtonSourceContract.h": "ddd7c98785f1488a407269beb6b4c7e713308e5e65bbac2257655af0eca90327",
     "Shared/LGLocalButtonUniforms.h": "fee501b0aeca28be978324022072badb76cd67441a32fef1ca1d2761d375e748",
     "Shared/LGLocalButtonMaterialView.h": "e50c5d1ec635e54c88da06c502048ca63962b301e281080eb90f2290e484db85",
-    "Shared/LGLocalButtonMaterialView.mm": "03afceeb9fd6cb624326cb70a10244316b004fdf4a45820fd24052ef6ea12bcc",
+    "Shared/LGLocalButtonMaterialView.mm": "29ad02bdbddf1ad3cff0f24de34269e12b54e4b50ef80402342acc5613195a8c",
     "scripts/generate_local_button_shader.py": "fe7fafcdd3317463f58df63df79f2d754df32448f1a353cebae4c01e08658f40",
     "scripts/check_local_button_renderer_ios16.sh": "a669a871f4d458761a9cae6dd660fc528b5748517deca4e7eb3ca9a42fb1c10c",
-    "scripts/test_local_button_source_contract.c": "46148b7c2267a847342aff8054f1845853a3339c85890dfc77c4ea661020b408",
+    "scripts/test_local_button_source_contract.c": "707242761ad750d8252eb0545f8201c5266cf7d578847abf68da64291cd94034",
     "scripts/test_local_button_renderer.py": "a7fe8eca3131c602b90c8c3812e095433b744a46487c907242f0a7e9ced84b73",
     "docs/local-button-renderer.md": "d70a5f9f145acf907f37f2b882379006c1a1f49a68ffbc76bc3e8fe24646cf63",
     "Shared/LGLocalButtonShaderSource.h": "cf875dfa681fb2456f71e8fed97c923a84206e317528687c1b3ab602c234bcc8",
@@ -156,7 +156,7 @@
     "validation/nativeplay/carrier/main-runtime-candidate.metal": "f21b394471fd9d3983502441852e3be0664eec7614a7bcd7652939077c06a72b",
     "validation/nativeplay/carrier/main.m": "6583e7ec2ee3eb29f6d496b4bdaa0879bd92b6bc9ffdcab21e98aac9752c3a36",
     "validation/nativeplay/carrier/NativePlayLabViewController.m": "4a5407754289c781559d5c251ebe81e9f38c04d1733c72247546e61e6d0a1e75",
-    "validation/nativeplay/carrier/Info.plist": "e32106355e1198871290dcdda783a9f5f50076ec6748b0e25cd5b38f05b3f855",
+    "validation/nativeplay/carrier/Info.plist": "345925b8a3d45b5e44dd41ae4a7513afdfb86d4dab0bb1690301d40e5d54f281",
     "validation/nativeplay/carrier/manifest.json": "621e51e1981963e0009c45df32a74f8f0c06d36ce4013c64b9ed969978bfd7f3",
     "validation/nativeplay/carrier/LGButtonMaterialCandidate.h": "a379980ddfa1ac8bf10adcb0d54694aa78ed1b74526419aaad34f05f467cc5c9",
     "validation/nativeplay/carrier/main-final-manifest.json": "f20a82f2b7b9705413d557370e39e6fd2f9f086bc3c432d59aaff0d466c846d9",
@@ -164,7 +164,7 @@
     "validation/nativeplay/carrier/main-runtime-compatibility.metal": "f9af0d94df64b35f47b4a4075c0b8e90af8c0cb471404da4dd6f880b529b4413",
     "validation/nativeplay/carrier/InputWhite.png": "421d5fe123cb431f776a786da0a7ecfec40ebee5e4616e3243c1942e1fca0d76",
     "validation/nativeplay/carrier/sourceCanvas-export.json": "7a9d8528e5df6ac9a55e35319ff3774100298a99ee0309f29e41799f7e17f197",
-    "validation/nativeplay/LocalRendererRuntimeProbe.mm": "5c6b946e501578168cb28590985f37c2f1bb243e5b5192f691932ae7cedfea5e",
+    "validation/nativeplay/LocalRendererRuntimeProbe.mm": "20edd31606de9610476c296fed566cf49a6b858f26478a70ab8abc59e2b07d26",
     "validation/nativeplay/LocalRendererRuntimeProbe.h": "e8c3a3206e64ce9ec7cd8978f8caaf4180c4c995ea6d7ac7b3faaa6d07bcc701"
   },
   "defaultSystemCandidateOff": true,
@@ -179,5 +179,11 @@
   "SDKPath": "iPhoneOS16.5.sdk",
   "SDKExpectedMetadata": "16.4",
   "codeSigning": "NOT_PERFORMED",
-  "selfcheckExecution": "ASYNC_STAGED_MAIN_QUEUE; no nested CFRunLoop waiting; original100msguardunchanged"
+  "selfcheckExecution": "ASYNC_STAGED_MAIN_QUEUE; no nested CFRunLoop waiting; original100msguardunchanged",
+  "sourceIdentityFix": {
+    "manifestSHA256": "0c6f3afc6fff2bc762887c64339f12cb9675360265ae2d357819665f3909946b",
+    "classSHA256": "29ad02bdbddf1ad3cff0f24de34269e12b54e4b50ef80402342acc5613195a8c",
+    "numericShaderChanged": false,
+    "runtimeRegression": "same tuple+timestamp after clear must reject another texture/descriptor but allow original immutable frame"
+  }
 }

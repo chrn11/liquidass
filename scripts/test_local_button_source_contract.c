@@ -131,6 +131,28 @@ int main(void) {
     assert(!LGLocalButtonBuildUniforms(&c,&observed,132,132,3,&pressed));
     observed.geometryGeneration=9;c.pointScale=NAN;
     assert(!LGLocalButtonBuildUniforms(&c,&observed,132,132,3,&pressed));
-    puts("local source, monotone order, immutable lease/color declarations, finite state, exact shared108/2/1.6/16pt host parameters and 208-byte ABI: PASS");
+    // Source clear must not forget which texture belongs to the last accepted
+    // immutable frame. The ObjC caller supplies a zeroing-weak object equality.
+    LGLocalButtonSourceContract last=fixture(),repeat=last;
+    assert(LGLocalRepeatedFrameIdentityValid(&repeat,&last,true,true));
+    assert(!LGLocalRepeatedFrameIdentityValid(&repeat,&last,true,false));
+    // Negative control for the former behavior: if sourceFrame=nil erased the
+    // remembered identity, this same tuple with another texture was accepted.
+    assert(LGLocalRepeatedFrameIdentityValid(&repeat,0,false,false));
+    repeat.alphaMode=LGLocalAlphaOpaque;
+    assert(!LGLocalRepeatedFrameIdentityValid(&repeat,&last,true,true));
+    repeat=last;repeat.frameGeneration++;
+    assert(LGLocalRepeatedFrameIdentityValid(&repeat,&last,true,false));
+    LGLocalSourceCursor order={0};
+    assert(LGLocalSourceAcceptOrder(&order,&last));
+    assert(LGLocalSourceAcceptOrder(&order,&repeat));
+    assert(!LGLocalSourceAcceptOrder(&order,&last));
+    repeat=last;repeat.ownerGeneration++;repeat.frameGeneration=1;
+    assert(LGLocalRepeatedFrameIdentityValid(&repeat,&last,true,false));
+    assert(LGLocalSourceAcceptOrder(&order,&repeat));
+    repeat=last;repeat.frameTimestampMonotonic+=.001;
+    assert(!LGLocalRepeatedFrameIdentityValid(&repeat,&last,true,true));
+    assert(!LGLocalRepeatedFrameIdentityValid(0,&last,true,true));
+    puts("source cursor, persistent same-frame identity, immutable lease/color declarations, finite state, exact shared108/2/1.6/16pt host parameters and current ABI: PASS");
     return 0;
 }

@@ -15,6 +15,12 @@ static const char kExpectedLocalShaderSHA256[] =
 @property(nonatomic,weak) UIView *targetView;
 @property(nonatomic,strong) id<LGLocalButtonSourceProvider> sourceProvider;
 @property(nonatomic,strong) LGLocalButtonTextureFrame *sourceFrame;
+// Do not retain a texture/frame just to remember identity after clear: doing
+// so would delay provider lease return. A zeroing weak reference prevents
+// address-reuse false matches once the original texture was destroyed.
+@property(nonatomic,weak) id<MTLTexture> lastAcceptedTexture;
+@property(nonatomic,assign) LGLocalButtonSourceContract lastAcceptedContract;
+@property(nonatomic,assign) BOOL hasLastAcceptedFrameIdentity;
 @property(nonatomic,strong) id<MTLRenderPipelineState> localPipeline;
 @property(nonatomic,strong) id<MTLCommandQueue> localCommandQueue;
 @property(nonatomic,strong) id<MTLSamplerState> localSampler;
@@ -254,15 +260,17 @@ static const char kExpectedLocalShaderSHA256[] =
     if (!LGLocalSourceAcceptOrder(&cursor,&c)) {
         [self clearLocalFrame]; return LGLocalButtonRendererSourceRejected;
     }
-    LGLocalButtonSourceContract previousContract={0};
-    if (self.sourceFrame) previousContract=self.sourceFrame.contract;
-    if (self.sourceFrame && c.ownerGeneration==self.boundOwnerGeneration &&
-        c.frameGeneration==self.minimumFrameGeneration &&
-        (self.sourceFrame.texture!=frame.texture ||
-         !LGLocalSameFrameDescriptor(&c,&previousContract))) {
+    LGLocalButtonSourceContract previousContract=self.lastAcceptedContract;
+    id<MTLTexture> previousTexture=self.lastAcceptedTexture;
+    BOOL sameTexture=previousTexture && previousTexture==frame.texture;
+    if (!LGLocalRepeatedFrameIdentityValid(&c,&previousContract,
+            self.hasLastAcceptedFrameIdentity,sameTexture)) {
         [self clearLocalFrame]; return LGLocalButtonRendererSourceRejected;
     }
     self.sourceCursor=cursor;
+    self.lastAcceptedTexture=frame.texture;
+    self.lastAcceptedContract=c;
+    self.hasLastAcceptedFrameIdentity=YES;
     self.boundOwnerToken=c.ownerInstanceToken;
     self.boundOwnerGeneration=c.ownerGeneration;
     self.minimumFrameGeneration=c.frameGeneration;

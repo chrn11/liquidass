@@ -200,3 +200,23 @@ static inline bool LGLocalSameFrameDescriptor(
         a->targetRectInOwnerPoints.size.width==b->targetRectInOwnerPoints.size.width &&
         a->targetRectInOwnerPoints.size.height==b->targetRectInOwnerPoints.size.height;
 }
+
+/* Last accepted immutable descriptor survives view clear/expiry. Ordering is
+ * checked independently first; this binds repeated frame generations to the
+ * very same texture object, without retaining its GPU lease after invalidation.
+ * Caller compares an ARC weak MTLTexture reference, not raw pointer integers.
+ */
+static inline bool LGLocalRepeatedFrameIdentityValid(
+    const LGLocalButtonSourceContract *candidate,
+    const LGLocalButtonSourceContract *lastAccepted, bool hasLastAccepted,
+    bool exactSameLiveTextureObject) {
+    if (!candidate || !candidate->ownerInstanceToken ||
+        !candidate->ownerGeneration || !candidate->frameGeneration) return false;
+    if (!hasLastAccepted) return true;
+    if (!lastAccepted) return false;
+    const bool repeated = candidate->ownerInstanceToken==lastAccepted->ownerInstanceToken &&
+        candidate->ownerGeneration==lastAccepted->ownerGeneration &&
+        candidate->frameGeneration==lastAccepted->frameGeneration;
+    return !repeated || (exactSameLiveTextureObject &&
+                         LGLocalSameFrameDescriptor(candidate,lastAccepted));
+}

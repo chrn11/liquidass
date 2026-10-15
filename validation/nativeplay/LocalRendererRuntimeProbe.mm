@@ -22,7 +22,8 @@
 @property(nonatomic,strong) id<MTLTexture> texture;
 @property(nonatomic,strong) LRLeaseCounters *leases;
 @property(nonatomic) uint64_t ownerToken, geometryGeneration, nextFrameGeneration, forcedGeneration;
-@property(nonatomic) BOOL nilFirst, ownerAlive, forceGeneration;
+@property(nonatomic) BOOL nilFirst, ownerAlive, forceGeneration, repeatExactContract;
+@property(nonatomic) LGLocalButtonSourceContract repeatedContract;
 @property(nonatomic) CFTimeInterval staleAge;
 @property(nonatomic) NSUInteger calls;
 @property(nonatomic) LGLocalButtonSourceContract lastContract;
@@ -46,7 +47,9 @@
     c.frameTimestampMonotonic=now-self.staleAge;c.sourceKind=LGLocalSourceStaticAsset;
     c.alphaMode=LGLocalAlphaOpaque;c.maskKind=LGLocalMaskRounded44;
     c.backgroundOnly=true;c.targetForegroundExcluded=true;c.immutableUntilFrameReleased=true;
-    c.sampledRGBIsLinear=true;c.sampledRGBIsPremultiplied=true;self.lastContract=c;
+    c.sampledRGBIsLinear=true;c.sampledRGBIsPremultiplied=true;
+    if(self.repeatExactContract)c=self.repeatedContract;
+    self.lastContract=c;
     LRLeaseCounters *counter=self.leases;uint64_t gen=c.frameGeneration;[counter opened:gen];
     return [[LGLocalButtonTextureFrame alloc] initWithTexture:self.texture contract:c leaseEnded:^{[counter closed:gen];}];
 }
@@ -104,6 +107,7 @@ static void LRDelay(NSTimeInterval duration, dispatch_block_t done) {
 - (void)start;
 - (void)setup;
 - (void)drawStep:(NSUInteger)step;
+- (void)identity;
 - (void)guards;
 - (void)expiry;
 - (void)finish;
@@ -178,7 +182,7 @@ static void LRDelay(NSTimeInterval duration, dispatch_block_t done) {
 }
 - (void)drawStep:(NSUInteger)step {
     if(self.finished)return;
-    if(step>=3){[self guards];return;}
+    if(step>=3){[self identity];return;}
     float pressure=step==1?1:0;
     LGButtonOpticalState a=LRState(501,pressure),b=LRState(502,pressure);
     uint64_t sa=self.va.lastCompletedSubmissionSerial,sb=self.vb.lastCompletedSubmissionSerial;
@@ -208,6 +212,48 @@ static void LRDelay(NSTimeInterval duration, dispatch_block_t done) {
         // A completed serial is required, not ReadyForNextDraw or visibility.
         if(done)dispatch_async(dispatch_get_main_queue(),^{[self drawStep:step+1];});
         else [self guards];
+    });
+}
+- (void)identity {
+    // Ensure the reference tuple was really accepted and rendered, then clear
+    // only the view's active source. Metadata and timestamp are replayed EXACTLY.
+    LGButtonOpticalState state=LRState(501,0);
+    uint64_t before=self.va.lastCompletedSubmissionSerial;
+    LGLocalButtonRendererResult initial=[self.va submitOpticalState:state enabled:YES];
+    LGLocalButtonSourceContract accepted=self.pa.lastContract;
+    BOOL ready=initial==LGLocalButtonRendererReadyForNextDraw;
+    if(ready)self.lastAcceptedA=accepted.frameGeneration;
+    LRAwait(CACurrentMediaTime()+2.0,^BOOL {
+        return !ready || (self.va.lastCompletedSubmissionSerial>before&&self.va.lastCommandBufferSucceeded&&!self.va.hidden);
+    },^(BOOL seen){
+        BOOL prerequisite=ready&&seen&&self.va.lastCompletedSubmissionSerial>before;
+        [self record:@"H_reuse_reference_actually_GPU_completed" pass:prerequisite details:nil];
+        if(!prerequisite){[self guards];return;}
+        [self.va invalidateLocalSource];
+        self.pa.repeatExactContract=YES;self.pa.repeatedContract=accepted;
+        self.pa.texture=self.cropB; // different MTLTexture, SAME pixels and tuple
+        CFTimeInterval age=CACurrentMediaTime()-accepted.frameTimestampMonotonic;
+        LGLocalButtonRendererResult swap=[self.va submitOpticalState:state enabled:YES];
+        [self record:@"H_clear_same_generation_cannot_replace_texture" pass:age<.100&&swap==LGLocalButtonRendererSourceRejected&&self.va.hidden details:@{@"result":LRResultName(swap),@"exactTimestampReplayed":@YES,@"ageSeconds":@(age),@"sameFrameGeneration":@(accepted.frameGeneration),@"differentTextureObject":@YES}];
+        self.pa.texture=self.cropA;
+        LGLocalButtonSourceContract changed=accepted;
+        changed.alphaMode=LGLocalAlphaPremultiplied; // both valid for opaque pixels
+        self.pa.repeatedContract=changed;
+        age=CACurrentMediaTime()-accepted.frameTimestampMonotonic;
+        LGLocalButtonRendererResult descriptor=[self.va submitOpticalState:state enabled:YES];
+        [self record:@"H_clear_same_generation_cannot_change_descriptor" pass:age<.100&&descriptor==LGLocalButtonRendererSourceRejected&&self.va.hidden details:@{@"result":LRResultName(descriptor),@"exactTimestampReplayed":@YES,@"ageSeconds":@(age),@"sameTextureObject":@YES}];
+        self.pa.repeatedContract=accepted;
+        uint64_t prior=self.va.lastCompletedSubmissionSerial;
+        age=CACurrentMediaTime()-accepted.frameTimestampMonotonic;
+        LGLocalButtonRendererResult same=[self.va submitOpticalState:state enabled:YES];
+        BOOL correct=age<.100&&same==LGLocalButtonRendererReadyForNextDraw;
+        LRAwait(CACurrentMediaTime()+2.0,^BOOL {
+            return !correct || (self.va.lastCompletedSubmissionSerial>prior&&self.va.lastCommandBufferSucceeded&&!self.va.hidden);
+        },^(BOOL completed){
+            [self record:@"H_clear_same_exact_immutable_frame_can_be_drawn" pass:correct&&completed&&self.va.lastCompletedSubmissionSerial>prior details:@{@"result":LRResultName(same),@"exactMetadataAndTextureReused":@YES,@"completedSerial":@(self.va.lastCompletedSubmissionSerial)}];
+            self.pa.repeatExactContract=NO;self.pa.texture=self.cropA;
+            [self guards];
+        });
     });
 }
 - (void)guards {
