@@ -37,6 +37,24 @@ jobs:
           git fetch --depth 1 --filter=blob:none origin 0222fd5413cf4b9af096f37b4621afa2688572f7
           git checkout --detach FETCH_HEAD
           echo "SDK=$RUNNER_TEMP/liquidass-sdk/iPhoneOS16.5.sdk" >> "$GITHUB_ENV"
+      - name: Fetch pinned original Hook syntax dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(uname -s)" = Darwin
+          THEOS="$RUNNER_TEMP/liquidass-theos"
+          mkdir -p "$THEOS"
+          cd "$THEOS"
+          git init
+          git remote add origin https://github.com/roothide/theos.git
+          git fetch --depth 1 origin cfba89a53a05b4a1b822121158acc3669c20602f
+          git checkout --detach FETCH_HEAD
+          git submodule update --init --depth 1 vendor/logos vendor/include
+          mkdir -p sdks
+          ln -s "$SDK" sdks/iPhoneOS16.5.sdk
+          echo "THEOS=$THEOS" >> "$GITHUB_ENV"
+          mkdir -p "$GITHUB_WORKSPACE/ci-artifacts/local-renderer-build16/logs"
+          git submodule status > "$GITHUB_WORKSPACE/ci-artifacts/local-renderer-build16/logs/dependency-source-refs.txt"
       - name: Build only the same-App local renderer validation on macOS
         shell: bash
         run: bash validation/nativeplay/build-macos.sh

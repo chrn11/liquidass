@@ -38,6 +38,13 @@ typedef NS_ENUM(NSInteger, LGLocalButtonRendererResult) {
 - (nullable LGLocalButtonTextureFrame *)currentBackgroundFrameForTargetView:(UIView *)target
                                                        monotonicTimestamp:(CFTimeInterval)now;
 - (BOOL)isOwnerInstanceAlive:(uint64_t)ownerToken generation:(uint64_t)generation;
+@optional
+// Providers that capture an explicit owned subtree need the actual material
+// sibling for feedback exclusion, and the same target generation as the state.
+// Generic immutable-texture providers may omit these lifecycle adapters.
+- (BOOL)bindMaterialViewForFeedbackExclusion:(UIView *)materialView
+                                      device:(id<MTLDevice>)device;
+- (BOOL)updateTargetGeometryGeneration:(uint64_t)generation;
 @end
 
 /* Per-view API: the caller explicitly chooses one 44pt return control and
@@ -45,7 +52,17 @@ typedef NS_ENUM(NSInteger, LGLocalButtonRendererResult) {
  * class never installs itself, changes hit testing/actions/size, or hides the
  * existing CA/native fallback. ready means source+pipeline validated for the
  * next draw; it is NOT proof of screen presentation or a live system backdrop. */
+@class LGLocalButtonMaterialView;
+typedef void (^LGLocalButtonAvailabilityHandler)(LGLocalButtonMaterialView *view,
+                                                   BOOL available);
 @interface LGLocalButtonMaterialView : MTKView <MTKViewDelegate>
+/* Main-thread callback for this exact renderer instance. YES means the current
+ * submission serial actually completed and its leased source/frame still passes
+ * validation; it does not mean the drawable was presented on screen. NO is
+ * published immediately when that attestation is invalidated. Capture owners
+ * weakly from the block to avoid a target -> view -> block -> target cycle.
+ */
+@property(nonatomic,copy,nullable) LGLocalButtonAvailabilityHandler availabilityChangedHandler;
 - (nullable instancetype)initWithFrame:(CGRect)frame
                             targetView:(UIView *)targetView
                         sourceProvider:(id<LGLocalButtonSourceProvider>)provider
@@ -65,6 +82,8 @@ typedef NS_ENUM(NSInteger, LGLocalButtonRendererResult) {
 // Completed encoding/command execution, NOT proof of screen presentation.
 @property(nonatomic,readonly) uint64_t lastCompletedSubmissionSerial;
 @property(nonatomic,readonly) BOOL lastCommandBufferSucceeded;
+@property(nonatomic,readonly) BOOL hasCurrentCompletedValidSubmission;
+@property(nonatomic,readonly) BOOL hasCurrentValidSourceFrame;
 - (void)invalidateLocalSource;
 @end
 

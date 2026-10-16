@@ -22,8 +22,8 @@ static inline CGRect CGRectMake(double x,double y,double w,double h) {
 #define LG_LOCAL_BUTTON_SOURCE_MAX_AGE_SECONDS 0.100
 #define LG_LOCAL_BUTTON_FUTURE_SLOP_SECONDS 0.005
 #define LG_LOCAL_BUTTON_MAX_TEXTURE_DIMENSION 16384u
-/* A 16pt edge budget is a finite optical neighborhood: > 2× the inherited
- * 7/36 cap at 44pt, yet never an unbounded screen/window crop. */
+/* A 16pt/edge optical neighborhood is a bounded source-domain budget, not
+ * a shader displacement increase or an unbounded screen/window crop. */
 #define LG_LOCAL_BUTTON_MAX_OVERSCAN_PADDING_POINTS 16.0
 
 typedef enum {

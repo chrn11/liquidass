@@ -19,15 +19,24 @@ xcrun --sdk macosx clang -std=c11 -Wall -Wextra -Werror \
 # All new numeric/Metal compilation is executed here on macOS only. A runner
 # with no Metal device reports GPU NOT_RUN rather than manufacturing PASS.
 CONTACT_RESULTS="$OUT/contact-tests" bash "$ROOT/scripts/test_button_contact_macos.sh"
+xcrun --sdk macosx clang -std=c11 -Wall -Wextra -Werror -I"$ROOT/Shared" \
+  "$ROOT/validation/appowned-source/test_appowned_lease_policy.c" -framework CoreGraphics -lm -o "$OUT/owned-source-policy-test"
+"$OUT/owned-source-policy-test"
+xcrun --sdk macosx clang -std=c11 -Wall -Wextra -Werror -I"$ROOT/Shared" \
+  "$ROOT/scripts/test_settings_back_button_local_state.c" -framework CoreGraphics -lm -o "$OUT/host-state-test"
+"$OUT/host-state-test"
+python3 "$ROOT/validation/nativeplay/check_actual_hook_macos.py"
 CFLAGS=(-target arm64-apple-ios16.5 -isysroot "$SDK" -miphoneos-version-min=16.5 -fobjc-arc -fblocks -O1 -Werror=format -DLG_LOCAL_BUTTON_RENDERER_COMPILED=1 -I"$C" -I"$ROOT/Shared" -I"$ROOT/validation/nativeplay")
 # Exactly one actual source class and the same existing NativePlayLab carrier.
 xcrun --sdk iphoneos clang "${CFLAGS[@]}" -c "$C/NativePlayLabViewController.m" -o "$O/NativePlayLabViewController.o"
 xcrun --sdk iphoneos clang "${CFLAGS[@]}" -c "$C/main.m" -o "$O/main.o"
 xcrun --sdk iphoneos clang++ "${CFLAGS[@]}" -std=c++17 -c "$ROOT/validation/nativeplay/LocalRendererRuntimeProbe.mm" -o "$O/LocalRendererRuntimeProbe.o"
 xcrun --sdk iphoneos clang++ "${CFLAGS[@]}" -std=c++17 -c "$ROOT/Shared/LGLocalButtonMaterialView.mm" -o "$O/LGLocalButtonMaterialView.o"
+xcrun --sdk iphoneos clang++ "${CFLAGS[@]}" -std=c++17 -c "$ROOT/Shared/LGAppOwnedButtonSourceProvider.mm" -o "$O/LGAppOwnedButtonSourceProvider.o"
+xcrun --sdk iphoneos clang++ "${CFLAGS[@]}" -std=c++17 -c "$ROOT/validation/nativeplay/AppOwnedBackgroundRuntimeProbe.mm" -o "$O/AppOwnedBackgroundRuntimeProbe.o"
 xcrun --sdk iphoneos clang++ -target arm64-apple-ios16.5 -isysroot "$SDK" \
   -miphoneos-version-min=16.5 -Wl,-no_adhoc_codesign -o "$APP/NativePlayLab" \
-  "$O/main.o" "$O/NativePlayLabViewController.o" "$O/LocalRendererRuntimeProbe.o" "$O/LGLocalButtonMaterialView.o" \
+  "$O/main.o" "$O/NativePlayLabViewController.o" "$O/LocalRendererRuntimeProbe.o" "$O/LGLocalButtonMaterialView.o" "$O/LGAppOwnedButtonSourceProvider.o" "$O/AppOwnedBackgroundRuntimeProbe.o" \
   -framework UIKit -framework Metal -framework MetalKit -framework QuartzCore \
   -framework CoreGraphics -framework ImageIO -framework Foundation -lobjc -lc++
 # No codesign/ldid, installation, release publication, device preferences or restart.

@@ -15,10 +15,12 @@ TWEAK_NAME = liquidass
 liquidass_FILES     = Tweak.x \
                       $(wildcard Hooks/*.x) \
                       $(wildcard LiquidAssPrefs/LGPrefsLiquid*.m) \
-                      $(wildcard Shared/*.[xm])
+                      $(wildcard Shared/*.[xm]) \
+                      Shared/LGLocalButtonMaterialView.mm \
+                      Shared/LGAppOwnedButtonSourceProvider.mm
 liquidass_CFLAGS    = -fobjc-arc
 liquidass_USE_MODULES = 0
-liquidass_FRAMEWORKS = UIKit QuartzCore CoreText CoreGraphics CoreMotion
+liquidass_FRAMEWORKS = UIKit QuartzCore CoreText CoreGraphics CoreMotion Metal MetalKit
 ifeq ($(THEOS_PACKAGE_SCHEME),roothide)
 liquidass_LIBRARIES += roothide
 endif

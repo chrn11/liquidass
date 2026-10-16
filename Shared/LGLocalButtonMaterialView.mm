@@ -38,11 +38,14 @@ static const char kExpectedLocalShaderSHA256[] =
 @property(nonatomic,assign) uint64_t lastCompletedSubmissionSerial;
 @property(nonatomic,assign) BOOL lastCommandBufferSucceeded;
 @property(nonatomic,assign) BOOL pendingDraw;
+@property(nonatomic,assign) BOOL availabilityPublished;
 @property(nonatomic,strong) NSTimer *sourceExpiryTimer;
 @property(nonatomic,strong) id resignObserver;
 - (BOOL)prepareLocalPipeline;
 - (BOOL)targetCanRender;
 - (void)clearLocalFrame;
+- (void)publishAvailability:(BOOL)available;
+- (BOOL)currentCompletedFrameIsAvailable;
 - (BOOL)frameStillValid:(LGLocalButtonTextureFrame *)frame now:(CFTimeInterval)now;
 @end
 
@@ -104,6 +107,38 @@ static const char kExpectedLocalShaderSHA256[] =
     if (_resignObserver) [NSNotificationCenter.defaultCenter removeObserver:_resignObserver];
 }
 
+- (void)setAvailabilityChangedHandler:(LGLocalButtonAvailabilityHandler)handler {
+    _availabilityChangedHandler=[handler copy];
+    if (!handler) { self.availabilityPublished=NO; return; }
+    BOOL available=[self currentCompletedFrameIsAvailable];
+    self.availabilityPublished=available;
+    handler(self,available);
+}
+
+- (BOOL)currentCompletedFrameIsAvailable {
+    return !self.hidden && !self.pendingDraw && self.sourceFrame &&
+        self.lastCommandBufferSucceeded &&
+        self.lastCompletedSubmissionSerial==self.submissionSerial &&
+        [self frameStillValid:self.sourceFrame now:CACurrentMediaTime()];
+}
+
+- (void)publishAvailability:(BOOL)available {
+    if (![NSThread isMainThread]) {
+        __weak LGLocalButtonMaterialView *weakSelf=self;
+        dispatch_async(dispatch_get_main_queue(), ^{
+            LGLocalButtonMaterialView *strongSelf=weakSelf;
+            if (strongSelf) [strongSelf publishAvailability:
+                [strongSelf currentCompletedFrameIsAvailable]];
+        });
+        return;
+    }
+    if (available && ![self currentCompletedFrameIsAvailable]) available=NO;
+    if (self.availabilityPublished==available) return;
+    self.availabilityPublished=available;
+    LGLocalButtonAvailabilityHandler handler=self.availabilityChangedHandler;
+    if (handler) handler(self,available);
+}
+
 - (BOOL)prepareLocalPipeline {
     if (!self.device) return NO;
     self.localCommandQueue=[self.device newCommandQueue];
@@ -160,6 +195,7 @@ static const char kExpectedLocalShaderSHA256[] =
     self.sourceFrame=nil; self.activeSourceKind=LGLocalSourceNone;
     self.hidden=YES; self.pendingDraw=NO;
     self.hasStateSnapshot=NO; self.lastCommandBufferSucceeded=NO;
+    [self publishAvailability:NO];
 }
 - (BOOL)targetCanRender {
     UIView *target=self.targetView;
@@ -278,8 +314,15 @@ static const char kExpectedLocalShaderSHA256[] =
     if (self.submissionSerial==UINT64_MAX) {
         [self clearLocalFrame]; return LGLocalButtonRendererInactive;
     }
-    self.submissionSerial++;
     self.lastCommandBufferSucceeded=NO;
+    const uint64_t serialBeforeAvailabilityCallback=self.submissionSerial;
+    [self publishAvailability:NO];
+    // A host availability handler may synchronously opt out or invalidate.
+    // Do not revive its cleared frame by continuing this outer submission.
+    if (self.submissionSerial!=serialBeforeAvailabilityCallback ||
+        self.sourceFrame!=frame || !self.hasStateSnapshot)
+        return LGLocalButtonRendererInactive;
+    self.submissionSerial++;
     self.pendingDraw=YES;
     uint32_t targetPixelWidth=0,targetPixelHeight=0;
     if (!LGLocalSourceTargetPixelSize(&c,&targetPixelWidth,&targetPixelHeight)) {
@@ -333,6 +376,13 @@ static const char kExpectedLocalShaderSHA256[] =
     return LGLocalSourceIsApproximate(self.activeSourceKind);
 }
 - (BOOL)isSystemLiveBackdrop { return NO; }
+- (BOOL)hasCurrentCompletedValidSubmission {
+    return [self currentCompletedFrameIsAvailable];
+}
+- (BOOL)hasCurrentValidSourceFrame {
+    return !self.hidden && self.sourceFrame && self.hasStateSnapshot &&
+        [self frameStillValid:self.sourceFrame now:CACurrentMediaTime()];
+}
 
 - (BOOL)buildUniformsForFrame:(LGLocalButtonTextureFrame *)frame
                  drawableSize:(CGSize)drawableSize
@@ -401,6 +451,7 @@ static const char kExpectedLocalShaderSHA256[] =
                 }
                 strongSelf.lastCommandBufferSucceeded=YES;
                 strongSelf.lastCompletedSubmissionSerial=serial;
+                [strongSelf publishAvailability:YES];
             }
             if (strongSelf.pendingDraw && strongSelf.sourceFrame)
                 [strongSelf setNeedsDisplay];

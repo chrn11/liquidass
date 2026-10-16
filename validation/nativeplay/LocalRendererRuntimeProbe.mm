@@ -1,4 +1,5 @@
 #import "LocalRendererRuntimeProbe.h"
+#import "AppOwnedBackgroundRuntimeProbe.h"
 #import "LGLocalButtonMaterialView.h"
 #import "LGLocalButtonUniforms.h"
 #import <MetalKit/MetalKit.h>
@@ -104,6 +105,7 @@ static void LRDelay(NSTimeInterval duration, dispatch_block_t done) {
 @property(nonatomic,strong) NSMutableArray *checks,*draws;
 @property(nonatomic,copy) void (^completion)(NSString *,NSString *);
 @property(nonatomic) BOOL finished;
+@property(nonatomic) BOOL checkedOwnedSource;
 @property(nonatomic) uint64_t lastAcceptedA;
 @property(nonatomic) LGButtonOpticalState contactReplayA,contactReplayB;
 - (void)start;
@@ -127,7 +129,7 @@ static void LRDelay(NSTimeInterval duration, dispatch_block_t done) {
         @"buildVersion":NSBundle.mainBundle.infoDictionary[@"CFBundleVersion"]?:@"unknown",
         @"bundleID":NSBundle.mainBundle.bundleIdentifier?:@"unknown",
         @"scope":@"Actual frozen LGLocalButtonMaterialView with asynchronous own-App event-loop stages; no system source/UI capture",
-        @"mode":@"STATIC_APP_SOURCE_TEST",@"SYSTEM_BACKGROUND_PROVIDER_NOT_IMPLEMENTED":@YES,
+        @"mode":@"MIXED_STATIC_GUARDS_AND_EXPLICIT_OWNED_SUBTREE_TEST",@"SYSTEM_BACKGROUND_PROVIDER_NOT_IMPLEMENTED":@YES,
         @"pixelEvidence":@"NONE; framebufferOnly remains YES; prior shader pixels are separate evidence",
         @"shaderExpectedSHA256":@"efe6ff61dcc87625ce4664c940ae55de908878b31255fcab9a7167954e4efb2d",
         @"compileMacroLG_LOCAL_BUTTON_RENDERER_COMPILED":@1,
@@ -397,7 +399,16 @@ static void LRDelay(NSTimeInterval duration, dispatch_block_t done) {
     });
 }
 - (void)finish {
-    if(self.finished)return;self.finished=YES;
+    if(self.finished)return;
+    if(!self.checkedOwnedSource) {
+        self.checkedOwnedSource=YES;
+        RunAppOwnedBackgroundProviderProbe(self.device,self.container,^(NSDictionary *owned){
+            self.report[@"explicitAppOwnedSourceRuntime"]=owned;
+            [self record:@"J_explicit_owned_background_provider_runtime" pass:[owned[@"pass"] boolValue] details:@{@"childChecks":@([owned[@"checks"] count]),@"systemSource":@NO}];
+            [self finish];
+        });
+        return;
+    }self.finished=YES;
     [self.va invalidateLocalSource];[self.vb invalidateLocalSource];
     [self.va removeFromSuperview];[self.vb removeFromSuperview];[self.ta removeFromSuperview];[self.tb removeFromSuperview];
     BOOL pass=self.checks.count>=15;

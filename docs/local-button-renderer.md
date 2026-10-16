@@ -1,43 +1,32 @@
-# 同进程局部按钮材质 view（隔离候选）
+# 同进程局部按钮材质接口：有限背景源域
 
-## 边界 / 输入
+## 本体与启用边界
 
-这是一套显式 per-view API，不是全 `UIButton` hook：宿主自己挑一个 44×44pt return control、保留其 `UIControl` tracking/actions/hitTest/尺寸原样，并把 `LGLocalButtonMaterialView` 作为非交互 sibling 放在原前景下面。view 不带 target/action，不改宿主层级以外的控件语义。初始化/提交默认不能激活：`LG_LOCAL_BUTTON_RENDERER_COMPILED` 在头文件默认 `0`；调用方还必须显式传 `explicitOptIn:YES` 并在每次提交传 `enabled:YES`。
+这仍是 LiquidAss 的原有候选代码，不是新插件。`LGLocalButtonMaterialView` 作为44×44pt控制的非交互 sibling，保留原控制的命中、尺寸、target/action和前景。编译门禁默认0，还需显式opt-in、有效的源provider和eligible state；失败只隐藏本地材质，原CA/current/native路径不能因此被隐藏。
 
-调用方必须提供 `LGLocalButtonSourceProvider`。它只可返回它自己进程拥有、可读、实际尺寸匹配的 Metal texture 和按值的 `LGLocalButtonSourceContract`；本 renderer 不截图、不遍历/绘制 window、不调用 `renderInContext`、不读屏幕或其它 App。合同要求：同一个 owner-space 44×44pt source/target crop、实际 W/H/pointScale/pixelFormat/alpha/mask、非零进程内 nonsecret owner instance token、owner/frame/target-geometry generations、单调时间戳、背景-only 且明确排除目标前景。provider 必须实现 `isOwnerInstanceAlive:generation:`；owner 释放、代际变化、帧回退/过期（>100ms）、坐标/格式/掩码/透明语义不匹配时本 view 隐藏自身并返回失败，宿主原 CA/current/native 继续可见。不得用 token 表示跨进程身份。
+Provider只允许交付它实际拥有的同进程MTLTexture。这里不提供系统截图、窗口遍历、IOSurface或跨进程背景捕获。`LiveAppOwnedTexture`是来源声明，不等于系统背景；静态图/合成色必须另开approximation许可并如实报告。没有可信背景源时，不得以色彩图替代后声称系统玻璃已经接通。
 
-`liveAppOwnedTexture` 只表示宿主 App 自己及时提供的局部纹理，不表示系统实时背景。`staticAsset`、`declaredSyntheticColorSource` 只有 `allowApproximateSource:YES` 才能显式用作近似；`isApproximateSource` 会报告，`isSystemLiveBackdrop` 永远为 `NO`。色彩图/静态图不能伪装成 CA/系统采样。当前没有随代码提供的系统源 provider，因此不改变产品默认 return button。
+## 真实坐标与采样域
 
-## 调用与回退
+- 目标永远为44×44pt，触点始终归一化在目标局部坐标中。
+- 默认源域等于目标域，保持原来的纹理尺寸，包括旧合同可接受的131/132/133px边界。不能把133px改成132px、把整张大背景缩成目标图。
+- 外扩需provider明确设置`sourceOverscanEnabled`。源域包含目标，四边额外范围分别在0…16pt以内，源域最大76pt。原位移cap仍由目标短边的7/36决定，不随捕获范围增大。
+- 新外扩源的texture extent必须精确匹配sourceRect×pointScale（仅0.001px数值误差）；目标像素边长须为整数。允许明确的fractional-pixel ROI origin，按精确pointScale映射，不暗自round；源的实际像素范围必须完整容纳目标。极小但实际非零margin不能被忽略，不清楚捕获像素定义则拒绝。
+- `LGLocalSourceMapping.inc`是C与MSL共用的一份坐标转换。主体折射和源平面环境坐标保留原有限raw offset，外扩时才将目标坐标加ROI origin并除实际source大小；**最终**half-texel clamp落在真实源边界，不能先夹在44pt按钮内。
+- 输出drawable仍按目标尺寸。原本体layer圆形裁剪不变，外扩纹理不能画成大方片。新fragment输出域外透明，目标形状外保持对应原背景ROI，不扩大命中区。
 
-```objc
-LGLocalButtonMaterialView *local = [[LGLocalButtonMaterialView alloc]
-    initWithFrame:returnButton.frame
-    targetView:returnButton
-    sourceProvider:appOwnedProvider
-    allowApproximateSource:NO
-    explicitOptIn:(LG_LOCAL_BUTTON_RENDERER_COMPILED && userOptIn)];
-if (!local) {
-    // 保留现存 CA/current/native path；不降级造色图。
-    return;
-}
-[container insertSubview:local belowSubview:returnButton]; // 前景原样保留
+## ABI、触点与生命周期
 
-// 每次宿主已有的状态/布局/源更新时，在主线程复制同一个 state；不另造状态机。
-LGLocalButtonRendererResult r = [local submitOpticalState:buttonOpticalState
-                                                  enabled:featureEnabled];
-if (r != LGLocalButtonRendererReadyForNextDraw) {
-    [local invalidateLocalSource];
-    // 不隐藏、不移除现存 CA/current/native 路径；继续让它处理。
-}
-```
+原Backboard的208B ABI不变。局部renderer原224B contact前缀后再加ROI origin和overscan gate，成为240B；offset/size有C及C++断言。224B旧缓冲如需提升，必须调用明确的零尾部promotion函数，不能把224B直接交给读取240B的shader。
 
-`ReadyForNextDraw` 只表示本次 source 与 pipeline 通过检查，不表示 drawable 已呈现或视觉达标；本实现从不隐藏/替换旧 renderer。`lastCommandBufferSucceeded` / `lastCompletedSubmissionSerial`只记录最新提交的真实command buffer完成，不是屏幕present证明。source provider 返回 `nil` 时是 `SourceUnavailable`，local view 自身透明/隐藏，宿主直接继续原路径。调用方要在目标 detached/disabled/不活跃/取消时提交当前 state 或 `invalidateLocalSource`；draw 再次检查 freshness/owner。没有常驻display link或轮询：每次合法提交仅有一个一次性源过期timer，100ms到期即隐藏/释放旧帧，不等下一次绘制才发现过期；最多3条同实例command buffer in-flight，完成回调后释放该帧引用。
+沿用一份主体/触点高度、法线、Snell和有界源平面色光公式，没有添加固定灯或彩色蒙层。press/drag只消费原状态机的有效点；release/cancel保点随pressure衰减，idle/disable/reset归零。源域扩大不改变触点中心。
 
-源必须设置`immutableUntilFrameReleased`，不得在帧和在途GPU持有期间改写同一个纹理；可用frame initializer的`leaseEnded:`回调（线程安全、不能捕获frame本身）归还provider缓冲槽。相同frame generation不得重新打时间戳或换纹理；owner generation不能倒退。只接收与build14/15相同BGRA8Unorm_sRGB域（81），还要显式声明Metal采样结果linear + premultiplied，格式相同并不证明该语义。Opaque源易于满足；未证实的straight-alpha/HDR/P3语义不自动放行。draw混合使用One/OneMinusSourceAlpha，避免重复乘alpha；实际view使用22pt圆形layer裁剪，不能画出方形源片。
+100ms源期限、owner/frame/target代际、immutable texture lease、zeroing-weak同帧身份和完整descriptor比较均保留。重复帧不能换纹理、换源rect/overscan标记或重贴时间戳。源失效/后台/离窗/命令失败只停本地层；正常完成释放lease。默认无常驻displayLink和轮询，只有原来的单次源过期timer。
 
-本候选在原来208-byte Uniforms 前缀后，追加16-byte的 contact ABI：`buttonContactCenter` offset 208、压力216、local-source gate220，总224 bytes；CPU/Metal各字段和实际 offset/size均有断言。除本地view的显式opt-in、有效状态接入，其余这些字段默认全零；Backboard原208-byte Uniforms/宏和legacy shader分支未改。共享 `LGButtonOpticsFormula.inc` 新增 `LGButtonOpticsEvaluateWithContact`，旧 `LGButtonOpticsEvaluate` 仍是exact no-contact wrapper；触点在44pt source point域使用7pt有限支撑凹陷、1.5pt smooth edge fade、随pressure线性变化的高度及解析梯度，并把法线送回已有Snell/源平面UV/色光流程；不覆色、不加贴片、不变IOR/source crop/mask/base场。contact输入均限幅/finite，sourceUV/环境UV沿用半texel及原位移cap。新生成MSL hash为 `b2cf63d726009e0dd51a4db2337b57d8a24ea27fa16dbe039629cdea158ff7e7`；旧208-byte shader fixture hash `f21b394471fd9d3983502441852e3be0664eec7614a7bcd7652939077c06a72b`被macOS Metal对照测试实际编译。idle/旧pressure-only synthetic/no valid point/default-off不发触点；press/drag有效point来自同一state，release/cancel保留last point直至压力归零，禁用/失效/generation reset即时清零。此改动只让现有同进程 `submitOpticalState` → `buildUniforms` → fragment路径可消费真实state；未接UI source provider的系统返回按钮仍not ready，未宣称Backboard/CA触点或系统背景接入。
+## 验证结果及不可外推项
 
-## 可复现验证
+Mac Actions run38842648759：C数值、Apple Metal编译和真实MetalGPU通过。只改变源域中目标外的像素，目标ROI保持逐byte相同，实际GPU输出2026个内部像素变化，形状外变化0；命名边缘像素变化25色阶。冻结旧224B shader与新240B无外扩在44/131/132/133px、有效contact/无contact/zero-pad opt-in都逐byte一致。
 
-`python3 scripts/test_button_contact_source.py`会重建生成header与raw MSL，验证raw shader内formula marker、函数定义在真实contact call之前、调用参数/ABI/hash一致；`scripts/test_button_contact_optics.c`覆盖44pt circle/capsule、0.5/1/1.5/2/3/4 source scales、不同侧与拖移、释放/cancel/disabled、idle synthetic、outside identity、finite、UV半texel/cap、height/normal有限差分、一/多实例隔离及0厚度/IOR1/scale0/zero-contact exact legacy。`scripts/test_button_contact_metal.mm`用确实的Metal fragment pipeline/render target GPU readback对照旧208-byte shader与224-byte no-contact结果逐byte相等、zero-pressure identity和左右/移动接触像素差；不是CPU绘图。`bash scripts/test_button_contact_macos.sh`仅允许Darwin，运行Python结构测试、C数值与历史合同测试、Apple Metal编译/运行及iOS SDK语法门；GitHub Actions新增macOS `contact-tests` job并作为package build前置。当前在iSH只跑过Python源码/生成器/静态marker测试；C、clang、Metal SDK/GPU、iOS SDK及真实UIKit/provider/runtime均`NOT_RUN`，由parent后续GitHub macOS CI及原获准App验证。
+原获准App build21实际类生成31项通过报告：228px源域→132px目标、origin48px、touch(.25,.5)不移位、位移cap25.6667px不变、回到旧crop仍完成GPU提交，原所有源失效/身份负控保留。
+
+这些输入仍是自有静态纹理和合成state，不是真实UIKit系统host/屏幕像素验收；当前没有system-live provider。自然背景整体体积仍弱、右缘有尖色块，**视觉门槛未接受**。外扩因果成立不是iOS26材质parity证明。所有编译、链接、Metal执行只在GitHub Actions macOS/Xcode，本地Python只做source/文字/哈希和原图审核。
