@@ -32,9 +32,11 @@ static NSString *APSHA(NSData *data) {
 @property(nonatomic,copy) void(^completion)(NSDictionary *);
 @property(nonatomic) NSUInteger captures;
 @property(nonatomic) uint64_t completedBefore;
-@property(nonatomic) BOOL finished;
+@property(nonatomic) BOOL finished,cancelNextRevocation;
+@property(nonatomic,strong) NSMutableArray<NSDictionary *> *availabilityEvents;
 - (void)start;
 - (void)captureNext;
+- (void)completionCallbacks;
 - (void)poolFull;
 - (void)transparent;
 - (void)finish;
@@ -51,7 +53,7 @@ static NSString *APSHA(NSData *data) {
 }
 - (void)start {
  NSCAssert(NSThread.isMainThread,@"Own-view provider test stays on main thread");
- self.checks=[NSMutableArray array];self.heldFrames=[NSMutableArray array];self.originalHeldPixelHashes=[NSMutableArray array];
+ self.checks=[NSMutableArray array];self.heldFrames=[NSMutableArray array];self.originalHeldPixelHashes=[NSMutableArray array];self.availabilityEvents=[NSMutableArray array];
  if(!self.container.window||!self.device){[self record:@"owned_source_test_requires_original_app_window" pass:NO details:nil];[self finish];return;}
  // A source sibling explicitly created for this App's existing selfcheck. Its
  // pixels are actual UIKit layer output; it never includes the target/text.
@@ -64,6 +66,12 @@ static NSString *APSHA(NSData *data) {
  self.material=[[LGLocalButtonMaterialView alloc]initWithFrame:self.target.frame targetView:self.target sourceProvider:self.provider allowApproximateSource:NO explicitOptIn:YES];
  if(!self.provider||!self.material){[self record:@"actual_provider_and_original_renderer_initialize" pass:NO details:nil];[self finish];return;}
  [self.container insertSubview:self.material belowSubview:self.target];
+ __weak APOwnedProbe *weakSelf=self;
+ self.material.availabilityChangedHandler=^(LGLocalButtonMaterialView *view,BOOL available){
+  APOwnedProbe *owner=weakSelf;if(!owner)return;
+  [owner.availabilityEvents addObject:@{@"available":@(available),@"completedSerial":@(view.lastCompletedSubmissionSerial),@"mainThread":@(NSThread.isMainThread)}];
+  if(!available&&owner.cancelNextRevocation){owner.cancelNextRevocation=NO;[view invalidateLocalSource];}
+ };
  BOOL bound=[self.provider bindMaterialViewForFeedbackExclusion:self.material device:self.device];BOOL gen=[self.provider updateTargetGeometryGeneration:901];
  [self record:@"explicit_sibling_source_feedback_exclusion_and_generation" pass:bound&&gen details:@{@"targetIsNotSourceDescendant":@(![self.target isDescendantOfView:self.sourceRoot]),@"sourceIsNotTargetDescendant":@(![self.sourceRoot isDescendantOfView:self.target])}];
  if(!bound||!gen){[self finish];return;}
@@ -78,7 +86,22 @@ static NSString *APSHA(NSData *data) {
  LGLocalButtonRendererResult result=[self.material submitOpticalState:[self state] enabled:YES];BOOL ready=result==LGLocalButtonRendererReadyForNextDraw;
  APAwait(CACurrentMediaTime()+2,^BOOL{return !ready||(self.material.lastCommandBufferSucceeded&&self.material.lastCompletedSubmissionSerial>self.completedBefore);},^(BOOL observed){
   [self record:@"actual_owned_source_not_approximate_renderer_GPU_completed" pass:ready&&observed&&self.material.lastCompletedSubmissionSerial>self.completedBefore&&!self.material.isApproximateSource&&!self.material.isSystemLiveBackdrop details:@{@"result":@(result),@"actualCompletedSerial":@(self.material.lastCompletedSubmissionSerial),@"targetDrawablePx":@(self.material.drawableSize.width),@"screenPixels":@"NOT_READ"}];
-  [self captureNext];
+  [self completionCallbacks];
+ });
+}
+- (void)completionCallbacks {
+ BOOL signalled=[self.availabilityEvents.lastObject[@"available"] boolValue];
+ [self record:@"availability_yes_requires_actual_completed_valid_frame" pass:signalled&&self.material.lastCommandBufferSucceeded&&self.material.hasCurrentCompletedValidSubmission details:@{@"completedSerial":@(self.material.lastCompletedSubmissionSerial),@"callbackNotReadySignal":@YES}];
+ uint64_t serial=self.material.lastCompletedSubmissionSerial;self.cancelNextRevocation=YES;
+ LGLocalButtonRendererResult refused=[self.material submitOpticalState:[self state] enabled:YES];
+ [self record:@"availability_callback_invalidation_aborts_outer_submit" pass:refused==LGLocalButtonRendererInactive&&self.material.hidden&&!self.material.hasCurrentValidSourceFrame details:@{@"result":@(refused)}];
+ APDelay(.025,^{
+  [self record:@"availability_cancelled_frame_does_not_revive_on_next_queue_turn" pass:self.material.hidden&&self.material.lastCompletedSubmissionSerial==serial&&!self.material.lastCommandBufferSucceeded details:nil];
+  LGLocalButtonRendererResult again=[self.material submitOpticalState:[self state] enabled:YES];BOOL ready=again==LGLocalButtonRendererReadyForNextDraw;
+  APAwait(CACurrentMediaTime()+2,^BOOL{return !ready||(self.material.lastCommandBufferSucceeded&&self.material.lastCompletedSubmissionSerial>serial);},^(BOOL observed){
+   [self record:@"availability_valid_source_can_resume_after_host_cancellation" pass:ready&&observed&&self.material.hasCurrentCompletedValidSubmission&&[self.availabilityEvents.lastObject[@"available"] boolValue] details:@{@"actualCompletedSerial":@(self.material.lastCompletedSubmissionSerial)}];
+   [self captureNext];
+  });
  });
 }
 - (void)captureNext {
@@ -138,7 +161,7 @@ static NSString *APSHA(NSData *data) {
  if(self.finished)return;self.finished=YES;
  [self.material invalidateLocalSource];[self.material removeFromSuperview];[self.target removeFromSuperview];[self.sourceRoot removeFromSuperview];[self.heldFrames removeAllObjects];
  BOOL passed=self.checks.count>=10;for(NSDictionary *d in self.checks)passed=passed&&[d[@"pass"] boolValue];
- NSDictionary *r=@{@"scope":@"Actual same-process provider captured only explicitly created original-App sibling sourceRoot.layer; no arbitrary window/user source capture",@"sourceKind":@"LiveAppOwnedTexture of declared UIKit subtree, NOT system live backdrop",@"checks":self.checks?:@[],@"pass":@(passed),@"originalSelfCheckContainerUsed":@YES,@"sourcePixelReadback":@"Only provider-owned immutable textures",@"materialPixelReadback":@"NOT_RUN",@"actualUIKitOpticalTouch":@NO,@"systemSourceProvider":@NO,@"newPageOrPersistentUIAdded":@NO,@"noWindowScreenshotOrPrivateCapture":@YES};
+ NSDictionary *r=@{@"scope":@"Actual same-process provider captured only explicitly created original-App sibling sourceRoot.layer; no arbitrary window/user source capture",@"sourceKind":@"LiveAppOwnedTexture of declared UIKit subtree, NOT system live backdrop",@"checks":self.checks?:@[],@"availabilityEvents":self.availabilityEvents?:@[],@"pass":@(passed),@"originalSelfCheckContainerUsed":@YES,@"sourcePixelReadback":@"Only provider-owned immutable textures",@"materialPixelReadback":@"NOT_RUN",@"actualUIKitOpticalTouch":@NO,@"systemSourceProvider":@NO,@"newPageOrPersistentUIAdded":@NO,@"noWindowScreenshotOrPrivateCapture":@YES};
  if(self.completion)self.completion(r);self.completion=nil;self.container=nil;
 }
 @end
