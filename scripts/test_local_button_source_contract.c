@@ -26,6 +26,7 @@ static LGLocalSourceValidation check(LGLocalButtonSourceContract *c,double now,
                                           w,h,sf,df,alive,approx);
 }
 int main(void) {
+    assert(LG_LOCAL_BUTTON_MAX_OVERSCAN_PADDING_POINTS==16.0);
     LGLocalButtonSourceContract c=fixture();
     assert(check(&c,1.05,17,4,6,9,132,132,81,81,true,false)==LGLocalSourceValid);
     assert(check(&c,1.101,17,4,6,9,132,132,81,81,true,false)==LGLocalSourceStale);
@@ -73,7 +74,7 @@ int main(void) {
     assert(!LGLocalButtonMayRender(true,true,true,true,false,true));
     assert(!LGLocalButtonMayRender(true,true,true,true,true,false));
     assert(LGLocalButtonMayRender(true,true,true,true,true,true));
-    assert(sizeof(LGLocalButtonUniforms)==224);
+    assert(sizeof(LGLocalButtonUniforms)==240);
     LGButtonOpticsGeometry g={};
     assert(LGButtonCandidateBuildGeometry(132,132,132,132,1.0f,&g));
     assert(fabsf(g.centerX-66)<0.01f && fabsf(g.centerY-66)<0.01f);
@@ -153,6 +154,54 @@ int main(void) {
     repeat=last;repeat.frameTimestampMonotonic+=.001;
     assert(!LGLocalRepeatedFrameIdentityValid(&repeat,&last,true,true));
     assert(!LGLocalRepeatedFrameIdentityValid(0,&last,true,true));
-    puts("source cursor, persistent same-frame identity, immutable lease/color declarations, finite state, exact shared108/2/1.6/16pt host parameters and current ABI: PASS");
+
+    // Explicit finite overscan: source62x62pt, target44x44pt, asymmetric margins.
+    c=fixture(); c.sourceRectInOwnerPoints=CGRectMake(2,14,62,62);
+    c.targetRectInOwnerPoints=CGRectMake(10,20,44,44);
+    c.textureWidth=c.textureHeight=186; c.sourceOverscanEnabled=true;
+    assert(check(&c,1.0,17,4,6,9,186,186,81,81,true,false)==LGLocalSourceValid);
+    LGLocalButtonSourceLayout layout={0};
+    assert(LGLocalSourceLayoutForContract(&c,186,186,&layout));
+    assert(layout.leftPaddingPoints==8 && layout.topPaddingPoints==6 &&
+           layout.rightPaddingPoints==10 && layout.bottomPaddingPoints==12);
+    assert(layout.targetPixelWidth==132 && layout.targetPixelHeight==132);
+    LGButtonOpticalState touch={0};touch.eligible=true;touch.geometryGeneration=9;
+    touch.phase=LGOpticalTrackingInside;touch.touchValid=true;
+    touch.touchX=.25f;touch.touchY=.5f;touch.pressure=.5f;
+    LGLocalButtonUniforms wide={0};
+    assert(LGLocalButtonBuildUniforms(&c,&touch,132,132,3,true,&wide));
+    assert(wide.resolution.x==132 && wide.resolution.y==132);
+    assert(wide.outputResolution.x==132 && wide.outputResolution.y==132);
+    assert(wide.buttonCandidateMaxOffset<26.0f && wide.buttonCandidateMaxOffset>25.6f);
+    assert(wide.buttonSourceOverscanEnabled==1);
+    assert(wide.buttonSourceTargetOriginPixels.x==24 &&
+           wide.buttonSourceTargetOriginPixels.y==18);
+    assert(wide.buttonContactCenter.x==.25f && wide.buttonContactCenter.y==.5f);
+    c=fixture();c.sourceOverscanEnabled=true; // opt-in with exact zero padding
+    LGLocalButtonUniforms zeroPad={0};
+    assert(LGLocalButtonBuildUniforms(&c,&observed,132,132,3,false,&zeroPad));
+    assert(zeroPad.buttonSourceOverscanEnabled==0 &&
+           zeroPad.buttonSourceTargetOriginPixels.x==0 &&
+           zeroPad.buttonSourceTargetOriginPixels.y==0);
+    c=fixture();c.sourceRectInOwnerPoints=CGRectMake(2,14,62,62);
+    c.targetRectInOwnerPoints=CGRectMake(10,20,44,44);
+    c.textureWidth=c.textureHeight=186; // geometry without explicit source opt-in
+    assert(check(&c,1.0,17,4,6,9,186,186,81,81,true,false)==LGLocalSourceBadGeometry);
+    c.sourceOverscanEnabled=true;
+    assert(check(&c,1.0,17,4,6,9,180,186,81,81,true,false)==LGLocalSourceBadGeometry);
+    c=fixture();c.sourceOverscanEnabled=true;
+    c.sourceRectInOwnerPoints=CGRectMake(-7,20,61,44);
+    c.targetRectInOwnerPoints=CGRectMake(10,20,44,44);
+    c.textureWidth=183;c.textureHeight=132;
+    assert(check(&c,1.0,17,4,6,9,183,132,81,81,true,false)==LGLocalSourceBadGeometry);
+    c=fixture();c.sourceOverscanEnabled=true;
+    c.sourceRectInOwnerPoints=CGRectMake(11,20,44,44); // target protrudes by 1pt
+    assert(check(&c,1.0,17,4,6,9,132,132,81,81,true,false)==LGLocalSourceBadGeometry);
+    LGLocalButtonUniforms promoted={0}; uint8_t legacy224[224]={0};
+    assert(LGLocalButtonPromoteContactABI224(legacy224,sizeof legacy224,&promoted));
+    assert(promoted.buttonContactEnabled==0 && promoted.buttonSourceOverscanEnabled==0 &&
+           promoted.buttonSourceTargetOriginPixels.x==0 && promoted.buttonSourceTargetOriginPixels.y==0);
+    assert(!LGLocalButtonPromoteContactABI224(legacy224,223,&promoted));
+    puts("source cursor, finite ROI overscan, target-local contact mapping, legacy224 promotion, immutable lease/color and ABI: PASS");
     return 0;
 }

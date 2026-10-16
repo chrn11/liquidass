@@ -11,6 +11,7 @@ python3 "$ROOT/scripts/test_button_contact_source.py"
 python3 "$ROOT/scripts/test_local_button_renderer.py"
 python3 "$ROOT/scripts/test_button_candidate_integration.py"
 python3 "$ROOT/scripts/test_button_optics_source_identity.py"
+python3 "$ROOT/scripts/test_button_overscan_source.py"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 RESULTS="${CONTACT_RESULTS:-$ROOT/ci-artifacts/contact-tests}"
@@ -27,6 +28,9 @@ xcrun --sdk macosx clang -std=c11 -Wall -Wextra -Werror -I"$ROOT/Shared" \
 xcrun --sdk macosx clang -std=c11 -Wall -Wextra -Werror -I"$ROOT/Shared" \
   "$ROOT/scripts/test_local_button_source_contract.c" -framework CoreGraphics -lm -o "$TMP/source_contract"
 "$TMP/source_contract" | tee "$RESULTS/source-contract.log"
+xcrun --sdk macosx clang -std=c11 -Wall -Wextra -Werror -I"$ROOT/Shared" \
+  "$ROOT/scripts/test_button_overscan_contract.c" -framework CoreGraphics -lm -o "$TMP/overscan_contract"
+"$TMP/overscan_contract" | tee "$RESULTS/overscan-contract.log"
 xcrun --sdk macosx clang++ -std=c++17 -fobjc-arc -fblocks \
   -I"$ROOT/Shared" -I"$ROOT/scripts" \
   "$ROOT/scripts/test_button_contact_metal.mm" \

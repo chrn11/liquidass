@@ -20,6 +20,12 @@ static const char kLegacySHA[]="f21b394471fd9d3983502441852e3be0664eec7614a7bcd7
 #undef kLGLocalButtonCandidateMSLSHA256
 #undef kLGLocalButtonCandidateMSL
 
+#define kLGLocalButtonCandidateMSL kLGPrevious224MSL
+#define kLGLocalButtonCandidateMSLSHA256 kLGPrevious224SHA
+#include "legacy_contact224_shader_fixture.h"
+#undef kLGLocalButtonCandidateMSLSHA256
+#undef kLGLocalButtonCandidateMSL
+
 typedef struct {
     simd_float2 resolution, outputResolution, screenResolution, cardOrigin;
     simd_float2 wallpaperResolution, lensOrigin;
@@ -36,7 +42,7 @@ typedef struct {
     float buttonCandidateRendererScale;
 } LegacyUniforms208;
 static_assert(sizeof(LegacyUniforms208)==208,"legacy CPU layout must remain 208 bytes");
-static_assert(sizeof(LGLocalButtonUniforms)==224,"contact CPU layout must be 224 bytes");
+static_assert(sizeof(LGLocalButtonUniforms)==240,"local overscan CPU layout must be 240 bytes");
 
 static bool MakePipeline(id<MTLDevice> device, const char *source,
                          MTLPixelFormat format,id<MTLRenderPipelineState> *out) {
@@ -79,8 +85,10 @@ static id<MTLTexture> MakeSource(id<MTLDevice> device) {
 
 static std::vector<uint8_t> Render(id<MTLDevice> device,id<MTLCommandQueue> queue,
     id<MTLRenderPipelineState> pipeline,id<MTLSamplerState> sampler,
-    id<MTLTexture> source,const void *uniformBytes,NSUInteger uniformLength) {
-    const NSUInteger W=source.width,H=source.height;
+    id<MTLTexture> source,const void *uniformBytes,NSUInteger uniformLength,
+    NSUInteger outputWidth=0,NSUInteger outputHeight=0) {
+    const NSUInteger W=outputWidth?outputWidth:source.width;
+    const NSUInteger H=outputHeight?outputHeight:source.height;
     MTLTextureDescriptor *d=[MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatBGRA8Unorm_sRGB width:W height:H mipmapped:NO];
     d.usage=MTLTextureUsageRenderTarget|MTLTextureUsageShaderRead; d.storageMode=MTLStorageModeShared;
     id<MTLTexture> target=[device newTextureWithDescriptor:d];
@@ -109,7 +117,8 @@ static bool BuildUniform(float pressure,bool valid,float x,float y,bool optIn,
     LGButtonOpticalState s={0};s.eligible=true;s.geometryGeneration=1;
     s.pressure=pressure;s.target=pressure;s.touchValid=valid;s.touchX=x;s.touchY=y;
     s.phase=valid?LGOpticalTrackingInside:LGOpticalIdle;
-    LGLocalButtonSourceContract c={0};c.textureWidth=44;c.textureHeight=44;
+    LGLocalButtonSourceContract c={0};c.sourceRectInOwnerPoints=CGRectMake(0,0,44,44);
+    c.targetRectInOwnerPoints=CGRectMake(0,0,44,44);c.textureWidth=44;c.textureHeight=44;
     c.pointScale=1;c.targetGeometryGeneration=1;
     return LGLocalButtonBuildUniforms(&c,&s,44,44,1,optIn,out);
 }
@@ -135,6 +144,133 @@ static bool SaveReadback(NSString *file,const std::vector<uint8_t>&bgra,NSUInteg
 static NSString *PixelSHA(const std::vector<uint8_t>&pixels) {
     unsigned char digest[CC_SHA256_DIGEST_LENGTH];CC_SHA256(pixels.data(),(CC_LONG)pixels.size(),digest);NSMutableString *s=[NSMutableString string];for(unsigned x:digest)[s appendFormat:@"%02x",x];return s;
 }
+// Real Metal source perturbation, not a CPU-computed material image.
+static bool TestFiniteOverscan(id<MTLDevice> device,id<MTLCommandQueue> queue,
+    id<MTLRenderPipelineState> pipeline,id<MTLSamplerState> sampler) {
+    constexpr NSUInteger sw=228,n=132,origin=48;
+    auto texture=[&](const std::vector<uint8_t>&v,NSUInteger w,NSUInteger h){
+        MTLTextureDescriptor *d=[MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatBGRA8Unorm_sRGB width:w height:h mipmapped:NO];
+        d.usage=MTLTextureUsageShaderRead;d.storageMode=MTLStorageModeShared;
+        id<MTLTexture> t=[device newTextureWithDescriptor:d];
+        if(t)[t replaceRegion:MTLRegionMake2D(0,0,w,h) mipmapLevel:0 withBytes:v.data() bytesPerRow:w*4];return t;
+    };
+    std::vector<uint8_t> flat(sw*sw*4),altered=flat,crop(n*n*4);
+    for(NSUInteger y=0;y<sw;y++)for(NSUInteger x=0;x<sw;x++){
+        size_t i=(y*sw+x)*4;flat[i]=flat[i+1]=flat[i+2]=96;flat[i+3]=255;
+        std::memcpy(&altered[i],&flat[i],4);
+        if(x<origin||x>=origin+n||y<origin||y>=origin+n){
+            // Only change surrounding source pixels; target ROI remains exact.
+            altered[i]=(uint8_t)(x<origin?230:10);altered[i+1]=(uint8_t)(y<origin?225:35);altered[i+2]=(uint8_t)(x>=origin+n?240:25);
+        }
+    }
+    for(NSUInteger y=0;y<n;y++)for(NSUInteger x=0;x<n;x++){
+        std::memcpy(&crop[(y*n+x)*4],&flat[((y+origin)*sw+x+origin)*4],4);
+        if(std::memcmp(&flat[((y+origin)*sw+x+origin)*4],&altered[((y+origin)*sw+x+origin)*4],4))return false;
+    }
+    id<MTLTexture> a=texture(flat,sw,sw),b=texture(altered,sw,sw),c=texture(crop,n,n);if(!a||!b||!c)return false;
+    LGLocalButtonSourceContract contract={0};contract.sourceRectInOwnerPoints=CGRectMake(-6,4,76,76);contract.targetRectInOwnerPoints=CGRectMake(10,20,44,44);
+    contract.sourceOverscanEnabled=true;contract.textureWidth=contract.textureHeight=sw;contract.pointScale=3;contract.targetGeometryGeneration=1;
+    LGButtonOpticalState state={0};state.eligible=true;state.geometryGeneration=1;
+    LGLocalButtonUniforms wide={0};if(!LGLocalButtonBuildUniforms(&contract,&state,n,n,3,true,&wide))return false;
+    if(wide.resolution.x!=n||wide.radius!=66||wide.buttonSourceTargetOriginPixels.x!=origin||wide.buttonCandidateMaxOffset>26)return false;
+    auto base=Render(device,queue,pipeline,sampler,a,&wide,sizeof wide,n,n);
+    auto changed=Render(device,queue,pipeline,sampler,b,&wide,sizeof wide,n,n);
+    if(base.empty()||changed.empty())return false;
+    size_t influenced=0;NSUInteger outsideMax=0;
+    for(NSUInteger y=0;y<n;y++)for(NSUInteger x=0;x<n;x++){
+        size_t i=(y*n+x)*4;unsigned md=0;for(unsigned ch=0;ch<4;ch++)md=std::max(md,(unsigned)abs((int)base[i+ch]-changed[i+ch]));
+        if(hypot((double)x+.5-n*.5,(double)y+.5-n*.5)>=n*.5)outsideMax=std::max(outsideMax,(NSUInteger)md);
+        else if(md>1)influenced++;
+    }
+    if(influenced<10||outsideMax!=0){std::fprintf(stderr,"FAIL outside-source perturbation did not selectively influence the glass: %zu / outside%lu\n",influenced,(unsigned long)outsideMax);return false;}
+    contract.sourceRectInOwnerPoints=contract.targetRectInOwnerPoints;contract.textureWidth=contract.textureHeight=n;contract.sourceOverscanEnabled=false;
+    LGLocalButtonUniforms local={0};if(!LGLocalButtonBuildUniforms(&contract,&state,n,n,3,true,&local))return false;
+    auto cropA=Render(device,queue,pipeline,sampler,c,&local,sizeof local,n,n);
+    auto cropB=Render(device,queue,pipeline,sampler,c,&local,sizeof local,n,n);
+    if(PixelDifferences(cropA,cropB)!=0)return false;
+    // A named edge pixel must change; matching only a global byte count could
+    // conceal an incorrectly stretched source-domain implementation.
+    const size_t edge=(66*n+0)*4;unsigned edgeChange=0;
+    for(unsigned ch=0;ch<3;ch++)edgeChange=std::max(edgeChange,(unsigned)abs((int)base[edge+ch]-changed[edge+ch]));
+    if(edgeChange==0)return false;
+    LGLocalButtonUniforms mask=wide;mask.outputResolution=simd_make_float2(sw,sw);
+    auto masked=Render(device,queue,pipeline,sampler,b,&mask,sizeof mask,sw,sw);
+    if(masked.empty())return false;
+    for(NSUInteger y=0;y<sw;y++)for(NSUInteger x=0;x<sw;x++){
+        if(x>=48&&x<180&&y>=48&&y<180)continue;
+        if(masked[(y*sw+x)*4+3]!=0)return false;
+    }
+    NSString *output=NSProcessInfo.processInfo.environment[@"CONTACT_RESULTS"];
+    if(!SaveReadback([output stringByAppendingPathComponent:@"sentinel-wide-base.png"],base,n,n)||
+       !SaveReadback([output stringByAppendingPathComponent:@"sentinel-wide-outside-changed.png"],changed,n,n)||
+       !SaveReadback([output stringByAppendingPathComponent:@"sentinel-cropped-negative.png"],cropA,n,n))return false;
+    NSDictionary *proof=@{@"scope":@"Actual Metal wide-source versus exterior-only perturbation; sentinel source is a causal test, NOT a reflection/visual asset",@"ROIInnerBytesIdentical":@YES,@"outsideROIOnlySourceMutation":@YES,@"influencedInteriorPixelsOver1":@(influenced),@"shapeExteriorMaxDelta":@(outsideMax),@"namedPixel":[NSString stringWithFormat:@"(0,66) channel delta%u",edgeChange],@"croppedNegativeControlExact":@YES,@"targetSize":@132,@"sourceSize":@228,@"sourceOrigin":@48,@"targetMaskNotEnlarged":@YES};
+    [[NSJSONSerialization dataWithJSONObject:proof options:NSJSONWritingPrettyPrinted error:nil] writeToFile:[output stringByAppendingPathComponent:@"overscan-exterior-causality.json"] atomically:YES];
+    std::printf("PASS true overscan Metal exterior-only sentinel: influenced%zu interior pixels; shape-exterior delta%lu; named edge%u\n",influenced,(unsigned long)outsideMax,edgeChange);return true;
+}
+
+static bool TestNoPadAgainstPrevious224(id<MTLDevice> device,id<MTLCommandQueue> queue,
+    id<MTLRenderPipelineState> pipeline,id<MTLSamplerState> sampler) {
+    id<MTLRenderPipelineState> previous=nil;
+    if(!MakePipeline(device,kLGPrevious224MSL,MTLPixelFormatBGRA8Unorm_sRGB,&previous))return false;
+    if(std::strcmp(kLGPrevious224SHA,"c4dc2e5bcf9080c31a38770637da705d292cbbf7544e43dd30a0d41677541551"))return false;
+    for(unsigned n: {44u,131u,132u,133u})for(unsigned contact=0;contact<2;contact++){
+        std::vector<uint8_t> pixels(n*n*4);
+        for(unsigned y=0;y<n;y++)for(unsigned x=0;x<n;x++){
+            size_t i=(y*n+x)*4;pixels[i]=x*17+y*3;pixels[i+1]=x*2+y*11;pixels[i+2]=x*9+y*5;pixels[i+3]=255;
+        }
+        MTLTextureDescriptor *desc=[MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatBGRA8Unorm_sRGB width:n height:n mipmapped:NO];desc.usage=MTLTextureUsageShaderRead;desc.storageMode=MTLStorageModeShared;
+        id<MTLTexture> source=[device newTextureWithDescriptor:desc];if(!source)return false;
+        [source replaceRegion:MTLRegionMake2D(0,0,n,n) mipmapLevel:0 withBytes:pixels.data() bytesPerRow:n*4];
+        LGLocalButtonSourceContract c={0};c.sourceRectInOwnerPoints=c.targetRectInOwnerPoints=CGRectMake(0,0,44,44);c.textureWidth=c.textureHeight=n;c.pointScale=n==44?1:3;c.targetGeometryGeneration=11;
+        LGButtonOpticalState state={0};state.eligible=true;state.geometryGeneration=11;state.pressure=.75f;state.touchValid=contact;state.phase=contact?LGOpticalTrackingInside:LGOpticalIdle;state.touchX=.25;state.touchY=.5;
+        LGLocalButtonUniforms u={0};if(!LGLocalButtonBuildUniforms(&c,&state,n,n,c.pointScale,true,&u)||u.buttonSourceOverscanEnabled!=0)return false;
+        auto old=Render(device,queue,previous,sampler,source,&u,224,n,n);
+        auto current=Render(device,queue,pipeline,sampler,source,&u,sizeof u,n,n);
+        if(PixelDifferences(old,current)!=0){std::fprintf(stderr,"FAIL historical no-pad224 identity n%u contact%u\n",n,contact);return false;}
+        c.sourceOverscanEnabled=true;LGLocalButtonUniforms flag={0};if(!LGLocalButtonBuildUniforms(&c,&state,n,n,c.pointScale,true,&flag))return false;
+        auto flagZero=Render(device,queue,pipeline,sampler,source,&flag,sizeof flag,n,n);
+        if(PixelDifferences(current,flagZero)!=0)return false;
+    }
+    std::puts("PASS previous224 vs new240 no-pad exact at44/131/132/133px including valid contact and zero-pad opt-in");return true;
+}
+
+static bool ExportNaturalOverscan(id<MTLDevice> device,id<MTLCommandQueue> queue,
+ id<MTLRenderPipelineState> pipeline,id<MTLSamplerState> sampler) {
+ NSString *inputRoot=NSProcessInfo.processInfo.environment[@"CONTACT_INPUT_ROOT"],*out=NSProcessInfo.processInfo.environment[@"CONTACT_RESULTS"];
+ NSMutableArray *records=[NSMutableArray array];
+ for(NSString *scene in @[@"botanical",@"grid"]) {
+  const NSUInteger sw=228,n=132,pad=48;NSData *full=[NSData dataWithContentsOfFile:[inputRoot stringByAppendingPathComponent:[scene stringByAppendingString:@"-228.bgra"]]];if(full.length!=sw*sw*4)return false;
+  std::vector<uint8_t> raw((const uint8_t *)full.bytes,(const uint8_t *)full.bytes+full.length),crop(n*n*4);
+  for(NSUInteger y=0;y<n;y++)for(NSUInteger x=0;x<n;x++)std::memcpy(&crop[(y*n+x)*4],&raw[((y+pad)*sw+x+pad)*4],4);
+  auto texture=[&](const std::vector<uint8_t> &bytes,NSUInteger size){
+   MTLTextureDescriptor *d=[MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatBGRA8Unorm_sRGB width:size height:size mipmapped:NO];d.storageMode=MTLStorageModeShared;d.usage=MTLTextureUsageShaderRead;
+   id<MTLTexture> t=[device newTextureWithDescriptor:d];if(t)[t replaceRegion:MTLRegionMake2D(0,0,size,size) mipmapLevel:0 withBytes:bytes.data() bytesPerRow:size*4];return t;
+  };
+  id<MTLTexture> wide=texture(raw,sw),small=texture(crop,n);if(!wide||!small)return false;
+  if(!SaveReadback([out stringByAppendingPathComponent:[scene stringByAppendingString:@"-wide-source.png"]],raw,sw,sw)||!SaveReadback([out stringByAppendingPathComponent:[scene stringByAppendingString:@"-target-source.png"]],crop,n,n))return false;
+  struct Scenario{const char *name;bool wide,contact;float x,y;};
+  const Scenario scenarios[]={{"crop",false,false,.5,.5},{"overscan",true,false,.5,.5},{"overscan-left",true,true,.25,.5},{"overscan-moved",true,true,.6,.63}};
+  for(const Scenario &s:scenarios){
+   LGLocalButtonSourceContract c={0};c.targetRectInOwnerPoints=CGRectMake(10,20,44,44);c.sourceRectInOwnerPoints=s.wide?CGRectMake(-6,4,76,76):c.targetRectInOwnerPoints;c.pointScale=3;c.textureWidth=c.textureHeight=s.wide?sw:n;c.sourceOverscanEnabled=s.wide;c.targetGeometryGeneration=31;
+   LGButtonOpticalState state={0};state.geometryGeneration=31;state.eligible=true;state.pressure=.75f;state.touchValid=s.contact;state.phase=s.contact?LGOpticalTrackingInside:LGOpticalIdle;state.touchX=s.x;state.touchY=s.y;
+   LGLocalButtonUniforms u={0};if(!LGLocalButtonBuildUniforms(&c,&state,n,n,3,true,&u))return false;
+   auto pixels=Render(device,queue,pipeline,sampler,s.wide?wide:small,&u,sizeof u,n,n);if(pixels.empty())return false;
+   unsigned exteriorMax=0,alphaMax=0;
+   for(NSUInteger y=0;y<n;y++)for(NSUInteger x=0;x<n;x++){
+    size_t i=(y*n+x)*4;alphaMax=std::max(alphaMax,(unsigned)abs((int)pixels[i+3]-crop[i+3]));
+    if(hypot((double)x+.5-66,(double)y+.5-66)>=66)for(unsigned ch=0;ch<4;ch++)exteriorMax=std::max(exteriorMax,(unsigned)abs((int)pixels[i+ch]-crop[i+ch]));
+   }
+   if(exteriorMax>1||alphaMax!=0)return false;
+   NSString *name=[NSString stringWithFormat:@"natural-%@-%s.png",scene,s.name];
+   if(!SaveReadback([out stringByAppendingPathComponent:name],pixels,n,n))return false;
+   [records addObject:@{@"file":name,@"scene":scene,@"state":[NSString stringWithUTF8String:s.name],@"sourceDomainPx":@(s.wide?sw:n),@"targetPx":@(n),@"pointScale":@3,@"targetCapNotEnlarged":@(u.buttonCandidateMaxOffset<26),@"BGRA_SHA256":PixelSHA(pixels),@"shapeExteriorMaxDelta":@(exteriorMax),@"alphaMaxDelta":@(alphaMax),@"contactXY":@[@(u.buttonContactCenter.x),@(u.buttonContactCenter.y)],@"syntheticLocalState":@YES,@"commandCompletedBeforeReadback":@YES}];
+  }
+ }
+ NSDictionary *r=@{@"scope":@"Real macOS Metal own static scene readbacks; same132px target crop and scalar pressure; outer source actual1:1 pixels, not scaled down; no system source/real-world env map claim",@"sourceMSLSHA256":[NSString stringWithUTF8String:kLGLocalButtonCandidateMSLSHA256],@"pointScale":@3,@"targetPoints":@44,@"sourcePaddingPoints":@16,@"pixelRecords":records,@"visualGoalAccepted":@NO};
+ return [[NSJSONSerialization dataWithJSONObject:r options:NSJSONWritingPrettyPrinted error:nil] writeToFile:[out stringByAppendingPathComponent:@"actual-overscan-readbacks.json"] atomically:YES];
+}
+
 static bool ExportContactImages(id<MTLDevice> device,id<MTLCommandQueue> queue,id<MTLRenderPipelineState> pipeline,id<MTLRenderPipelineState> oldPipeline,id<MTLSamplerState> sampler) {
     NSString *output=NSProcessInfo.processInfo.environment[@"CONTACT_RESULTS"];
     NSString *inputRoot=NSProcessInfo.processInfo.environment[@"CONTACT_INPUT_ROOT"];
@@ -148,7 +284,9 @@ static bool ExportContactImages(id<MTLDevice> device,id<MTLCommandQueue> queue,i
         [source replaceRegion:MTLRegionMake2D(0,0,n,n) mipmapLevel:0 withBytes:bytes.bytes bytesPerRow:n*4];
         std::vector<uint8_t> raw((const uint8_t *)bytes.bytes,(const uint8_t *)bytes.bytes+bytes.length);
         allOK&=SaveReadback([output stringByAppendingPathComponent:[scene stringByAppendingString:@"-source.png"]],raw,n,n);
-        LGLocalButtonSourceContract c={0};c.textureWidth=c.textureHeight=(uint32_t)n;c.pointScale=3;c.targetGeometryGeneration=71;
+        LGLocalButtonSourceContract c={0};c.sourceRectInOwnerPoints=CGRectMake(10,20,44,44);
+        c.targetRectInOwnerPoints=CGRectMake(10,20,44,44);
+        c.textureWidth=c.textureHeight=(uint32_t)n;c.pointScale=3;c.targetGeometryGeneration=71;
         LGButtonOpticalState state={0};LGOpticalSetEligibility(&state,true,true,true,true,true,71);
         NSMutableArray *states=[NSMutableArray array];
         // All map changes use the actual source pressure reducer and contact
@@ -188,7 +326,7 @@ static bool ExportContactImages(id<MTLDevice> device,id<MTLCommandQueue> queue,i
         NSString *name=[scene stringByAppendingString:@"-release-idle.png"];allOK&=SaveReadback([output stringByAppendingPathComponent:name],release,n,n);
         [records addObject:@{@"file":name,@"scene":scene,@"state":@"release-idle",@"BGRA_SHA256":PixelSHA(release),@"zeroPressure":@YES,@"exactIdleRGBA":@YES,@"commandCompletedBeforeReadback":@YES}];
     }
-    NSDictionary *report=@{@"scope":@"Actual macOS Metal readback; own static botanical/grid source; synthetic local touch snapshots, not UIKit or system-host evidence",@"candidateMSLSHA256":[NSString stringWithUTF8String:kLGLocalButtonCandidateMSLSHA256],@"previousNoContactShaderSHA256":[NSString stringWithUTF8String:kLegacySHA],@"ABI":@224,@"previousABI":@208,@"noContactVsPreviousGPUExact":@YES,@"releaseGPUExactIdle":@YES,@"actualUIKitTouch":@NO,@"systemBackground":@NO,@"pixelRecords":records};
+    NSDictionary *report=@{@"scope":@"Actual macOS Metal readback; own static botanical/grid source; synthetic local touch snapshots, not UIKit or system-host evidence",@"candidateMSLSHA256":[NSString stringWithUTF8String:kLGLocalButtonCandidateMSLSHA256],@"previousNoContactShaderSHA256":[NSString stringWithUTF8String:kLegacySHA],@"ABI":@240,@"previousABI":@208,@"noContactVsPreviousGPUExact":@YES,@"releaseGPUExactIdle":@YES,@"actualUIKitTouch":@NO,@"systemBackground":@NO,@"pixelRecords":records};
     NSData *reportData=[NSJSONSerialization dataWithJSONObject:report options:NSJSONWritingPrettyPrinted error:nil];allOK&=[reportData writeToFile:[output stringByAppendingPathComponent:@"actual-contact-readbacks.json"] atomically:YES];return allOK;
 }
 
@@ -197,7 +335,7 @@ int main(void) {
         id<MTLDevice> device=MTLCreateSystemDefaultDevice();
         if (!device) { std::fprintf(stderr,"SKIP: macOS runner exposes no Metal device\n");return 77; }
         if (std::strcmp(kLegacySHA,kLGLocalButtonLegacyShaderSHA256)!=0 ||
-            std::strcmp(kLGLocalButtonCandidateMSLSHA256,"c4dc2e5bcf9080c31a38770637da705d292cbbf7544e43dd30a0d41677541551")!=0) {
+            std::strcmp(kLGLocalButtonCandidateMSLSHA256,"efe6ff61dcc87625ce4664c940ae55de908878b31255fcab9a7167954e4efb2d")!=0) {
             std::fprintf(stderr,"shader test fixture/runtime hash mismatch\n");return 1;
         }
         id<MTLCommandQueue> queue=[device newCommandQueue];if(!queue)return 2;
@@ -209,6 +347,9 @@ int main(void) {
         MTLSamplerDescriptor *sd=[MTLSamplerDescriptor new];sd.minFilter=MTLSamplerMinMagFilterLinear;
         sd.magFilter=MTLSamplerMinMagFilterLinear;sd.sAddressMode=MTLSamplerAddressModeClampToEdge;sd.tAddressMode=MTLSamplerAddressModeClampToEdge;
         id<MTLSamplerState> sampler=[device newSamplerStateWithDescriptor:sd];if(!sampler)return 7;
+        if(!TestFiniteOverscan(device,queue,current,sampler))return 20;
+        if(!TestNoPadAgainstPrevious224(device,queue,current,sampler))return 21;
+        if(!ExportNaturalOverscan(device,queue,current,sampler))return 22;
         LGLocalButtonUniforms noContact={0};
         if(!BuildUniform(.75f,false,.5f,.5f,true,&noContact))return 8;
         LegacyUniforms208 oldUniforms={0};std::memcpy(&oldUniforms,&noContact,sizeof(oldUniforms));

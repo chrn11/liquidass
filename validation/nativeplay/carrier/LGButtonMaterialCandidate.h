@@ -21,6 +21,7 @@
 #define LGBO_STMT(line) line
 #define LGBO_FUNCTION_END }
 #include "LGButtonOpticsFormula.inc"
+#include "LGLocalSourceMapping.inc"
 #undef LGBO_FUNCTION_END
 #undef LGBO_STMT
 #undef LGBO_FUNCTION_BEGIN

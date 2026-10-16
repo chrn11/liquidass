@@ -9,7 +9,7 @@
 #import <string.h>
 
 static const char kExpectedLocalShaderSHA256[] =
-    "c4dc2e5bcf9080c31a38770637da705d292cbbf7544e43dd30a0d41677541551";
+    "efe6ff61dcc87625ce4664c940ae55de908878b31255fcab9a7167954e4efb2d";
 
 @interface LGLocalButtonMaterialView ()
 @property(nonatomic,weak) UIView *targetView;
@@ -281,8 +281,12 @@ static const char kExpectedLocalShaderSHA256[] =
     self.submissionSerial++;
     self.lastCommandBufferSucceeded=NO;
     self.pendingDraw=YES;
+    uint32_t targetPixelWidth=0,targetPixelHeight=0;
+    if (!LGLocalSourceTargetPixelSize(&c,&targetPixelWidth,&targetPixelHeight)) {
+        [self clearLocalFrame]; return LGLocalButtonRendererSourceRejected;
+    }
     self.contentScaleFactor=c.pointScale;
-    self.drawableSize=CGSizeMake(c.textureWidth,c.textureHeight);
+    self.drawableSize=CGSizeMake(targetPixelWidth,targetPixelHeight);
     self.hidden=NO;
     BOOL allowed=LGLocalButtonMayRender(LG_LOCAL_BUTTON_RENDERER_COMPILED!=0,
         self.explicitOptIn,state.eligible,self.window==target.window,true,
@@ -408,7 +412,9 @@ static const char kExpectedLocalShaderSHA256[] =
 - (void)mtkView:(MTKView *)view drawableSizeWillChange:(CGSize)size {
     if (!NSThread.isMainThread || !self.sourceFrame) return;
     LGLocalButtonSourceContract c=self.sourceFrame.contract;
-    if (fabs(size.width-c.textureWidth)>2 || fabs(size.height-c.textureHeight)>2)
+    uint32_t targetWidth=0,targetHeight=0;
+    if (!LGLocalSourceTargetPixelSize(&c,&targetWidth,&targetHeight) ||
+        fabs(size.width-targetWidth)>2 || fabs(size.height-targetHeight)>2)
         [self clearLocalFrame];
 }
 @end

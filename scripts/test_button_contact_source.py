@@ -41,7 +41,7 @@ state=(SHARED/'LGButtonOpticalState.h').read_text()
 assert 'touchValid' in state and 's->touchValid=false;' in state
 assert 's->touchValid=true;' in state
 uniform=(SHARED/'LGLocalButtonUniforms.h').read_text()
-for marker in ('sizeof(LGLocalButtonUniforms)==224','buttonContactCenter)==208','buttonContactPressure)==216','buttonContactEnabled)==220'):
+for marker in ('sizeof(LGLocalButtonUniforms)==240','buttonContactCenter)==208','buttonContactPressure)==216','buttonContactEnabled)==220','buttonSourceTargetOriginPixels)==224','buttonSourceOverscanEnabled)==232'):
     assert marker in uniform, 'CPU ABI assertion missing: '+marker
 assert 'explicitLocalOptIn && state->touchValid && contactPhase' in uniform
 assert 'state->phase==LGOpticalTrackingInside' in uniform and 'state->phase==LGOpticalTrackingOutside' in uniform

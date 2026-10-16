@@ -1,6 +1,7 @@
 #pragma once
 #include <stddef.h>
 #include <stdint.h>
+#include <string.h>
 #if defined(__APPLE__)
 #include <simd/simd.h>
 #else
@@ -30,12 +31,14 @@ typedef struct {
     simd_float2 buttonCandidateCenter;
     float buttonCandidatePointScale, buttonCandidateCornerRadius;
     float buttonCandidateRendererScale;
-    simd_float2 buttonContactCenter; /* normalized local source coordinates */
+    simd_float2 buttonContactCenter; /* normalized target-local coordinates */
     float buttonContactPressure;
     float buttonContactEnabled; /* explicit local-source opt-in only */
+    simd_float2 buttonSourceTargetOriginPixels; /* target ROI origin in source texture */
+    float buttonSourceOverscanEnabled; /* direct sample path when zero/disabled */
 } LGLocalButtonUniforms;
 #if defined(__cplusplus)
-static_assert(sizeof(LGLocalButtonUniforms)==224, "local renderer contact Uniforms ABI drift");
+static_assert(sizeof(LGLocalButtonUniforms)==240, "local renderer overscan Uniforms ABI drift");
 static_assert(offsetof(LGLocalButtonUniforms,wallpaperOrigin)==72, "Uniforms offset drift");
 static_assert(offsetof(LGLocalButtonUniforms,tintColor)==160, "Uniforms offset drift");
 static_assert(offsetof(LGLocalButtonUniforms,buttonCandidateCenter)==184, "Uniforms offset drift");
@@ -43,8 +46,10 @@ static_assert(offsetof(LGLocalButtonUniforms,buttonCandidateRendererScale)==200,
 static_assert(offsetof(LGLocalButtonUniforms,buttonContactCenter)==208, "contact center offset drift");
 static_assert(offsetof(LGLocalButtonUniforms,buttonContactPressure)==216, "contact pressure offset drift");
 static_assert(offsetof(LGLocalButtonUniforms,buttonContactEnabled)==220, "contact gate offset drift");
+static_assert(offsetof(LGLocalButtonUniforms,buttonSourceTargetOriginPixels)==224, "source ROI offset drift");
+static_assert(offsetof(LGLocalButtonUniforms,buttonSourceOverscanEnabled)==232, "overscan gate offset drift");
 #else
-_Static_assert(sizeof(LGLocalButtonUniforms)==224, "local renderer contact Uniforms ABI drift");
+_Static_assert(sizeof(LGLocalButtonUniforms)==240, "local renderer overscan Uniforms ABI drift");
 _Static_assert(offsetof(LGLocalButtonUniforms,wallpaperOrigin)==72, "Uniforms offset drift");
 _Static_assert(offsetof(LGLocalButtonUniforms,tintColor)==160, "Uniforms offset drift");
 _Static_assert(offsetof(LGLocalButtonUniforms,buttonCandidateCenter)==184, "Uniforms offset drift");
@@ -52,7 +57,20 @@ _Static_assert(offsetof(LGLocalButtonUniforms,buttonCandidateRendererScale)==200
 _Static_assert(offsetof(LGLocalButtonUniforms,buttonContactCenter)==208, "contact center offset drift");
 _Static_assert(offsetof(LGLocalButtonUniforms,buttonContactPressure)==216, "contact pressure offset drift");
 _Static_assert(offsetof(LGLocalButtonUniforms,buttonContactEnabled)==220, "contact gate offset drift");
+_Static_assert(offsetof(LGLocalButtonUniforms,buttonSourceTargetOriginPixels)==224, "source ROI offset drift");
+_Static_assert(offsetof(LGLocalButtonUniforms,buttonSourceOverscanEnabled)==232, "overscan gate offset drift");
 #endif
+
+/* Promote the prior local 224-byte contact ABI into the new tail-extended
+ * Metal buffer. The caller must provide exactly that frozen prefix; zeroing
+ * the new fields selects the byte-identical no-overscan sampler path. */
+static inline bool LGLocalButtonPromoteContactABI224(
+    const void *legacyBytes, size_t legacyLength, LGLocalButtonUniforms *out) {
+    if (!legacyBytes || !out || legacyLength!=224u) return false;
+    memset(out,0,sizeof(*out));
+    memcpy(out,legacyBytes,224u);
+    return true;
+}
 
 typedef struct {
     unsigned bucket;
@@ -82,14 +100,16 @@ static inline bool LGLocalButtonBuildUniforms(
     const LGLocalButtonSourceContract *c, const LGButtonOpticalState *state,
     float drawableWidth, float drawableHeight, float rendererScale,
     bool explicitLocalOptIn, LGLocalButtonUniforms *out) {
+    LGLocalButtonSourceLayout layout={0};
     if (!c || !state || !out || !state->eligible ||
-        !isfinite(c->pointScale) || c->pointScale<0.5f || c->pointScale>4.0f ||
-        fabs((double)c->textureWidth-44.0*c->pointScale)>1.0 ||
-        fabs((double)c->textureHeight-44.0*c->pointScale)>1.0 ||
-        state->geometryGeneration!=c->targetGeometryGeneration) return false;
+        !LGLocalSourceLayoutForContract(c,c->textureWidth,c->textureHeight,&layout) ||
+        state->geometryGeneration!=c->targetGeometryGeneration ||
+        !isfinite(drawableWidth) || !isfinite(drawableHeight) ||
+        fabsf(drawableWidth-(float)layout.targetPixelWidth)>2.0f ||
+        fabsf(drawableHeight-(float)layout.targetPixelHeight)>2.0f) return false;
     LGButtonOpticsGeometry g={0};
-    if (!LGButtonCandidateBuildGeometry((float)c->textureWidth,
-         (float)c->textureHeight,drawableWidth,drawableHeight,rendererScale,&g))
+    if (!LGButtonCandidateBuildGeometry((float)layout.targetPixelWidth,
+         (float)layout.targetPixelHeight,drawableWidth,drawableHeight,rendererScale,&g))
         return false;
     const LGHostDefinition *host=&kLGHostRegistry[LGHostIdentifierPrefsButtonCandidate];
     const float shortest=fminf(g.sourceWidth,g.sourceHeight);
@@ -126,5 +146,12 @@ static inline bool LGLocalButtonBuildUniforms(
         u.buttonContactPressure=fminf(1.0f,fmaxf(0.0f,state->pressure));
         u.buttonContactEnabled=1.0f;
     }
+    u.buttonSourceTargetOriginPixels=simd_make_float2(
+        (float)(layout.leftPaddingPoints*c->pointScale),
+        (float)(layout.topPaddingPoints*c->pointScale));
+    if (c->sourceOverscanEnabled &&
+        (layout.leftPaddingPoints>0.0 || layout.topPaddingPoints>0.0 ||
+         layout.rightPaddingPoints>0.0 || layout.bottomPaddingPoints>0.0))
+        u.buttonSourceOverscanEnabled=1.0f;
     *out=u;return true;
 }

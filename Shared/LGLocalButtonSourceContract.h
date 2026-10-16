@@ -22,6 +22,9 @@ static inline CGRect CGRectMake(double x,double y,double w,double h) {
 #define LG_LOCAL_BUTTON_SOURCE_MAX_AGE_SECONDS 0.100
 #define LG_LOCAL_BUTTON_FUTURE_SLOP_SECONDS 0.005
 #define LG_LOCAL_BUTTON_MAX_TEXTURE_DIMENSION 16384u
+/* A 16pt edge budget is a finite optical neighborhood: > 2× the inherited
+ * 7/36 cap at 44pt, yet never an unbounded screen/window crop. */
+#define LG_LOCAL_BUTTON_MAX_OVERSCAN_PADDING_POINTS 16.0
 
 typedef enum {
     LGLocalSourceNone=0,
@@ -48,8 +51,8 @@ typedef enum {
 
 typedef struct {
     /* Both rects use the shared parent coordinate space of target/material siblings. */
-    CGRect sourceRectInOwnerPoints; /* exact 44x44 source crop, not a screenshot */
-    CGRect targetRectInOwnerPoints; /* same owner-space crop covered by material */
+    CGRect sourceRectInOwnerPoints; /* bounded source domain containing target; <=16pt/edge */
+    CGRect targetRectInOwnerPoints; /* exact 44x44 owner-space material ROI */
     uint32_t textureWidth, textureHeight, pixelFormat;
     float pointScale;
     uint64_t ownerInstanceToken;    /* process-local, non-secret, never IPC identity */
@@ -69,7 +72,96 @@ typedef struct {
     // _sRGB format alone does not establish alpha-premultiplication semantics.
     bool sampledRGBIsLinear;
     bool sampledRGBIsPremultiplied;
+    /* Explicit provider opt-in. Zero-pad opt-in remains pixel-identical to the
+     * legacy 44pt contract; when false, any enlarged source is rejected. */
+    bool sourceOverscanEnabled;
 } LGLocalButtonSourceContract;
+
+typedef struct {
+    double leftPaddingPoints, topPaddingPoints;
+    double rightPaddingPoints, bottomPaddingPoints;
+    uint32_t targetPixelWidth, targetPixelHeight;
+} LGLocalButtonSourceLayout;
+
+/* Validate the bounded source domain and derive the exact target ROI in pixels.
+ * Owner coordinates use UIKit's downward-positive Y; the target is NOT rescaled
+ * to the larger capture. */
+static inline bool LGLocalFiniteRect(CGRect r);
+static inline bool LGLocalSourceLayoutForContract(
+    const LGLocalButtonSourceContract *c, uint32_t actualWidth,
+    uint32_t actualHeight, LGLocalButtonSourceLayout *out) {
+    if (!c || !out || !LGLocalFiniteRect(c->sourceRectInOwnerPoints) ||
+        !LGLocalFiniteRect(c->targetRectInOwnerPoints) ||
+        !isfinite(c->pointScale) || c->pointScale<0.5f || c->pointScale>4.0f ||
+        !actualWidth || !actualHeight ||
+        actualWidth>LG_LOCAL_BUTTON_MAX_TEXTURE_DIMENSION ||
+        actualHeight>LG_LOCAL_BUTTON_MAX_TEXTURE_DIMENSION ||
+        fabs(c->targetRectInOwnerPoints.size.width-LG_LOCAL_BUTTON_VIEW_POINTS)>0.01 ||
+        fabs(c->targetRectInOwnerPoints.size.height-LG_LOCAL_BUTTON_VIEW_POINTS)>0.01 ||
+        actualWidth!=c->textureWidth || actualHeight!=c->textureHeight ||
+        !isfinite(c->sourceRectInOwnerPoints.origin.x+c->sourceRectInOwnerPoints.size.width) ||
+        !isfinite(c->sourceRectInOwnerPoints.origin.y+c->sourceRectInOwnerPoints.size.height) ||
+        !isfinite(c->targetRectInOwnerPoints.origin.x+c->targetRectInOwnerPoints.size.width) ||
+        !isfinite(c->targetRectInOwnerPoints.origin.y+c->targetRectInOwnerPoints.size.height))
+        return false;
+    const CGRect s=c->sourceRectInOwnerPoints, t=c->targetRectInOwnerPoints;
+    LGLocalButtonSourceLayout layout={0};
+    layout.leftPaddingPoints=t.origin.x-s.origin.x;
+    layout.topPaddingPoints=t.origin.y-s.origin.y;
+    layout.rightPaddingPoints=(s.origin.x+s.size.width)-(t.origin.x+t.size.width);
+    layout.bottomPaddingPoints=(s.origin.y+s.size.height)-(t.origin.y+t.size.height);
+    const double pads[]={layout.leftPaddingPoints,layout.topPaddingPoints,
+                         layout.rightPaddingPoints,layout.bottomPaddingPoints};
+    bool anyPadding=false;
+    for (unsigned i=0;i<4;i++) {
+        if (!isfinite(pads[i]) || pads[i]<0.0 ||
+            pads[i]>LG_LOCAL_BUTTON_MAX_OVERSCAN_PADDING_POINTS) return false;
+        if (!c->sourceOverscanEnabled && pads[i]!=0.0) return false;
+        anyPadding=anyPadding || pads[i]!=0.0;
+    }
+    if (s.size.width>LG_LOCAL_BUTTON_VIEW_POINTS+2.0*LG_LOCAL_BUTTON_MAX_OVERSCAN_PADDING_POINTS+0.01 ||
+        s.size.height>LG_LOCAL_BUTTON_VIEW_POINTS+2.0*LG_LOCAL_BUTTON_MAX_OVERSCAN_PADDING_POINTS+0.01 ||
+        fabs((double)actualWidth-s.size.width*c->pointScale)>1.0 ||
+        fabs((double)actualHeight-s.size.height*c->pointScale)>1.0) return false;
+    if (!anyPadding) {
+        // Preserve every accepted old zero-pad pixel grid, including +/-1px
+        // capture rounding. Never silently resample 133px into a new132px view.
+        if (fabs((double)actualWidth/actualHeight-1.0)>0.02) return false;
+        layout.targetPixelWidth=actualWidth;layout.targetPixelHeight=actualHeight;
+        *out=layout;return true;
+    }
+    // New enlarged providers must state an exact source-pixel extent. Unlike
+    // legacy zero-pad, no ambiguous +/-1px capture rounding is inferred here.
+    if (fabs((double)actualWidth-s.size.width*c->pointScale)>0.001 ||
+        fabs((double)actualHeight-s.size.height*c->pointScale)>0.001) return false;
+    double targetW=LG_LOCAL_BUTTON_VIEW_POINTS*c->pointScale;
+    double targetH=LG_LOCAL_BUTTON_VIEW_POINTS*c->pointScale;
+    if (!isfinite(targetW) || !isfinite(targetH) || targetW<1.0 || targetH<1.0 ||
+        targetW>LG_LOCAL_BUTTON_MAX_TEXTURE_DIMENSION ||
+        targetH>LG_LOCAL_BUTTON_MAX_TEXTURE_DIMENSION ||
+        fabs(targetW-floor(targetW+0.5))>0.001 ||
+        fabs(targetH-floor(targetH+0.5))>0.001) return false;
+    layout.targetPixelWidth=(uint32_t)floor(targetW+0.5);
+    layout.targetPixelHeight=(uint32_t)floor(targetH+0.5);
+    // Rounding the full capture must never push a supposedly contained target
+    // ROI outside the actual texture. The shader's clamp is not a repair for
+    // a provider that supplied missing/incorrect source pixels.
+    if (layout.leftPaddingPoints*c->pointScale+layout.targetPixelWidth >
+            (double)actualWidth+0.001 ||
+        layout.topPaddingPoints*c->pointScale+layout.targetPixelHeight >
+            (double)actualHeight+0.001) return false;
+    *out=layout;
+    return true;
+}
+
+static inline bool LGLocalSourceTargetPixelSize(
+    const LGLocalButtonSourceContract *c, uint32_t *width, uint32_t *height) {
+    LGLocalButtonSourceLayout layout={0};
+    if (!c || !width || !height ||
+        !LGLocalSourceLayoutForContract(c,c->textureWidth,c->textureHeight,&layout)) return false;
+    *width=layout.targetPixelWidth; *height=layout.targetPixelHeight;
+    return true;
+}
 
 static inline bool LGLocalFiniteRect(CGRect r) {
     return isfinite(r.origin.x) && isfinite(r.origin.y) &&
@@ -110,16 +202,10 @@ static inline LGLocalSourceValidation LGLocalValidateSourceContract(
     double age=now-c->frameTimestampMonotonic;
     if (age < -LG_LOCAL_BUTTON_FUTURE_SLOP_SECONDS ||
         age > LG_LOCAL_BUTTON_SOURCE_MAX_AGE_SECONDS) return LGLocalSourceStale;
-    if (!LGLocalFiniteRect(c->sourceRectInOwnerPoints) ||
-        !LGLocalFiniteRect(c->targetRectInOwnerPoints) ||
-        !LGLocalRectSame(c->sourceRectInOwnerPoints,c->targetRectInOwnerPoints) ||
-        fabs(c->targetRectInOwnerPoints.size.width-LG_LOCAL_BUTTON_VIEW_POINTS)>0.01 ||
-        fabs(c->targetRectInOwnerPoints.size.height-LG_LOCAL_BUTTON_VIEW_POINTS)>0.01 ||
-        actualWidth!=c->textureWidth || actualHeight!=c->textureHeight ||
-        actualWidth==0 || actualHeight==0 || actualFormat!=c->pixelFormat ||
-        fabs((double)actualWidth-c->sourceRectInOwnerPoints.size.width*c->pointScale)>1.0 ||
-        fabs((double)actualHeight-c->sourceRectInOwnerPoints.size.height*c->pointScale)>1.0 ||
-        fabs((double)actualWidth/actualHeight-1.0)>0.02) return LGLocalSourceBadGeometry;
+    LGLocalButtonSourceLayout layout={0};
+    if (!LGLocalSourceLayoutForContract(c,actualWidth,actualHeight,&layout) ||
+        actualFormat!=c->pixelFormat || actualWidth==0 || actualHeight==0)
+        return LGLocalSourceBadGeometry;
     if ((c->alphaMode!=LGLocalAlphaOpaque && c->alphaMode!=LGLocalAlphaPremultiplied) ||
         !c->sampledRGBIsLinear || !c->sampledRGBIsPremultiplied)
         return LGLocalSourceBadAlpha;
@@ -191,6 +277,7 @@ static inline bool LGLocalSameFrameDescriptor(
         a->immutableUntilFrameReleased==b->immutableUntilFrameReleased &&
         a->sampledRGBIsLinear==b->sampledRGBIsLinear &&
         a->sampledRGBIsPremultiplied==b->sampledRGBIsPremultiplied &&
+        a->sourceOverscanEnabled==b->sourceOverscanEnabled &&
         a->sourceRectInOwnerPoints.origin.x==b->sourceRectInOwnerPoints.origin.x &&
         a->sourceRectInOwnerPoints.origin.y==b->sourceRectInOwnerPoints.origin.y &&
         a->sourceRectInOwnerPoints.size.width==b->sourceRectInOwnerPoints.size.width &&

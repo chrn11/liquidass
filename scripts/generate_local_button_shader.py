@@ -10,6 +10,52 @@ MARKER='//__LG_BUTTON_OPTICS_FORMULA__'
 CONTACT_FIELDS=('    float2 buttonContactCenter;\n'
                 '    float buttonContactPressure;\n'
                 '    float buttonContactEnabled;\n')
+OVERSCAN_FIELDS=('    float2 buttonSourceTargetOriginPixels;\n'
+                 '    float buttonSourceOverscanEnabled;\n')
+SOURCE_UV_HELPER='''
+float2 localButtonSourceUV(texture2d<float, access::sample> src,
+                           constant Uniforms &u, float2 targetUV) {
+    if (u.buttonSourceOverscanEnabled <= 0.5f) return targetUV;
+    return float2(
+        LGBOMapTargetUVToSource(targetUV.x,u.resolution.x,(float)src.get_width(),u.buttonSourceTargetOriginPixels.x,true),
+        LGBOMapTargetUVToSource(targetUV.y,u.resolution.y,(float)src.get_height(),u.buttonSourceTargetOriginPixels.y,true));
+}
+'''
+
+
+def wrap_local_source_samples(source):
+    needle='src.sample(s,'
+    cursor=0
+    while True:
+        start=source.find(needle,cursor)
+        if start<0: return source
+        open_paren=source.find('(',start)
+        depth=0; close=None
+        for i in range(open_paren,len(source)):
+            if source[i]=='(': depth+=1
+            elif source[i]==')':
+                depth-=1
+                if depth==0: close=i; break
+        if close is None: raise SystemExit('unbalanced src.sample expression')
+        expr=source[start+len(needle):close]
+        replacement='src.sample(s, localButtonSourceUV(src, u, '+expr+'))'
+        source=source[:start]+replacement+source[close+1:]
+        cursor=start+len(replacement)
+
+
+def add_overscan_fragment_domain(source):
+    anchor='    uint2 dimensions(src.get_width(), src.get_height());\n'
+    branch='''    if (u.buttonSourceOverscanEnabled > 0.5f) {
+        float2 targetPosition=in.position.xy-(u.outputResolution-u.resolution)*0.5f;
+        if (any(targetPosition<float2(0.0f)) || any(targetPosition>=u.resolution))
+            return float4(0.0f);
+        uint2 targetDimensions=max(uint2(u.resolution),uint2(1));
+        uint2 targetGid=min(uint2(targetPosition),targetDimensions-1);
+        return liquidGlassPixel(src,glyphMask,u,targetGid,targetDimensions);
+    }
+'''
+    if source.count(anchor)!=1: raise SystemExit('fragment target-domain anchor drift')
+    return source.replace(anchor,branch+anchor,1)
 
 
 def split_top(text):
@@ -61,6 +107,15 @@ def main():
     old_field='    float buttonCandidateRendererScale;\n'
     if base.count(old_field)!=1: raise SystemExit('raw Uniforms ABI anchor drift')
     base=base.replace(old_field,old_field+CONTACT_FIELDS,1)
+    contact_field='    float buttonContactEnabled;\n'
+    if base.count(contact_field)!=1: raise SystemExit('contact tail anchor drift')
+    base=base.replace(contact_field,contact_field+OVERSCAN_FIELDS,1)
+    helper_anchor='    float buttonSourceOverscanEnabled;\n};\n'
+    if base.count(helper_anchor)!=1: raise SystemExit('Uniforms overscan tail anchor drift')
+    # The mapping helper depends on LGBOClamp from the formula. Emit both only
+    # after the single real raw-shader marker; never a call before definition.
+    base=wrap_local_source_samples(base)
+    base=add_overscan_fragment_domain(base)
     base=base.replace(call,'LGButtonOpticsResult optics = LGButtonOpticsEvaluateWithContact(',1)
     old_tail='u.buttonCandidatePointScale, u.buttonCandidateRendererScale, true);'
     new_tail=('u.buttonCandidatePointScale, u.buttonCandidateRendererScale, true,\n'
@@ -68,7 +123,14 @@ def main():
               '            u.buttonContactCenter.y, u.buttonContactPressure);')
     if base.count(old_tail)!=1: raise SystemExit('raw candidate call argument anchor drift')
     base=base.replace(old_tail,new_tail,1)
+    optical='        float2 opticalUV = float2(optics.sampleU, optics.sampleV);'
+    environment='        float2 environmentUV = float2(optics.environmentU, optics.environmentV);'
+    if base.count(optical)!=1 or base.count(environment)!=1:
+        raise SystemExit('candidate actual optical/environment source anchors drift')
+    base=base.replace(optical,optical+'\n        if (u.buttonSourceOverscanEnabled > 0.5f)\n            opticalUV=(capturePx+float2(optics.offsetX,optics.offsetY))/u.resolution;',1)
+    base=base.replace(environment,environment+'\n        if (u.buttonSourceOverscanEnabled > 0.5f)\n            environmentUV=(capturePx+float2(optics.environmentOffsetX,optics.environmentOffsetY))/u.resolution;',1)
     formula=expand_formula(SHARED/'LGButtonOpticsFormula.inc')
+    formula+=expand_formula(SHARED/'LGLocalSourceMapping.inc')+SOURCE_UV_HELPER
     source='#define LG_BUTTON_OPTICS_COMPILED 1\n'+base.replace(MARKER,formula)
     definition='LGButtonOpticsResult LGButtonOpticsEvaluateWithContact('
     actual_call='LGButtonOpticsResult optics = LGButtonOpticsEvaluateWithContact('
@@ -76,8 +138,12 @@ def main():
         raise SystemExit('contact function definition/call marker count drift')
     if source.index(definition)>=source.index(actual_call):
         raise SystemExit('contact call precedes shared formula definition')
-    if source.count('float2 buttonContactCenter;')!=1 or source.count('float buttonContactPressure;')!=1 or source.count('float buttonContactEnabled;')!=1:
-        raise SystemExit('generated MSL contact ABI field count drift')
+    if source.count('float buttonContactEnabled;')!=1 or source.count('float2 buttonSourceTargetOriginPixels;')!=1 or source.count('float buttonSourceOverscanEnabled;')!=1:
+        raise SystemExit('generated MSL local source-domain ABI field count drift')
+    if 'float2 localButtonSourceUV(' not in source or source.count('src.sample(s, localButtonSourceUV(')<1:
+        raise SystemExit('generated MSL source sampler map missing')
+    if 'targetPosition>=u.resolution' not in source:
+        raise SystemExit('generated MSL target UV mask missing')
     if ')LGLOCALMSL"' in source: raise SystemExit('raw string delimiter collision')
     digest=hashlib.sha256(source.encode()).hexdigest()
     header=('/* Generated: frozen LiquidAss kShaderSrc + shared formula DSL. */\n'

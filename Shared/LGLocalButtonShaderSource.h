@@ -43,6 +43,8 @@ struct Uniforms {
     float2 buttonContactCenter;
     float buttonContactPressure;
     float buttonContactEnabled;
+    float2 buttonSourceTargetOriginPixels;
+    float buttonSourceOverscanEnabled;
 };
 
 #if LG_BUTTON_OPTICS_COMPILED
@@ -58,6 +60,8 @@ float sampleV;
 float environmentU;
 float environmentV;
 float environmentWeight;
+float environmentOffsetX;
+float environmentOffsetY;
 bool valid;
 };
 float LGBOAbs(float x) {
@@ -99,6 +103,8 @@ out.sampleV = 0.0f;
 out.environmentU = 0.0f;
 out.environmentV = 0.0f;
 out.environmentWeight = 0.0f;
+out.environmentOffsetX = 0.0f;
+out.environmentOffsetY = 0.0f;
 out.valid = false;
 if (!isfinite(x) || !isfinite(y) || !isfinite(width) || !isfinite(height) || !isfinite(centerX) || !isfinite(centerY) || !isfinite(radius) || !isfinite(bezel) || !isfinite(glassThickness) || !isfinite(refractiveIndex) || !isfinite(refractionScale) || !isfinite(displacementCap) || !isfinite(pointScale) || !isfinite(rendererScale)) return out;
 float shortest = LGBOMin(width, height);
@@ -221,6 +227,8 @@ float environmentLength = LGBOHypot(environmentOffsetX, environmentOffsetY);
 float environmentCap = LGBOMin(displacementCap * 0.45f, LGBOMin(glassThickness, LGBOMax(bezel, 1.0f)) * 0.38f);
 if (!isfinite(environmentLength) || !isfinite(out.environmentWeight)) { out.valid = false; return out; }
 if (environmentLength > environmentCap && environmentLength > 0.0f) { float factor = environmentCap / environmentLength; environmentOffsetX *= factor; environmentOffsetY *= factor; }
+out.environmentOffsetX = environmentOffsetX;
+out.environmentOffsetY = environmentOffsetY;
 out.environmentU = LGBOClamp(x + environmentOffsetX, 0.5f, width - 0.5f) / width;
 out.environmentV = LGBOClamp(y + environmentOffsetY, 0.5f, height - 0.5f) / height;
 return out;
@@ -237,6 +245,21 @@ float reflectedStraight = reflectedAlpha > 0.00001f ? LGBOClamp(environmentPremu
 float boundedWeight = LGBOClamp(weight, 0.0f, 0.28f);
 float straightResult = transmittedStraight + (reflectedStraight - transmittedStraight) * boundedWeight;
 return LGBOClamp(straightResult, 0.0f, 1.0f) * alpha;
+}
+float LGBOMapTargetUVToSource(float targetUV, float targetPixels, float sourcePixels, float originPixels, bool overscanEnabled) {
+if (!overscanEnabled) return targetUV;
+if (!isfinite(targetUV) || !isfinite(targetPixels) || !isfinite(sourcePixels) || !isfinite(originPixels) || targetPixels < 1.0f || sourcePixels < targetPixels || sourcePixels > 16384.0f || originPixels < 0.0f || originPixels + targetPixels > sourcePixels + 0.001f) return 0.0f;
+float sourcePixel = originPixels + targetUV * targetPixels;
+if (!isfinite(sourcePixel)) return 0.0f;
+return LGBOClamp(sourcePixel, 0.5f, sourcePixels - 0.5f) / sourcePixels;
+}
+
+float2 localButtonSourceUV(texture2d<float, access::sample> src,
+                           constant Uniforms &u, float2 targetUV) {
+    if (u.buttonSourceOverscanEnabled <= 0.5f) return targetUV;
+    return float2(
+        LGBOMapTargetUVToSource(targetUV.x,u.resolution.x,(float)src.get_width(),u.buttonSourceTargetOriginPixels.x,true),
+        LGBOMapTargetUVToSource(targetUV.y,u.resolution.y,(float)src.get_height(),u.buttonSourceTargetOriginPixels.y,true));
 }
 
 #endif
@@ -505,7 +528,7 @@ float4 liquidGlassPixel(texture2d<float, access::sample> src,
                                    max(min(extent.x, extent.y), 0.001));
         }
         if (signedDistance > (subShape ? 0.0 : 1.0)) {
-            return subShape ? float4(0.0) : src.sample(s, captureUV);
+            return subShape ? float4(0.0) : src.sample(s, localButtonSourceUV(src, u,  captureUV));
         }
 
         distFromSide = max(0.0, -signedDistance);
@@ -549,7 +572,7 @@ float4 liquidGlassPixel(texture2d<float, access::sample> src,
                            u.buttonCandidateMaxOffset > 0.0;
     if (buttonCandidate) {
         if (subShape || isCoverSheet || isKeyboard || u.useGlyphMask != 0.0)
-            return src.sample(s, captureUV);
+            return src.sample(s, localButtonSourceUV(src, u,  captureUV));
         LGButtonOpticsResult optics = LGButtonOpticsEvaluateWithContact(
             px.x, px.y, fw, fh, u.buttonCandidateCenter.x,
             u.buttonCandidateCenter.y, u.buttonCandidateCornerRadius,
@@ -559,14 +582,18 @@ float4 liquidGlassPixel(texture2d<float, access::sample> src,
             u.buttonContactEnabled > 0.5f, u.buttonContactCenter.x,
             u.buttonContactCenter.y, u.buttonContactPressure);
         if (!optics.valid || optics.signedDistance >= 0.0f)
-            return src.sample(s, captureUV);
+            return src.sample(s, localButtonSourceUV(src, u,  captureUV));
         float2 opticalUV = float2(optics.sampleU, optics.sampleV);
-        float4 opticalSample = src.sample(s, opticalUV);
-        if (opticalSample.a < 0.01f) opticalSample = src.sample(s, captureUV);
+        if (u.buttonSourceOverscanEnabled > 0.5f)
+            opticalUV=(capturePx+float2(optics.offsetX,optics.offsetY))/u.resolution;
+        float4 opticalSample = src.sample(s, localButtonSourceUV(src, u,  opticalUV));
+        if (opticalSample.a < 0.01f) opticalSample = src.sample(s, localButtonSourceUV(src, u,  captureUV));
         /* Source-plane radiance approximation: a second low-cost sample from
          * the same live CA origTex. This is not an external environment map. */
         float2 environmentUV = float2(optics.environmentU, optics.environmentV);
-        float4 environmentSample = src.sample(s, environmentUV);
+        if (u.buttonSourceOverscanEnabled > 0.5f)
+            environmentUV=(capturePx+float2(optics.environmentOffsetX,optics.environmentOffsetY))/u.resolution;
+        float4 environmentSample = src.sample(s, localButtonSourceUV(src, u,  environmentUV));
         if (environmentSample.a < 0.01f) environmentSample = opticalSample;
         float environmentWeight = clamp(optics.environmentWeight, 0.0f, 0.28f);
         float3 mixedPremul = float3(
@@ -586,7 +613,7 @@ float4 liquidGlassPixel(texture2d<float, access::sample> src,
     }
 
     if ((R < shortest * 0.45 || subShape) && distFromSide >= bezel) {
-        float4 flat = src.sample(s, captureUV);
+        float4 flat = src.sample(s, localButtonSourceUV(src, u,  captureUV));
         flat.rgb = mix(flat.rgb, u.tintColor.rgb, u.tintColor.a);
         return flat;
     }
@@ -617,12 +644,12 @@ float4 liquidGlassPixel(texture2d<float, access::sample> src,
     zoomMix = zoomMix * zoomMix * (3.0 - 2.0 * zoomMix);
     float2 greenUV = backdropSampleUV(capturePx, px, dispPx,
                                       isCoverSheet, u, zoomMix);
-    float4 greenSample = src.sample(s, greenUV);
+    float4 greenSample = src.sample(s, localButtonSourceUV(src, u,  greenUV));
 
     float4 fallback = float4(0.0);
     bool loadedFallback = false;
     if (greenSample.a < 0.01) {
-        fallback = src.sample(s, captureUV);
+        fallback = src.sample(s, localButtonSourceUV(src, u,  captureUV));
         loadedFallback = true;
         greenSample = fallback;
     }
@@ -639,10 +666,10 @@ float4 liquidGlassPixel(texture2d<float, access::sample> src,
             float2 uv = backdropSampleUV(capturePx, px,
                                           dispPx + aberrationPx * weight,
                                           isCoverSheet, u, zoomMix);
-            float4 sample = src.sample(s, uv);
+            float4 sample = src.sample(s, localButtonSourceUV(src, u,  uv));
             if (sample.a < 0.01) {
                 if (!loadedFallback) {
-                    fallback = src.sample(s, captureUV);
+                    fallback = src.sample(s, localButtonSourceUV(src, u,  captureUV));
                     loadedFallback = true;
                 }
                 sample = fallback;
@@ -657,10 +684,10 @@ float4 liquidGlassPixel(texture2d<float, access::sample> src,
             float2 uv = backdropSampleUV(capturePx, px,
                                           dispPx - aberrationPx * weight,
                                           isCoverSheet, u, zoomMix);
-            float4 sample = src.sample(s, uv);
+            float4 sample = src.sample(s, localButtonSourceUV(src, u,  uv));
             if (sample.a < 0.01) {
                 if (!loadedFallback) {
-                    fallback = src.sample(s, captureUV);
+                    fallback = src.sample(s, localButtonSourceUV(src, u,  captureUV));
                     loadedFallback = true;
                 }
                 sample = fallback;
@@ -708,6 +735,14 @@ fragment float4 liquidGlassFragment(
     texture2d<float, access::sample> glyphMask [[texture(1)]],
     constant Uniforms &u [[buffer(0)]])
 {
+    if (u.buttonSourceOverscanEnabled > 0.5f) {
+        float2 targetPosition=in.position.xy-(u.outputResolution-u.resolution)*0.5f;
+        if (any(targetPosition<float2(0.0f)) || any(targetPosition>=u.resolution))
+            return float4(0.0f);
+        uint2 targetDimensions=max(uint2(u.resolution),uint2(1));
+        uint2 targetGid=min(uint2(targetPosition),targetDimensions-1);
+        return liquidGlassPixel(src,glyphMask,u,targetGid,targetDimensions);
+    }
     uint2 dimensions(src.get_width(), src.get_height());
     float2 sourcePosition =
         in.position.xy - (u.outputResolution - u.resolution) * 0.5;
@@ -718,4 +753,4 @@ fragment float4 liquidGlassFragment(
 }
 
 )LGLOCALMSL";
-static const char kLGLocalButtonCandidateMSLSHA256[] = "c4dc2e5bcf9080c31a38770637da705d292cbbf7544e43dd30a0d41677541551";
+static const char kLGLocalButtonCandidateMSLSHA256[] = "efe6ff61dcc87625ce4664c940ae55de908878b31255fcab9a7167954e4efb2d";

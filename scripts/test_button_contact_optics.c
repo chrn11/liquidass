@@ -24,7 +24,7 @@ typedef struct {
 } LegacyUniforms208;
 _Static_assert(sizeof(LegacyUniforms208)==208,"frozen legacy ABI must remain 208 bytes");
 _Static_assert(offsetof(LegacyUniforms208,buttonCandidateRendererScale)==200,"legacy ABI offset drift");
-_Static_assert(sizeof(LGLocalButtonUniforms)==224,"contact ABI must be 224 bytes");
+_Static_assert(sizeof(LGLocalButtonUniforms)==240,"overscan ABI must be 240 bytes");
 _Static_assert(offsetof(LGLocalButtonUniforms,buttonContactCenter)==208,"contact ABI offset drift");
 _Static_assert(offsetof(LGLocalButtonUniforms,buttonContactPressure)==216,"contact ABI offset drift");
 _Static_assert(offsetof(LGLocalButtonUniforms,buttonContactEnabled)==220,"contact ABI offset drift");
@@ -44,6 +44,8 @@ static LGButtonOpticsResult eval(float x,float y,float w,float h,float scale,
 }
 static void contractForScale(float scale,LGLocalButtonSourceContract *c,uint64_t gen) {
     *c=(LGLocalButtonSourceContract){0};
+    c->sourceRectInOwnerPoints=CGRectMake(0,0,44,44);
+    c->targetRectInOwnerPoints=CGRectMake(0,0,44,44);
     c->textureWidth=(uint32_t)lrintf(44.0f*scale);
     c->textureHeight=(uint32_t)lrintf(44.0f*scale);
     c->pointScale=scale;c->targetGeometryGeneration=gen;

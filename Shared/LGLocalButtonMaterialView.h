@@ -16,8 +16,10 @@ typedef NS_ENUM(NSInteger, LGLocalButtonRendererResult) {
 };
 
 /* Provider owns source production and must only return a same-process texture
- * plus its value contract. It must not screen/window-snapshot or read another
- * app. ownerAlive is an explicit lifetime/generation check, not IPC identity. */
+ * plus its value contract. A source may be a target ROI plus <=16pt/edge local
+ * overscan only when sourceOverscanEnabled is explicitly true. It must not
+ * screen/window-snapshot or read another app. ownerAlive is explicit lifetime,
+ * not IPC identity. */
 @interface LGLocalButtonTextureFrame : NSObject
 @property(nonatomic,strong,readonly) id<MTLTexture> texture;
 @property(nonatomic,readonly) LGLocalButtonSourceContract contract;

@@ -22,7 +22,7 @@
 @property(nonatomic,strong) id<MTLTexture> texture;
 @property(nonatomic,strong) LRLeaseCounters *leases;
 @property(nonatomic) uint64_t ownerToken, geometryGeneration, nextFrameGeneration, forcedGeneration;
-@property(nonatomic) BOOL nilFirst, ownerAlive, forceGeneration, repeatExactContract;
+@property(nonatomic) BOOL nilFirst, ownerAlive, forceGeneration, repeatExactContract, overscan;
 @property(nonatomic) LGLocalButtonSourceContract repeatedContract;
 @property(nonatomic) CFTimeInterval staleAge;
 @property(nonatomic) NSUInteger calls;
@@ -38,7 +38,8 @@
     if(self.nilFirst){self.nilFirst=NO;return nil;}
     if(!target || !self.texture)return nil;
     CGRect r=[target convertRect:target.bounds toView:target.superview];
-    LGLocalButtonSourceContract c={0}; c.sourceRectInOwnerPoints=r;c.targetRectInOwnerPoints=r;
+    LGLocalButtonSourceContract c={0}; c.sourceRectInOwnerPoints=self.overscan?CGRectInset(r,-16,-16):r;c.targetRectInOwnerPoints=r;
+    c.sourceOverscanEnabled=self.overscan;
     c.textureWidth=(uint32_t)self.texture.width;c.textureHeight=(uint32_t)self.texture.height;
     c.pixelFormat=(uint32_t)self.texture.pixelFormat;c.pointScale=3.0f;
     c.ownerInstanceToken=self.ownerToken;c.ownerGeneration=1;
@@ -94,7 +95,7 @@ static void LRDelay(NSTimeInterval duration, dispatch_block_t done) {
 @interface LRAsyncProbe : NSObject
 @property(nonatomic,strong) id<MTLDevice> device;
 @property(nonatomic,strong) id<MTLCommandQueue> queue;
-@property(nonatomic,strong) id<MTLTexture> input,cropA,cropB;
+@property(nonatomic,strong) id<MTLTexture> input,cropA,cropB,wideSource;
 @property(nonatomic,strong) UIView *container;
 @property(nonatomic,strong) LRTestTarget *ta,*tb;
 @property(nonatomic,strong) LRStaticAssetProvider *pa,*pb;
@@ -109,6 +110,7 @@ static void LRDelay(NSTimeInterval duration, dispatch_block_t done) {
 - (void)setup;
 - (void)drawStep:(NSUInteger)step;
 - (void)identity;
+- (void)overscan;
 - (void)guards;
 - (void)expiry;
 - (void)finish;
@@ -127,21 +129,25 @@ static void LRDelay(NSTimeInterval duration, dispatch_block_t done) {
         @"scope":@"Actual frozen LGLocalButtonMaterialView with asynchronous own-App event-loop stages; no system source/UI capture",
         @"mode":@"STATIC_APP_SOURCE_TEST",@"SYSTEM_BACKGROUND_PROVIDER_NOT_IMPLEMENTED":@YES,
         @"pixelEvidence":@"NONE; framebufferOnly remains YES; prior shader pixels are separate evidence",
-        @"shaderExpectedSHA256":@"c4dc2e5bcf9080c31a38770637da705d292cbbf7544e43dd30a0d41677541551",
+        @"shaderExpectedSHA256":@"efe6ff61dcc87625ce4664c940ae55de908878b31255fcab9a7167954e4efb2d",
         @"compileMacroLG_LOCAL_BUTTON_RENDERER_COMPILED":@1,
         @"execution":@"ASYNC_STAGED_MAIN_QUEUE; no nested CFRunLoop wait; production source maximum age remains100ms"} mutableCopy];
     if(!self.device||!self.queue||!self.input||!self.container.window||
-       self.input.pixelFormat!=MTLPixelFormatBGRA8Unorm_sRGB||self.input.width<132||self.input.height<132) {
+       self.input.pixelFormat!=MTLPixelFormatBGRA8Unorm_sRGB||self.input.width<228||self.input.height<228) {
         [self record:@"setup_valid_input_window_device" pass:NO details:nil];[self finish];return;
     }
     NSUInteger n=132,x=(self.input.width-n)/2,y=(self.input.height-n)/2;
     MTLTextureDescriptor *td=[MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatBGRA8Unorm_sRGB width:n height:n mipmapped:NO];
     td.usage=MTLTextureUsageShaderRead;td.storageMode=MTLStorageModeShared;
     self.cropA=[self.device newTextureWithDescriptor:td];self.cropB=[self.device newTextureWithDescriptor:td];
+    MTLTextureDescriptor *wideDesc=[MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatBGRA8Unorm_sRGB width:228 height:228 mipmapped:NO];
+    wideDesc.usage=MTLTextureUsageShaderRead;wideDesc.storageMode=MTLStorageModeShared;
+    self.wideSource=[self.device newTextureWithDescriptor:wideDesc];
     id<MTLCommandBuffer> cb=[self.queue commandBuffer];id<MTLBlitCommandEncoder> enc=[cb blitCommandEncoder];
-    if(!self.cropA||!self.cropB||!cb||!enc){[self record:@"crop_alloc" pass:NO details:nil];[self finish];return;}
+    if(!self.cropA||!self.cropB||!self.wideSource||!cb||!enc){[self record:@"crop_alloc" pass:NO details:nil];[self finish];return;}
     for(id<MTLTexture> target in @[self.cropA,self.cropB])
         [enc copyFromTexture:self.input sourceSlice:0 sourceLevel:0 sourceOrigin:MTLOriginMake(x,y,0) sourceSize:MTLSizeMake(n,n,1) toTexture:target destinationSlice:0 destinationLevel:0 destinationOrigin:MTLOriginMake(0,0,0)];
+    [enc copyFromTexture:self.input sourceSlice:0 sourceLevel:0 sourceOrigin:MTLOriginMake((self.input.width-228)/2,(self.input.height-228)/2,0) sourceSize:MTLSizeMake(228,228,1) toTexture:self.wideSource destinationSlice:0 destinationLevel:0 destinationOrigin:MTLOriginMake(0,0,0)];
     [enc endEncoding];
     self.report[@"source"]=@{@"kind":@"StaticAsset",@"sourceCropPx":@{@"x":@(x),@"y":@(y),@"width":@132,@"height":@132},@"resize":@NO,@"format":@81,@"systemCapture":@NO,@"foregroundIncluded":@NO,@"sourceImmutable":@YES};
     [cb addCompletedHandler:^(id<MTLCommandBuffer> completed){
@@ -300,6 +306,42 @@ static void LRDelay(NSTimeInterval duration, dispatch_block_t done) {
         },^(BOOL completed){
             [self record:@"H_clear_same_exact_immutable_frame_can_be_drawn" pass:correct&&completed&&self.va.lastCompletedSubmissionSerial>prior details:@{@"result":LRResultName(same),@"exactMetadataAndTextureReused":@YES,@"completedSerial":@(self.va.lastCompletedSubmissionSerial)}];
             self.pa.repeatExactContract=NO;self.pa.texture=self.cropA;
+            [self overscan];
+        });
+    });
+}
+- (void)overscan {
+    // Original accepted target remains44pt and the material drawable132px.
+    // Only this provider's same-owned asset source gets a bounded16pt margin.
+    LGButtonOpticalState state=LRState(501,.75f);
+    state.touchValid=true;state.touchX=.25f;state.touchY=.5f;state.phase=LGOpticalTrackingInside;
+    self.pa.texture=self.wideSource;self.pa.overscan=NO;
+    LGLocalButtonRendererResult rejected=[self.va submitOpticalState:state enabled:YES];
+    [self record:@"I_enlarged_source_without_explicit_optin_rejected" pass:rejected==LGLocalButtonRendererSourceRejected&&self.va.hidden details:@{@"result":LRResultName(rejected)}];
+    self.pa.overscan=YES;uint64_t before=self.va.lastCompletedSubmissionSerial;
+    LGLocalButtonRendererResult result=[self.va submitOpticalState:state enabled:YES];
+    LGLocalButtonSourceContract source=self.pa.lastContract;LGLocalButtonUniforms u={0};
+    BOOL built=LGLocalButtonBuildUniforms(&source,&state,132,132,3,true,&u);
+    BOOL ready=result==LGLocalButtonRendererReadyForNextDraw;
+    if(ready)self.lastAcceptedA=source.frameGeneration;
+    LRAwait(CACurrentMediaTime()+2.0,^BOOL {
+        return !ready||(self.va.lastCompletedSubmissionSerial>before&&self.va.lastCommandBufferSucceeded&&!self.va.hidden);
+    },^(BOOL complete){
+        BOOL pass=ready&&complete&&built&&self.va.lastCompletedSubmissionSerial>before&&
+            source.textureWidth==228&&source.textureHeight==228&&source.sourceOverscanEnabled&&
+            self.va.drawableSize.width==132&&self.va.drawableSize.height==132&&
+            u.resolution.x==132&&u.buttonSourceTargetOriginPixels.x==48&&u.buttonSourceTargetOriginPixels.y==48&&
+            u.buttonSourceOverscanEnabled==1&&u.buttonContactCenter.x==.25f&&u.buttonContactCenter.y==.5f&&
+            u.buttonCandidateMaxOffset<26&&sizeof(u)==240;
+        [self record:@"I_actual_class_228px_source_132px_target_GPU_complete" pass:pass details:@{@"result":LRResultName(result),@"sourcePx":@228,@"drawablePx":@(self.va.drawableSize.width),@"sourceOriginPixels":@[@(u.buttonSourceTargetOriginPixels.x),@(u.buttonSourceTargetOriginPixels.y)],@"unchangedTargetContact":@[@(u.buttonContactCenter.x),@(u.buttonContactCenter.y)],@"targetCapPx":@(u.buttonCandidateMaxOffset),@"uniformBytes":@(sizeof(u)),@"actualCompletedSerial":@(self.va.lastCompletedSubmissionSerial),@"pixelEvidence":@"NONE",@"systemProvider":@NO}];
+        self.pa.overscan=NO;self.pa.texture=self.cropA;uint64_t serial=self.va.lastCompletedSubmissionSerial;
+        LGLocalButtonRendererResult back=[self.va submitOpticalState:LRState(501,0) enabled:YES];
+        BOOL valid=back==LGLocalButtonRendererReadyForNextDraw;
+        if(valid)self.lastAcceptedA=self.pa.lastContract.frameGeneration;
+        LRAwait(CACurrentMediaTime()+2.0,^BOOL {
+            return !valid||(self.va.lastCompletedSubmissionSerial>serial&&self.va.lastCommandBufferSucceeded&&!self.va.hidden);
+        },^(BOOL observed){
+            [self record:@"I_return_to_original_nopad_source_GPU_complete" pass:valid&&observed&&self.va.lastCompletedSubmissionSerial>serial&&self.va.drawableSize.width==132 details:@{@"result":LRResultName(back),@"sourceOverscanDisabled":@(!self.pa.lastContract.sourceOverscanEnabled)}];
             [self guards];
         });
     });
