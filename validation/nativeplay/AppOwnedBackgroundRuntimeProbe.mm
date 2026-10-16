@@ -20,6 +20,11 @@ static NSString *APSHA(NSData *data) {
  if(!data)return @"unavailable";unsigned char digest[CC_SHA256_DIGEST_LENGTH];CC_SHA256(data.bytes,(CC_LONG)data.length,digest);
  NSMutableString *s=[NSMutableString string];for(unsigned char byte:digest)[s appendFormat:@"%02x",byte];return s;
 }
+static NSArray<NSNumber *> *APReadPixel(NSData *data,NSUInteger width,NSUInteger x,NSUInteger y) {
+ if(!data||!width||x>=width||y>=data.length/(width*4))return @[];
+ const uint8_t *b=(const uint8_t *)data.bytes+(y*width+x)*4;
+ return @[@(b[0]),@(b[1]),@(b[2]),@(b[3])];
+}
 @interface APOwnedProbe : NSObject
 @property(nonatomic,strong) id<MTLDevice> device;
 @property(nonatomic,strong) UIView *container,*sourceRoot;
@@ -31,6 +36,7 @@ static NSString *APSHA(NSData *data) {
 @property(nonatomic,strong) NSMutableArray<NSString *> *originalHeldPixelHashes;
 @property(nonatomic,copy) void(^completion)(NSDictionary *);
 @property(nonatomic) NSUInteger captures;
+@property(nonatomic) uint64_t targetGeneration;
 @property(nonatomic) uint64_t completedBefore;
 @property(nonatomic) BOOL finished,cancelNextRevocation;
 @property(nonatomic,strong) NSMutableArray<NSDictionary *> *availabilityEvents;
@@ -39,6 +45,7 @@ static NSString *APSHA(NSData *data) {
 - (void)completionCallbacks;
 - (void)poolFull;
 - (void)transparent;
+- (void)patternGeometry;
 - (void)finish;
 @end
 @implementation APOwnedProbe
@@ -49,7 +56,7 @@ static NSString *APSHA(NSData *data) {
  return [self.provider currentBackgroundFrameForTargetView:self.target monotonicTimestamp:CACurrentMediaTime()];
 }
 - (LGButtonOpticalState)state {
- LGButtonOpticalState s={0};LGOpticalSetEligibility(&s,true,true,true,true,true,901);return s;
+ LGButtonOpticalState s={0};LGOpticalSetEligibility(&s,true,true,true,true,true,self.targetGeneration?:901);return s;
 }
 - (void)start {
  NSCAssert(NSThread.isMainThread,@"Own-view provider test stays on main thread");
@@ -133,10 +140,46 @@ static NSString *APSHA(NSData *data) {
    // The two still-held frames must survive slot reuse byte-exactly.
    BOOL retained=YES;for(NSUInteger i=0;i<self.heldFrames.count;i++)retained=retained&&[APSHA(APPixels(self.heldFrames[i].texture)) isEqualToString:self.originalHeldPixelHashes[i]];
    [self record:@"owned_source_other_slot_pixel_immutability" pass:retained details:nil];
-   [self transparent];
+   [self patternGeometry];
   });
  });
 }
+- (void)patternGeometry {
+ [self.material invalidateLocalSource];[self.heldFrames removeAllObjects];[self.originalHeldPixelHashes removeAllObjects];
+ // Actual UIKit child geometry, not CPU material pixels. An asymmetric pattern
+ // catches upside-down captures which uniform background colors cannot detect.
+ [UIView performWithoutAnimation:^{
+  self.sourceRoot.frame=CGRectMake(0,0,88,88);
+  self.sourceRoot.backgroundColor=[UIColor colorWithRed:.8 green:.1 blue:.15 alpha:1];
+  const CGRect boxes[4]={CGRectMake(44,0,44,44),CGRectMake(0,44,44,44),CGRectMake(44,44,44,44),CGRectMake(16,0,1,88)};
+  NSArray *colors=@[[UIColor colorWithRed:.1 green:.8 blue:.2 alpha:1],[UIColor colorWithRed:.1 green:.2 blue:.85 alpha:1],[UIColor colorWithRed:.9 green:.7 blue:.1 alpha:1],UIColor.whiteColor];
+  for(NSUInteger i=0;i<4;i++){UIView *v=[[UIView alloc]initWithFrame:boxes[i]];v.backgroundColor=colors[i];v.opaque=YES;v.userInteractionEnabled=NO;[self.sourceRoot addSubview:v];}
+ }];[self.provider markSourceContentDirty];
+ APDelay(.075,^{
+  LGLocalButtonTextureFrame *f=[self pull];NSData *bytes=APPixels(f.texture);
+  NSArray *tl=APReadPixel(bytes,f.texture.width,8*3,8*3),*tr=APReadPixel(bytes,f.texture.width,68*3,8*3),*bl=APReadPixel(bytes,f.texture.width,8*3,68*3),*br=APReadPixel(bytes,f.texture.width,68*3,68*3);
+  BOOL oriented=tl.count==4&&[tl[2] intValue]>170&&[tl[1] intValue]<70&&[tr[1] intValue]>170&&[tr[2] intValue]<70&&[bl[0] intValue]>170&&[bl[2] intValue]<70&&[br[2] intValue]>210&&[br[1] intValue]>150&&[br[0] intValue]<70;
+  [self record:@"owned_source_asymmetric_actual_layer_orientation" pass:f&&oriented details:@{@"topLeftBGRA":tl?:@[],@"topRightBGRA":tr?:@[],@"bottomLeftBGRA":bl?:@[],@"bottomRightBGRA":br?:@[],@"sourcePixelsSHA256":APSHA(bytes)}];
+  if(!f||!oriented){[self finish];return;}
+  self.target.frame=CGRectMake(18,16,44,44);self.material.frame=self.target.frame;
+  LGLocalButtonTextureFrame *staleGeometry=[self pull];
+  [self record:@"owned_source_target_move_requires_new_geometry_generation" pass:!staleGeometry&&self.provider.lastStatus==LGAppOwnedButtonSourceStatusTargetGenerationRequired details:@{@"status":@(self.provider.lastStatus)}];
+  self.targetGeneration=902;BOOL advanced=[self.provider updateTargetGeometryGeneration:self.targetGeneration];[self.provider markSourceContentDirty];
+  APDelay(.075,^{
+   LGLocalButtonTextureFrame *moved=[self pull];NSData *pixels=APPixels(moved.texture);
+   NSArray *shifted=APReadPixel(pixels,moved.texture.width,14*3+1,8*3),*oldPosition=APReadPixel(pixels,moved.texture.width,16*3+1,8*3);
+   BOOL stripe=shifted.count==4&&[shifted[0] intValue]>250&&[shifted[1] intValue]>250&&[shifted[2] intValue]>250&&[oldPosition[2] intValue]>170&&[oldPosition[1] intValue]<70;
+   LGLocalButtonSourceContract c={0};if(moved)c=moved.contract;
+   [self record:@"owned_source_moved_ROI_captures_exact_shift_not_stretched_source" pass:advanced&&moved&&stripe&&c.targetGeometryGeneration==902&&fabs(c.sourceRectInOwnerPoints.origin.x-2)<.001 details:@{@"sourceOriginPoints":@[@(c.sourceRectInOwnerPoints.origin.x),@(c.sourceRectInOwnerPoints.origin.y)],@"shiftedStripeBGRA":shifted?:@[],@"oldStripePositionBGRA":oldPosition?:@[],@"newGeneration":@(c.targetGeometryGeneration)}];
+   uint64_t prior=self.material.lastCompletedSubmissionSerial;LGLocalButtonRendererResult submit=[self.material submitOpticalState:[self state] enabled:YES];BOOL ready=submit==LGLocalButtonRendererReadyForNextDraw;
+   APAwait(CACurrentMediaTime()+2,^BOOL{return !ready||(self.material.lastCommandBufferSucceeded&&self.material.lastCompletedSubmissionSerial>prior);},^(BOOL done){
+    [self record:@"owned_source_actual_renderer_completes_after_source_ROI_move" pass:ready&&done&&self.material.lastCompletedSubmissionSerial>prior details:@{@"completedSerial":@(self.material.lastCompletedSubmissionSerial),@"targetStill44pt":@(CGRectGetWidth(self.target.bounds)==44)}];
+    [self.material invalidateLocalSource];for(UIView *v in [self.sourceRoot.subviews copy])[v removeFromSuperview];[self transparent];
+   });
+  });
+ });
+}
+
 - (void)transparent {
  // Unsupported transparency is not filled with a synthetic matte. No read of
  // the containing button/window occurs to manufacture missing background.

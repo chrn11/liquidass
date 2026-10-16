@@ -15,7 +15,7 @@
     "docs/local-button-renderer.md"
   ],
   "buildBundle": "org.liquidass.native-play-lab",
-  "buildNumber": "23",
+  "buildNumber": "24",
   "inputSHA256": {
     ".github/workflows/local-renderer-macos.yml": "24c7fb8bdad1f3a48a0b39505c7b27045a65255b97b36ee4548ae35cce5c1b15",
     ".github/workflows/main.yml": "b5cf74cdccb47d409f381ba5077dd480f62d9d63c0aa83ad1d233488ee0e8b82",
@@ -166,13 +166,13 @@
     "validation/appowned-source/run_macos_ci.sh": "73e9581b29a425d411e94a72393e5443799f33c96487021e61d3ee2e4dfc7754",
     "validation/appowned-source/test_appowned_lease_policy.c": "0861b16eaed624ec3a959e9eb6ed3c74b541a9cab4345017e8864270a7cd13de",
     "validation/nativeplay/AppOwnedBackgroundRuntimeProbe.h": "d671c816e8816145663421be7d0d5610b4701afe06084c0c816e75e887c78908",
-    "validation/nativeplay/AppOwnedBackgroundRuntimeProbe.mm": "162d164ab453174cacbbab5d5cff5a00edf6d4d924f8d6ef02a4d590fea1cc8b",
+    "validation/nativeplay/AppOwnedBackgroundRuntimeProbe.mm": "a6515736c8e1e29198ff8a400531e89d0ac9a51c1a55e932c94163bb1c4858de",
     "validation/nativeplay/LocalRendererRuntimeProbe.h": "e8c3a3206e64ce9ec7cd8978f8caaf4180c4c995ea6d7ac7b3faaa6d07bcc701",
     "validation/nativeplay/LocalRendererRuntimeProbe.mm": "8221f11f9146a7ca9c31520ad3853b8862a096ab1e6ca848318c8f331ac76f9b",
     "validation/nativeplay/README.md": "0c4790cb08e7075421fe79e517c7f893a8bb5d99be0f695ad85b75fbbbd99763",
     "validation/nativeplay/baseline-overscan-source-manifest.json": "5495ec52f4de042cfc5fa5b074f55b9ae4a77341e28e60a1f0c4725306964e65",
     "validation/nativeplay/build-macos.sh": "71e284944f868bb4e8282978743fde0012ab422c4ae8cdec7b8b81395223da60",
-    "validation/nativeplay/carrier/Info.plist": "258f63dd323019262f81a44d14c649768a76685f625ba9fcd300ae47a2491ee7",
+    "validation/nativeplay/carrier/Info.plist": "823b9ed85c8b3eae62bc9b8a75f6dad07598db6139d44755b6b4b017a3394403",
     "validation/nativeplay/carrier/InputBlack.png": "045a261ac526e40889b45db33c6f99c4c459900693f2dd6ba719b416645cb307",
     "validation/nativeplay/carrier/InputBotanical.png": "028a69496776ec609800cf9bf27201e122c0075e82f25fc9bd1e4b0d8743515b",
     "validation/nativeplay/carrier/InputGray.png": "81aa64bb3f40dd54f57c52c8a1e4a2cb85467eb520f109609018f0863b48539e",
@@ -205,7 +205,7 @@
     "validation/nativeplay/contact-inputs/overscan-source-provenance.json": "2fe9d755517b8eca7c0b6950945b02037a0279ad4afe84a897d92fc0eee7494b",
     "validation/nativeplay/contact-inputs/source-provenance.json": "b4c513a952bc66b5f94516d6849f52dd32dad529bcba68610a15afa60f9af487",
     "validation/nativeplay/package_ci_app.py": "f2de5ea7295596ce87908dbd2a06c6267845dd28f927ce7f45c5b02475ad21bd",
-    "validation/nativeplay/verify_ci_inputs.py": "0dc8d03b92231b431b5219de9fccce964699bf91e29228a5476a919d5221a9c3"
+    "validation/nativeplay/verify_ci_inputs.py": "6563df780c20bd4b692743e427ead1f243e6bccb7f0c5ecab3fce29f92af6f41"
   },
   "defaultSystemCandidateOff": true,
   "runtimeSourceProvider": "Own static asset ONLY, not a system-background provider",
@@ -280,6 +280,7 @@
     ],
     "actualControlsRuntime": "NOT_RUN: compile only until authorized system integration",
     "hostIdleContinuityAndScreenTransition": "NOT_ACCEPTED: sustained-idle refresh and fallback transition need actual host test",
-    "completionCallbackRegression": "Actual provider/local class cancellation inside false availability must abort outer submit, not revive; exact source may then resume"
+    "completionCallbackRegression": "Actual provider/local class cancellation inside false availability must abort outer submit, not revive; exact source may then resume",
+    "sourceGeometryRegression": "Asymmetric actual UIView quadrants check capture orientation, white source stripe checks precise moved ROI; changed target must advance geometry generation"
   }
 }
