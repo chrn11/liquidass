@@ -66,14 +66,14 @@ assert "availabilityChangedHandler" in view_h
 assert "hasCurrentCompletedValidSubmission" in view_h
 assert "hasCurrentValidSourceFrame" in view_h
 completed = view_mm.index("BOOL succeeded=completed.status==MTLCommandBufferStatusCompleted")
-valid = view_mm.index("!succeeded || ![strongSelf frameStillValid:retainedFrame", completed)
+valid = view_mm.index('if (![strongSelf frameStillValid:retainedFrame state:submittedState', completed)
 serial = view_mm.index("strongSelf.lastCompletedSubmissionSerial=serial", valid)
 notify_true = view_mm.index("[strongSelf publishAvailability:YES]", serial)
 assert completed < valid < serial < notify_true
 assert "strongSelf.submissionSerial==serial" in view_mm
 assert "self.lastCompletedSubmissionSerial==self.submissionSerial" in view_mm
 start=view_mm.index('self.lastCommandBufferSucceeded=NO;',view_mm.index('self.sourceFrame=frame'))
-revoked=view_mm.index('[self publishAvailability:NO]',start)
+revoked=view_mm.index('[self publishAvailability:[self displayableCompletedMaterialIsAvailable]]',start)
 reentry=view_mm.index('self.submissionSerial!=serialBeforeAvailabilityCallback',revoked)
 serial_advance=view_mm.index('self.submissionSerial++;',reentry)
 assert start<revoked<reentry<serial_advance
@@ -108,3 +108,20 @@ for rel in ("Shared/LGLocalButtonSourceContract.h", "Shared/LGLocalButtonUniform
     assert hashlib.sha256((ROOT / rel).read_bytes()).hexdigest() == base_hashes[rel], rel
 
 print("PASS local binding/source guards; no compiler/runtime/device test executed")
+
+# A declared idle helper without a real call was the unfinished-agent defect.
+assert '[self lg_localUpdateIdleRefreshForResult:localResult];' in controls
+assert 'uint64_t completed = self.localMaterialView.lastCompletedSubmissionSerial' in controls
+assert 'self.localIdleAwaitingCompletion' in controls
+assert 'retainedCompletedFrameIsAvailableAt' in view_mm
+assert 'strongSelf.completedFrame=retainedFrame;' in view_mm
+assert 'self.sourceFrame=nil; self.completedFrame=nil;' in view_mm
+assert 'self.layer.opacity=visible?(float)self.requestedHostAlpha:0.0f;' in view_mm
+assert 'self.requestedHostAlpha<0.01' in view_mm
+assert 'self.submissionSerial!=serialBeforeStateCallback' in view_mm
+assert 'minimumFrameGeneration:self.completedMinimumFrameGeneration' in view_mm
+assert 'self.completedStateSnapshot.geometryGeneration!=self.stateSnapshot.geometryGeneration' in view_mm
+assert 'delay=MIN(delay,LGLocalSourceExpiryDelay(&c,now));' in view_mm
+assert 'LGLocalIdleRefreshMayRetry' in controls and 'repeats:NO' in controls
+assert 'self.localIdleLastObservedCompletion = 0;' in controls
+print('PASS real idle producer call, finite failure budget, retained completion expiry and alpha-intent source guards')

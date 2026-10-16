@@ -14,6 +14,7 @@
 #import "../Shared/LGButtonOpticalState.h"
 #import "../Shared/LGButtonPressureRoute.h"
 #import "../Shared/LGSettingsBackButtonLocalBinding.h"
+#import "../Shared/LGLocalButtonRefreshPolicy.h"
 
 static void *kLGSettingsSwitchOverlayKey = &kLGSettingsSwitchOverlayKey;
 static void *kLGSettingsSliderOverlayKey = &kLGSettingsSliderOverlayKey;
@@ -337,6 +338,10 @@ static UIColor *LGDetailTintBaseColor(void) {
 @property (nonatomic, strong) CADisplayLink *opticalDisplayLink;
 @property (nonatomic, strong) id opticalResignObserver;
 @property (nonatomic, strong) LGLocalButtonMaterialView *localMaterialView;
+@property (nonatomic, strong) NSTimer *localIdleRefreshTimer;
+@property (nonatomic, assign) uint32_t localIdleRefreshFailures;
+@property (nonatomic, assign) uint64_t localIdleLastObservedCompletion;
+@property (nonatomic, assign) BOOL localIdleAwaitingCompletion;
 @property (nonatomic, weak) id<LGLocalButtonSourceProvider> localBoundSourceProvider;
 @property (nonatomic, strong) id localResignObserver;
 @property (nonatomic, strong) id localActiveObserver;
@@ -357,6 +362,11 @@ static UIColor *LGDetailTintBaseColor(void) {
 - (void)lg_localInstallLifecycleObservers;
 - (void)lg_localRemoveLifecycleObservers;
 - (void)lg_localAvailabilityFromView:(LGLocalButtonMaterialView *)view available:(BOOL)available;
+- (void)lg_localCancelIdleRefresh;
+- (void)lg_localScheduleIdleRefresh;
+- (void)lg_localIdleRefreshFired;
+- (BOOL)lg_localIdleRefreshShouldRun;
+- (void)lg_localUpdateIdleRefreshForResult:(LGLocalButtonRendererResult)result;
 - (void)lg_localUnbindRenderer;
 - (void)lg_localLayoutSibling;
 - (BOOL)lg_localBindSourceProvider:(id<LGLocalButtonSourceProvider>)provider
@@ -517,6 +527,84 @@ static void LGSettingsPerformSoftHaptic(void) {
     self.localFallbackOverrideActive = NO;
     self.localFallbackWasHidden = NO;
 }
+- (void)lg_localCancelIdleRefresh {
+    [self.localIdleRefreshTimer invalidate];
+    self.localIdleRefreshTimer = nil;
+}
+- (BOOL)lg_localIdleRefreshShouldRun {
+    BOOL visible = self.window != nil;
+    for (UIView *v=self; v && visible; v=v.superview)
+        visible = !v.hidden && v.alpha > 0.001;
+    BOOL active = UIApplication.sharedApplication.applicationState == UIApplicationStateActive;
+    if (self.window.windowScene)
+        active = active && self.window.windowScene.activationState == UISceneActivationStateForegroundActive;
+    BOOL idleEligible = self.opticalState.eligible &&
+        self.opticalState.phase == LGOpticalIdle && [self lg_localOpticsEligible];
+    return LGLocalIdleRefreshShouldRun(
+        self.localMaterialView != nil && self.localBoundSourceProvider != nil,
+        [self lg_localRendererPreferenceEnabled], idleEligible, visible, active,
+        self.isTracking || self.opticalState.tracking, self.opticalState.wantsFrames);
+}
+- (void)lg_localScheduleIdleRefresh {
+    if (![self lg_localIdleRefreshShouldRun]) {
+        [self lg_localCancelIdleRefresh];
+        return;
+    }
+    if (self.localIdleRefreshTimer) return;
+    __weak LGSettingsBackButton *weakSelf = self;
+    self.localIdleRefreshTimer = [NSTimer timerWithTimeInterval:LGLocalIdleRefreshInterval()
+        repeats:NO block:^(__unused NSTimer *timer) {
+            LGSettingsBackButton *strongSelf = weakSelf;
+            if (strongSelf) [strongSelf lg_localIdleRefreshFired];
+        }];
+    [NSRunLoop.mainRunLoop addTimer:self.localIdleRefreshTimer forMode:NSRunLoopCommonModes];
+}
+- (void)lg_localIdleRefreshFired {
+    self.localIdleRefreshTimer = nil;
+    [self lg_opticalRefreshEligibility];
+    if (![self lg_localIdleRefreshShouldRun]) {
+        [self.localMaterialView invalidateLocalSource];
+        return;
+    }
+    [self lg_opticalSubmit];
+}
+- (void)lg_localUpdateIdleRefreshForResult:(LGLocalButtonRendererResult)result {
+    if (![self lg_localIdleRefreshShouldRun]) {
+        [self lg_localCancelIdleRefresh];
+        self.localIdleRefreshFailures = 0;
+        self.localIdleAwaitingCompletion = NO;
+        return;
+    }
+    if (result == LGLocalButtonRendererReadyForNextDraw) {
+        uint64_t completed = self.localMaterialView.lastCompletedSubmissionSerial;
+        BOOL progressed = completed > self.localIdleLastObservedCompletion;
+        if (progressed) {
+            self.localIdleLastObservedCompletion = completed;
+            self.localIdleRefreshFailures = 0;
+        } else if (self.localIdleAwaitingCompletion) {
+            self.localIdleRefreshFailures = LGLocalIdleRefreshFailureCount(
+                self.localIdleRefreshFailures, true);
+        }
+        self.localIdleAwaitingCompletion = YES;
+        // Ready schedules a frame; only actual completion resets the budget.
+        if (LGLocalIdleRefreshMayRetry(self.localIdleRefreshFailures))
+            [self lg_localScheduleIdleRefresh];
+        else [self lg_localCancelIdleRefresh];
+        return;
+    }
+    if (result == LGLocalButtonRendererSourceUnavailable ||
+        result == LGLocalButtonRendererSourceRejected ||
+        result == LGLocalButtonRendererPipelineUnavailable) {
+        self.localIdleRefreshFailures = LGLocalIdleRefreshFailureCount(
+            self.localIdleRefreshFailures, true);
+        if (LGLocalIdleRefreshMayRetry(self.localIdleRefreshFailures))
+            [self lg_localScheduleIdleRefresh];
+        else
+            [self lg_localCancelIdleRefresh];
+        return;
+    }
+    [self lg_localCancelIdleRefresh];
+}
 - (void)lg_localInstallLifecycleObservers {
     __weak LGSettingsBackButton *weakSelf = self;
     if (!self.opticalResignObserver) {
@@ -535,6 +623,7 @@ static void LGSettingsPerformSoftHaptic(void) {
         }];
 }
 - (void)lg_localRemoveLifecycleObservers {
+    [self lg_localCancelIdleRefresh];
     if (self.localResignObserver)
         [NSNotificationCenter.defaultCenter removeObserver:self.localResignObserver];
     if (self.localActiveObserver)
@@ -553,7 +642,13 @@ static void LGSettingsPerformSoftHaptic(void) {
         self.opticalState.target == 0.0f && view.hasCurrentCompletedValidSubmission;
     if (available && !self.localOpticalPressArmed && !idleCompleted) return;
     if (available) {
-        if (idleCompleted) self.localOpticalPressArmed = YES;
+        if (idleCompleted) {
+            self.localOpticalPressArmed = YES;
+            self.localIdleRefreshFailures = 0;
+            self.localIdleAwaitingCompletion = NO;
+            self.localIdleLastObservedCompletion = view.lastCompletedSubmissionSerial;
+            [self lg_localScheduleIdleRefresh];
+        }
         if (self.glass) {
             if (self.localFallbackOverrideActive && self.localFallbackGlass != self.glass)
                 [self lg_localRestoreFallback];
@@ -581,6 +676,9 @@ static void LGSettingsPerformSoftHaptic(void) {
         self.localOpticalPressArmed;
     self.localMaterialView = nil;
     self.localBoundSourceProvider = nil;
+    self.localIdleRefreshFailures = 0;
+    self.localIdleLastObservedCompletion = 0;
+    self.localIdleAwaitingCompletion = NO;
     self.localOpticalPressArmed = NO;
     [self lg_localRemoveLifecycleObservers];
     [self lg_localRestoreFallback];
@@ -748,14 +846,16 @@ static void LGSettingsPerformSoftHaptic(void) {
         LGOpticalReset(&_opticalState, _opticalGeometryGeneration);
         [self.glass lgSetButtonOpticalPressureBucket:0];
     }
+    LGLocalButtonRendererResult localResult = LGLocalButtonRendererInactive;
     if (self.localMaterialView) {
         id<LGLocalButtonSourceProvider> provider = self.localBoundSourceProvider;
         BOOL generationReady = !localOptedIn ||
             ![provider respondsToSelector:@selector(updateTargetGeometryGeneration:)] ||
             [provider updateTargetGeometryGeneration:_opticalState.geometryGeneration];
         if (!provider || !generationReady) [self.localMaterialView invalidateLocalSource];
-        else [self.localMaterialView submitOpticalState:_opticalState enabled:localOptedIn];
+        else localResult = [self.localMaterialView submitOpticalState:_opticalState enabled:localOptedIn];
     }
+    [self lg_localUpdateIdleRefreshForResult:localResult];
     if (_opticalState.eligible && (_opticalState.wantsFrames || _opticalState.tracking)) {
         if (!self.opticalDisplayLink) {
             LGButtonOpticalDisplayTarget *target = [LGButtonOpticalDisplayTarget new];
@@ -833,7 +933,8 @@ static void LGSettingsPerformSoftHaptic(void) {
     BOOL localVisualFeedback = self.localOpticalPressArmed && localRenderer &&
         LG_LOCAL_BUTTON_RENDERER_COMPILED && [self lg_localRendererPreferenceEnabled] &&
         [self lg_localOpticsEligible] &&
-        (idleCompleted || trackingSourceValid || (!highlighted && localRenderer.hasCurrentValidSourceFrame));
+        (idleCompleted || localRenderer.hasDisplayableCompletedMaterial ||
+         trackingSourceValid || (!highlighted && localRenderer.hasCurrentValidSourceFrame));
     if (localVisualFeedback) {
         // Only after a real idle GPU completion, replace this view's legacy
         // visual scale. UIControl tracking/actions/bounds/glyph remain untouched.

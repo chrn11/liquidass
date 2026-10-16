@@ -56,12 +56,12 @@ typedef NS_ENUM(NSInteger, LGLocalButtonRendererResult) {
 typedef void (^LGLocalButtonAvailabilityHandler)(LGLocalButtonMaterialView *view,
                                                    BOOL available);
 @interface LGLocalButtonMaterialView : MTKView <MTKViewDelegate>
-/* Main-thread callback for this exact renderer instance. YES means the current
- * submission serial actually completed and its leased source/frame still passes
- * validation; it does not mean the drawable was presented on screen. NO is
- * published immediately when that attestation is invalidated. Capture owners
- * weakly from the block to avoid a target -> view -> block -> target cycle.
- */
+/* Main-thread callback for this exact renderer instance. YES means either the
+ * current submission serial actually completed, or the separately retained
+ * last completed immutable frame is still source/owner/geometry-valid and fresh.
+ * It never treats a Ready/pending submission as complete, and does not claim
+ * screen presentation. The retained frame is released on replacement, invalidation
+ * or its unchanged 100ms source deadline. Capture owners weakly from the block. */
 @property(nonatomic,copy,nullable) LGLocalButtonAvailabilityHandler availabilityChangedHandler;
 - (nullable instancetype)initWithFrame:(CGRect)frame
                             targetView:(UIView *)targetView
@@ -83,6 +83,9 @@ typedef void (^LGLocalButtonAvailabilityHandler)(LGLocalButtonMaterialView *view
 @property(nonatomic,readonly) uint64_t lastCompletedSubmissionSerial;
 @property(nonatomic,readonly) BOOL lastCommandBufferSucceeded;
 @property(nonatomic,readonly) BOOL hasCurrentCompletedValidSubmission;
+// May be the prior actual completion while a newer submission is pending;
+// never a Ready result or stale frame, and never proof of screen presentation.
+@property(nonatomic,readonly) BOOL hasDisplayableCompletedMaterial;
 @property(nonatomic,readonly) BOOL hasCurrentValidSourceFrame;
 - (void)invalidateLocalSource;
 @end

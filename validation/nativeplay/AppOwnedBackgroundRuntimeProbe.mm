@@ -25,6 +25,16 @@ static NSArray<NSNumber *> *APReadPixel(NSData *data,NSUInteger width,NSUInteger
  const uint8_t *b=(const uint8_t *)data.bytes+(y*width+x)*4;
  return @[@(b[0]),@(b[1]),@(b[2]),@(b[3])];
 }
+// Test-only scheduling control. Every successful draw still executes the
+// production superclass; delaying a draw is not a GPU success or stress claim.
+@interface APDeferredMaterialView : LGLocalButtonMaterialView
+@property(nonatomic) BOOL deferFixtureDraw;
+@end
+@implementation APDeferredMaterialView
+- (void)drawInMTKView:(MTKView *)view {
+ if (!self.deferFixtureDraw) [super drawInMTKView:view];
+}
+@end
 @interface APOwnedProbe : NSObject
 @property(nonatomic,strong) id<MTLDevice> device;
 @property(nonatomic,strong) UIView *container,*sourceRoot;
@@ -43,6 +53,8 @@ static NSArray<NSNumber *> *APReadPixel(NSData *data,NSUInteger width,NSUInteger
 - (void)start;
 - (void)captureNext;
 - (void)completionCallbacks;
+- (void)completedFrameDeadline;
+- (void)hostCancellation;
 - (void)poolFull;
 - (void)transparent;
 - (void)patternGeometry;
@@ -70,7 +82,7 @@ static NSArray<NSNumber *> *APReadPixel(NSData *data,NSUInteger width,NSUInteger
  LGAppOwnedButtonSourceProvider *off=[[LGAppOwnedButtonSourceProvider alloc]initWithSourceRoot:self.sourceRoot targetView:self.target device:self.device edgePadding:UIEdgeInsetsMake(16,16,16,16) explicitOptIn:NO];
  LGLocalButtonTextureFrame *blocked=[off currentBackgroundFrameForTargetView:self.target monotonicTimestamp:CACurrentMediaTime()];[self record:@"owned_provider_optout_has_no_source" pass:blocked==nil details:@{@"status":@(off.lastStatus)}];
  self.provider=[[LGAppOwnedButtonSourceProvider alloc]initWithSourceRoot:self.sourceRoot targetView:self.target device:self.device edgePadding:UIEdgeInsetsMake(16,16,16,16) explicitOptIn:YES];
- self.material=[[LGLocalButtonMaterialView alloc]initWithFrame:self.target.frame targetView:self.target sourceProvider:self.provider allowApproximateSource:NO explicitOptIn:YES];
+ self.material=[[APDeferredMaterialView alloc]initWithFrame:self.target.frame targetView:self.target sourceProvider:self.provider allowApproximateSource:NO explicitOptIn:YES];
  if(!self.provider||!self.material){[self record:@"actual_provider_and_original_renderer_initialize" pass:NO details:nil];[self finish];return;}
  [self.container insertSubview:self.material belowSubview:self.target];
  __weak APOwnedProbe *weakSelf=self;
@@ -99,18 +111,54 @@ static NSArray<NSNumber *> *APReadPixel(NSData *data,NSUInteger width,NSUInteger
 - (void)completionCallbacks {
  BOOL signalled=[self.availabilityEvents.lastObject[@"available"] boolValue];
  [self record:@"availability_yes_requires_actual_completed_valid_frame" pass:signalled&&self.material.lastCommandBufferSucceeded&&self.material.hasCurrentCompletedValidSubmission details:@{@"completedSerial":@(self.material.lastCompletedSubmissionSerial),@"callbackNotReadySignal":@YES}];
- uint64_t serial=self.material.lastCompletedSubmissionSerial;self.cancelNextRevocation=YES;
- LGLocalButtonRendererResult refused=[self.material submitOpticalState:[self state] enabled:YES];
- [self record:@"availability_callback_invalidation_aborts_outer_submit" pass:refused==LGLocalButtonRendererInactive&&self.material.hidden&&!self.material.hasCurrentValidSourceFrame details:@{@"result":@(refused)}];
+ APDeferredMaterialView *deferred=(APDeferredMaterialView *)self.material;
+ uint64_t serial=self.material.lastCompletedSubmissionSerial;
+ NSUInteger eventsBefore=self.availabilityEvents.count;deferred.deferFixtureDraw=YES;
+ LGLocalButtonRendererResult next=[self.material submitOpticalState:[self state] enabled:YES];
+ [self record:@"new_ready_not_completed_but_prior_actual_completion_available" pass:next==LGLocalButtonRendererReadyForNextDraw&&!self.material.hasCurrentCompletedValidSubmission&&self.material.hasDisplayableCompletedMaterial&&self.material.lastCompletedSubmissionSerial==serial&&self.availabilityEvents.count==eventsBefore details:@{@"actualPriorSerial":@(serial),@"controlledTestDrawDeferral":@YES}];
+ APDelay(.050,^{
+  [self record:@"pending_refresh_keeps_fresh_completed_material_at50ms" pass:self.material.hasDisplayableCompletedMaterial&&!self.material.hasCurrentCompletedValidSubmission&&self.material.lastCompletedSubmissionSerial==serial&&self.availabilityEvents.count==eventsBefore details:@{@"sourceMaxAgeSeconds":@.1}];
+  deferred.deferFixtureDraw=NO;[self.material draw];
+  APAwait(CACurrentMediaTime()+2,^BOOL{return self.material.lastCommandBufferSucceeded&&self.material.lastCompletedSubmissionSerial>serial;},^(BOOL completed){
+   [self record:@"deferred_refresh_requires_new_actual_GPU_completion" pass:completed&&self.material.hasCurrentCompletedValidSubmission details:@{@"actualNewSerial":@(self.material.lastCompletedSubmissionSerial)}];
+   [self completedFrameDeadline];
+  });
+ });
+}
+- (void)completedFrameDeadline {
  APDelay(.025,^{
+  uint64_t serial=self.material.lastCompletedSubmissionSerial;
+  APDeferredMaterialView *deferred=(APDeferredMaterialView *)self.material;deferred.deferFixtureDraw=YES;
+  LGLocalButtonRendererResult submitted=[self.material submitOpticalState:[self state] enabled:YES];
+  [self record:@"fresher_pending_frame_does_not_count_as_new_completion" pass:submitted==LGLocalButtonRendererReadyForNextDraw&&!self.material.hasCurrentCompletedValidSubmission&&self.material.lastCompletedSubmissionSerial==serial details:nil];
+  APDelay(.050,^{
+   [self record:@"old_completed_deadline_not_extended_by_fresh_pending_source" pass:!self.material.hasDisplayableCompletedMaterial&&!self.material.hasCurrentCompletedValidSubmission&&self.material.hasCurrentValidSourceFrame&&![self.availabilityEvents.lastObject[@"available"] boolValue] details:@{@"pendingSourceStillValid":@(self.material.hasCurrentValidSourceFrame),@"originalSourceLimitSeconds":@.1,@"layerOpacity":@(self.material.layer.opacity)}];
+   deferred.deferFixtureDraw=NO;[self.material draw];
+   APAwait(CACurrentMediaTime()+2,^BOOL{return self.material.lastCommandBufferSucceeded&&self.material.lastCompletedSubmissionSerial>serial;},^(BOOL completed){
+    [self record:@"fresh_pending_frame_can_become_displayable_only_after_completion" pass:completed&&self.material.hasCurrentCompletedValidSubmission&&self.material.hasDisplayableCompletedMaterial details:@{@"actualNewSerial":@(self.material.lastCompletedSubmissionSerial)}];
+    [self hostCancellation];
+   });
+  });
+ });
+}
+- (void)hostCancellation {
+ uint64_t serial=self.material.lastCompletedSubmissionSerial;self.cancelNextRevocation=YES;
+ // A changed target generation invalidates the retained completion and invokes
+ // the false callback. The callback opts out synchronously. This is not a fake
+ // touch or a manufactured GPU failure; the source provider is unchanged.
+ LGButtonOpticalState changed=[self state];changed.geometryGeneration++;
+ LGLocalButtonRendererResult refused=[self.material submitOpticalState:changed enabled:YES];
+ [self record:@"availability_callback_invalidation_aborts_outer_submit" pass:refused==LGLocalButtonRendererInactive&&self.material.hidden&&!self.material.hasCurrentValidSourceFrame details:@{@"result":@(refused)}];
+ APDelay(.010,^{
   [self record:@"availability_cancelled_frame_does_not_revive_on_next_queue_turn" pass:self.material.hidden&&self.material.lastCompletedSubmissionSerial==serial&&!self.material.lastCommandBufferSucceeded details:nil];
   LGLocalButtonRendererResult again=[self.material submitOpticalState:[self state] enabled:YES];BOOL ready=again==LGLocalButtonRendererReadyForNextDraw;
   APAwait(CACurrentMediaTime()+2,^BOOL{return !ready||(self.material.lastCommandBufferSucceeded&&self.material.lastCompletedSubmissionSerial>serial);},^(BOOL observed){
    [self record:@"availability_valid_source_can_resume_after_host_cancellation" pass:ready&&observed&&self.material.hasCurrentCompletedValidSubmission&&[self.availabilityEvents.lastObject[@"available"] boolValue] details:@{@"actualCompletedSerial":@(self.material.lastCompletedSubmissionSerial)}];
-   [self captureNext];
+   [self.material invalidateLocalSource];[self captureNext];
   });
  });
 }
+
 - (void)captureNext {
  if(self.captures>=LG_APP_OWNED_TEXTURE_SLOT_COUNT){[self poolFull];return;}
  NSUInteger step=self.captures;

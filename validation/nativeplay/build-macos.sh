@@ -25,6 +25,9 @@ xcrun --sdk macosx clang -std=c11 -Wall -Wextra -Werror -I"$ROOT/Shared" \
 xcrun --sdk macosx clang -std=c11 -Wall -Wextra -Werror -I"$ROOT/Shared" \
   "$ROOT/scripts/test_settings_back_button_local_state.c" -framework CoreGraphics -lm -o "$OUT/host-state-test"
 "$OUT/host-state-test"
+xcrun --sdk macosx clang -std=c11 -Wall -Wextra -Werror -I"$ROOT/Shared" \
+  "$ROOT/scripts/test_local_refresh_policy.c" -framework CoreGraphics -lm -o "$OUT/local-refresh-policy-test"
+"$OUT/local-refresh-policy-test"
 python3 "$ROOT/validation/nativeplay/check_actual_hook_macos.py"
 CFLAGS=(-target arm64-apple-ios16.5 -isysroot "$SDK" -miphoneos-version-min=16.5 -fobjc-arc -fblocks -O1 -Werror=format -DLG_LOCAL_BUTTON_RENDERER_COMPILED=1 -I"$C" -I"$ROOT/Shared" -I"$ROOT/validation/nativeplay")
 # Exactly one actual source class and the same existing NativePlayLab carrier.

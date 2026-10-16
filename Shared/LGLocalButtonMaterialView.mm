@@ -2,6 +2,7 @@
 #import "LGLocalButtonUniforms.h"
 #import "LGButtonMaterialCandidate.h"
 #import "LGLocalButtonShaderSource.h"
+#import "LGLocalButtonRefreshPolicy.h"
 #import <CommonCrypto/CommonDigest.h>
 #import <QuartzCore/QuartzCore.h>
 #import <simd/simd.h>
@@ -15,6 +16,15 @@ static const char kExpectedLocalShaderSHA256[] =
 @property(nonatomic,weak) UIView *targetView;
 @property(nonatomic,strong) id<LGLocalButtonSourceProvider> sourceProvider;
 @property(nonatomic,strong) LGLocalButtonTextureFrame *sourceFrame;
+/* A second strong lease exists only for the last GPU-completed frame. It keeps
+ * old material available during refresh and is dropped at completion/reject/expiry. */
+@property(nonatomic,strong) LGLocalButtonTextureFrame *completedFrame;
+@property(nonatomic,assign) LGButtonOpticalState completedStateSnapshot;
+@property(nonatomic,assign) BOOL hasCompletedStateSnapshot;
+@property(nonatomic,assign) uint64_t completedOwnerToken;
+@property(nonatomic,assign) uint64_t completedOwnerGeneration;
+@property(nonatomic,assign) uint64_t completedMinimumFrameGeneration;
+@property(nonatomic,assign) uint64_t completedSubmissionSerial;
 // Do not retain a texture/frame just to remember identity after clear: doing
 // so would delay provider lease return. A zeroing weak reference prevents
 // address-reuse false matches once the original texture was destroyed.
@@ -27,6 +37,10 @@ static const char kExpectedLocalShaderSHA256[] =
 @property(nonatomic,strong) dispatch_semaphore_t localInFlight;
 @property(nonatomic,assign) LGButtonOpticalState stateSnapshot;
 @property(nonatomic,assign) BOOL hasStateSnapshot;
+@property(nonatomic,assign) CGFloat requestedHostAlpha;
+@property(nonatomic,assign) BOOL contentSuppressionActive;
+@property(nonatomic,assign) BOOL alphaIntentInitialized;
+- (void)setCompletedContentVisible:(BOOL)visible;
 @property(nonatomic,assign) BOOL explicitOptIn;
 @property(nonatomic,assign) BOOL allowApproximateSource;
 @property(nonatomic,assign) uint64_t boundOwnerToken;
@@ -38,15 +52,30 @@ static const char kExpectedLocalShaderSHA256[] =
 @property(nonatomic,assign) uint64_t lastCompletedSubmissionSerial;
 @property(nonatomic,assign) BOOL lastCommandBufferSucceeded;
 @property(nonatomic,assign) BOOL pendingDraw;
+@property(nonatomic,assign) BOOL drawRequestScheduled;
+- (void)requestLocalDraw;
 @property(nonatomic,assign) BOOL availabilityPublished;
 @property(nonatomic,strong) NSTimer *sourceExpiryTimer;
+@property(nonatomic,assign) uint64_t sourceExpiryGuardGeneration;
 @property(nonatomic,strong) id resignObserver;
 - (BOOL)prepareLocalPipeline;
 - (BOOL)targetCanRender;
 - (void)clearLocalFrame;
 - (void)publishAvailability:(BOOL)available;
 - (BOOL)currentCompletedFrameIsAvailable;
+- (BOOL)retainedCompletedFrameIsAvailableAt:(CFTimeInterval)now;
+- (BOOL)displayableCompletedMaterialIsAvailable;
 - (BOOL)frameStillValid:(LGLocalButtonTextureFrame *)frame now:(CFTimeInterval)now;
+- (BOOL)frameStillValid:(LGLocalButtonTextureFrame *)frame
+                  state:(LGButtonOpticalState)state
+             ownerToken:(uint64_t)ownerToken
+       ownerGeneration:(uint64_t)ownerGeneration
+minimumFrameGeneration:(uint64_t)minimumFrameGeneration
+                    now:(CFTimeInterval)now;
+- (void)armSourceExpiryGuard;
+- (void)sourceExpiryGuardFired:(uint64_t)guardGeneration;
+- (void)discardRetainedCompletedFrame;
+- (void)abandonCurrentSubmissionPreservingValidCompletion;
 @end
 
 @interface LGLocalButtonTextureFrame ()
@@ -86,7 +115,9 @@ static const char kExpectedLocalShaderSHA256[] =
         self.framebufferOnly=YES; self.colorPixelFormat=MTLPixelFormatBGRA8Unorm_sRGB;
         self.clearColor=MTLClearColorMake(0,0,0,0); self.opaque=NO;
         self.backgroundColor=UIColor.clearColor; self.userInteractionEnabled=NO;
-        self.hidden=YES; self.accessibilityElementsHidden=YES;
+        _requestedHostAlpha=[super alpha]; _alphaIntentInitialized=YES;
+        self.hidden=YES; [self setCompletedContentVisible:NO];
+        self.accessibilityElementsHidden=YES;
         self.layer.cornerRadius=LG_LOCAL_BUTTON_VIEW_POINTS * 0.5;
         self.layer.cornerCurve=kCACornerCurveContinuous;
         self.layer.masksToBounds=YES;
@@ -107,19 +138,64 @@ static const char kExpectedLocalShaderSHA256[] =
     if (_resignObserver) [NSNotificationCenter.defaultCenter removeObserver:_resignObserver];
 }
 
+- (void)setCompletedContentVisible:(BOOL)visible {
+    self.contentSuppressionActive=!visible;
+    self.layer.opacity=visible?(float)self.requestedHostAlpha:0.0f;
+}
+- (void)setAlpha:(CGFloat)alpha {
+    _requestedHostAlpha=alpha;
+    [super setAlpha:alpha];
+    if (!_alphaIntentInitialized) return;
+    if (_contentSuppressionActive) self.layer.opacity=0.0f;
+    if (!isfinite(alpha) || alpha<0.01) [self clearLocalFrame];
+}
 - (void)setAvailabilityChangedHandler:(LGLocalButtonAvailabilityHandler)handler {
     _availabilityChangedHandler=[handler copy];
     if (!handler) { self.availabilityPublished=NO; return; }
-    BOOL available=[self currentCompletedFrameIsAvailable];
+    BOOL available=[self displayableCompletedMaterialIsAvailable];
     self.availabilityPublished=available;
     handler(self,available);
 }
 
 - (BOOL)currentCompletedFrameIsAvailable {
-    return !self.hidden && !self.pendingDraw && self.sourceFrame &&
+    CFTimeInterval now=CACurrentMediaTime();
+    return !self.hidden && self.layer.opacity>0.0f && !self.pendingDraw &&
+        self.sourceFrame && self.sourceFrame==self.completedFrame &&
         self.lastCommandBufferSucceeded &&
         self.lastCompletedSubmissionSerial==self.submissionSerial &&
-        [self frameStillValid:self.sourceFrame now:CACurrentMediaTime()];
+        self.completedSubmissionSerial==self.submissionSerial &&
+        [self frameStillValid:self.sourceFrame now:now];
+}
+
+- (BOOL)retainedCompletedFrameIsAvailableAt:(CFTimeInterval)now {
+    LGLocalButtonTextureFrame *frame=self.completedFrame;
+    if (!frame || !self.hasCompletedStateSnapshot || self.hidden ||
+        self.layer.opacity<=0.0f || !self.stateSnapshot.eligible ||
+        self.completedSubmissionSerial!=self.lastCompletedSubmissionSerial ||
+        self.completedStateSnapshot.geometryGeneration!=self.stateSnapshot.geometryGeneration)
+        return NO;
+    LGLocalButtonSourceContract c=frame.contract;
+    BOOL sameOwner=!self.sourceFrame ||
+        (self.sourceFrame.contract.ownerInstanceToken==c.ownerInstanceToken &&
+         self.sourceFrame.contract.ownerGeneration==c.ownerGeneration);
+    BOOL sameGeometry=!self.sourceFrame ||
+        self.sourceFrame.contract.targetGeometryGeneration==c.targetGeometryGeneration;
+    BOOL alive=[self.sourceProvider isOwnerInstanceAlive:c.ownerInstanceToken
+                                              generation:c.ownerGeneration];
+    BOOL eligible=self.explicitOptIn && self.hasStateSnapshot &&
+        self.stateSnapshot.eligible && [self targetCanRender];
+    if (!LGLocalRetainedCompletionFresh(now,c.frameTimestampMonotonic,sameOwner,
+                                        sameGeometry,alive,eligible)) return NO;
+    return [self frameStillValid:frame state:self.completedStateSnapshot
+                      ownerToken:self.completedOwnerToken
+                ownerGeneration:self.completedOwnerGeneration
+           minimumFrameGeneration:self.completedMinimumFrameGeneration now:now];
+}
+
+- (BOOL)displayableCompletedMaterialIsAvailable {
+    BOOL current=[self currentCompletedFrameIsAvailable];
+    BOOL retained=[self retainedCompletedFrameIsAvailableAt:CACurrentMediaTime()];
+    return LGLocalStableCompletedAvailability(current,retained);
 }
 
 - (void)publishAvailability:(BOOL)available {
@@ -128,11 +204,11 @@ static const char kExpectedLocalShaderSHA256[] =
         dispatch_async(dispatch_get_main_queue(), ^{
             LGLocalButtonMaterialView *strongSelf=weakSelf;
             if (strongSelf) [strongSelf publishAvailability:
-                [strongSelf currentCompletedFrameIsAvailable]];
+                [strongSelf displayableCompletedMaterialIsAvailable]];
         });
         return;
     }
-    if (available && ![self currentCompletedFrameIsAvailable]) available=NO;
+    if (available && ![self displayableCompletedMaterialIsAvailable]) available=NO;
     if (self.availabilityPublished==available) return;
     self.availabilityPublished=available;
     LGLocalButtonAvailabilityHandler handler=self.availabilityChangedHandler;
@@ -191,16 +267,22 @@ static const char kExpectedLocalShaderSHA256[] =
 
 - (void)clearLocalFrame {
     [self.sourceExpiryTimer invalidate]; self.sourceExpiryTimer=nil;
+    if (self.sourceExpiryGuardGeneration<UINT64_MAX) self.sourceExpiryGuardGeneration++;
     if (self.submissionSerial<UINT64_MAX) self.submissionSerial++;
-    self.sourceFrame=nil; self.activeSourceKind=LGLocalSourceNone;
-    self.hidden=YES; self.pendingDraw=NO;
+    self.sourceFrame=nil; self.completedFrame=nil;
+    self.hasCompletedStateSnapshot=NO;
+    self.completedOwnerToken=0; self.completedOwnerGeneration=0;
+    self.completedMinimumFrameGeneration=0; self.completedSubmissionSerial=0;
+    self.activeSourceKind=LGLocalSourceNone;
+    self.hidden=YES; [self setCompletedContentVisible:NO]; self.pendingDraw=NO;
     self.hasStateSnapshot=NO; self.lastCommandBufferSucceeded=NO;
     [self publishAvailability:NO];
 }
 - (BOOL)targetCanRender {
     UIView *target=self.targetView;
     if (!target || !target.window || self.window!=target.window ||
-        !self.superview || target.superview!=self.superview || self.alpha<0.01 ||
+        !self.superview || target.superview!=self.superview ||
+        !isfinite(self.requestedHostAlpha) || self.requestedHostAlpha<0.01 ||
         UIApplication.sharedApplication.applicationState!=UIApplicationStateActive)
         return NO;
     if (target.window.windowScene && target.window.windowScene.activationState!=UISceneActivationStateForegroundActive)
@@ -213,19 +295,77 @@ static const char kExpectedLocalShaderSHA256[] =
         if (v.hidden || v.alpha<0.01) return NO;
     return YES;
 }
-- (void)armExpiryForFrame:(LGLocalButtonTextureFrame *)frame {
-    [self.sourceExpiryTimer invalidate];
-    const uint64_t serial=self.submissionSerial;
-    LGLocalButtonSourceContract c=frame.contract;
-    NSTimeInterval delay=LGLocalSourceExpiryDelay(&c,CACurrentMediaTime());
+- (void)discardRetainedCompletedFrame {
+    self.completedFrame=nil;
+    self.hasCompletedStateSnapshot=NO;
+    self.completedOwnerToken=0; self.completedOwnerGeneration=0;
+    self.completedMinimumFrameGeneration=0; self.completedSubmissionSerial=0;
+    self.lastCommandBufferSucceeded=NO;
+    // Keep a still-fresh candidate drawable alive for an in-flight refresh, but
+    // never expose stale MTKView contents over the restored stock glass.
+    [self setCompletedContentVisible:NO];
+    [self publishAvailability:[self displayableCompletedMaterialIsAvailable]];
+}
+
+- (void)abandonCurrentSubmissionPreservingValidCompletion {
+    if (![self retainedCompletedFrameIsAvailableAt:CACurrentMediaTime()]) {
+        [self clearLocalFrame]; return;
+    }
+    if (self.submissionSerial==UINT64_MAX) { [self clearLocalFrame]; return; }
+    self.submissionSerial++;
+    self.sourceFrame=nil; self.activeSourceKind=LGLocalSourceNone;
+    self.pendingDraw=NO; self.lastCommandBufferSucceeded=NO;
+    [self setCompletedContentVisible:YES];
+    [self armSourceExpiryGuard];
+    [self publishAvailability:YES];
+}
+
+- (void)armSourceExpiryGuard {
+    [self.sourceExpiryTimer invalidate]; self.sourceExpiryTimer=nil;
+    if (self.sourceExpiryGuardGeneration==UINT64_MAX) {
+        [self clearLocalFrame]; return;
+    }
+    const uint64_t guard=++self.sourceExpiryGuardGeneration;
+    CFTimeInterval now=CACurrentMediaTime();
+    CFTimeInterval delay=INFINITY;
+    if (self.sourceFrame) {
+        LGLocalButtonSourceContract c=self.sourceFrame.contract;
+        delay=MIN(delay,LGLocalSourceExpiryDelay(&c,now));
+    }
+    if (self.completedFrame) {
+        LGLocalButtonSourceContract c=self.completedFrame.contract;
+        delay=MIN(delay,LGLocalSourceExpiryDelay(&c,now));
+    }
+    if (!isfinite(delay)) return;
     __weak LGLocalButtonMaterialView *weakSelf=self;
     self.sourceExpiryTimer=[NSTimer timerWithTimeInterval:fmax(delay,0.0001)
         repeats:NO block:^(__unused NSTimer *timer) {
             LGLocalButtonMaterialView *strongSelf=weakSelf;
-            if (strongSelf && strongSelf.submissionSerial==serial)
-                [strongSelf clearLocalFrame];
+            if (strongSelf) [strongSelf sourceExpiryGuardFired:guard];
         }];
     [NSRunLoop.mainRunLoop addTimer:self.sourceExpiryTimer forMode:NSRunLoopCommonModes];
+}
+
+- (void)sourceExpiryGuardFired:(uint64_t)guardGeneration {
+    if (![NSThread isMainThread]) {
+        __weak LGLocalButtonMaterialView *weakSelf=self;
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [weakSelf sourceExpiryGuardFired:guardGeneration];
+        });
+        return;
+    }
+    if (guardGeneration!=self.sourceExpiryGuardGeneration) return;
+    self.sourceExpiryTimer=nil;
+    CFTimeInterval now=CACurrentMediaTime();
+    if (self.sourceFrame && ![self frameStillValid:self.sourceFrame now:now]) {
+        [self clearLocalFrame]; return;
+    }
+    if (self.completedFrame && ![self retainedCompletedFrameIsAvailableAt:now])
+        [self discardRetainedCompletedFrame];
+    if (!self.sourceFrame && !self.completedFrame) {
+        [self clearLocalFrame]; return;
+    }
+    [self armSourceExpiryGuard];
 }
 - (void)invalidateLocalSource {
     if (![NSThread isMainThread]) {
@@ -238,7 +378,16 @@ static const char kExpectedLocalShaderSHA256[] =
 - (LGLocalButtonRendererResult)submitOpticalState:(LGButtonOpticalState)state
                                           enabled:(BOOL)enabled {
     if (![NSThread isMainThread]) return LGLocalButtonRendererInactive;
+    const uint64_t serialBeforeStateCallback=self.submissionSerial;
     self.stateSnapshot=state; self.hasStateSnapshot=YES;
+    CFTimeInterval now=CACurrentMediaTime();
+    if (self.completedFrame && ![self retainedCompletedFrameIsAvailableAt:now])
+        [self discardRetainedCompletedFrame];
+    else
+        [self publishAvailability:[self displayableCompletedMaterialIsAvailable]];
+    // Availability callbacks can synchronously clear/unbind this exact view.
+    if (self.submissionSerial!=serialBeforeStateCallback || !self.hasStateSnapshot)
+        return LGLocalButtonRendererInactive;
     if (!LG_LOCAL_BUTTON_RENDERER_COMPILED || !self.explicitOptIn || !enabled) {
         [self clearLocalFrame]; return LGLocalButtonRendererDisabled;
     }
@@ -261,7 +410,6 @@ static const char kExpectedLocalShaderSHA256[] =
     if (!LGLocalRectSame(targetFrame,self.frame)) {
         [self clearLocalFrame]; return LGLocalButtonRendererSourceRejected;
     }
-    CFTimeInterval now=CACurrentMediaTime();
     LGLocalButtonTextureFrame *frame=[self.sourceProvider
         currentBackgroundFrameForTargetView:target monotonicTimestamp:now];
     if (!frame || !frame.texture) {
@@ -315,10 +463,13 @@ static const char kExpectedLocalShaderSHA256[] =
         [self clearLocalFrame]; return LGLocalButtonRendererInactive;
     }
     self.lastCommandBufferSucceeded=NO;
+    BOOL retainedFresh=[self retainedCompletedFrameIsAvailableAt:CACurrentMediaTime()];
+    if (!retainedFresh && self.completedFrame) [self discardRetainedCompletedFrame];
+    else if (!retainedFresh) [self setCompletedContentVisible:NO];
     const uint64_t serialBeforeAvailabilityCallback=self.submissionSerial;
-    [self publishAvailability:NO];
-    // A host availability handler may synchronously opt out or invalidate.
-    // Do not revive its cleared frame by continuing this outer submission.
+    [self publishAvailability:[self displayableCompletedMaterialIsAvailable]];
+    // This check deliberately precedes pendingDraw/visibility/serial mutation:
+    // a synchronous callback invalidation cannot revive a cleared submission.
     if (self.submissionSerial!=serialBeforeAvailabilityCallback ||
         self.sourceFrame!=frame || !self.hasStateSnapshot)
         return LGLocalButtonRendererInactive;
@@ -335,8 +486,8 @@ static const char kExpectedLocalShaderSHA256[] =
         self.explicitOptIn,state.eligible,self.window==target.window,true,
         self.localPipeline!=nil&&self.localSampler!=nil&&self.localCommandQueue!=nil);
     if (!allowed) { [self clearLocalFrame]; return LGLocalButtonRendererInactive; }
-    [self armExpiryForFrame:frame];
-    [self setNeedsDisplay];
+    [self armSourceExpiryGuard];
+    [self requestLocalDraw];
     return LGLocalButtonRendererReadyForNextDraw;
 }
 
@@ -346,9 +497,21 @@ static const char kExpectedLocalShaderSHA256[] =
 }
 
 - (BOOL)frameStillValid:(LGLocalButtonTextureFrame *)frame now:(CFTimeInterval)now {
+    return [self frameStillValid:frame state:self.stateSnapshot
+                      ownerToken:self.boundOwnerToken
+                ownerGeneration:self.boundOwnerGeneration
+           minimumFrameGeneration:self.minimumFrameGeneration now:now];
+}
+
+- (BOOL)frameStillValid:(LGLocalButtonTextureFrame *)frame
+                  state:(LGButtonOpticalState)state
+             ownerToken:(uint64_t)ownerToken
+       ownerGeneration:(uint64_t)ownerGeneration
+minimumFrameGeneration:(uint64_t)minimumFrameGeneration
+                    now:(CFTimeInterval)now {
     UIView *target=self.targetView;
-    if (!frame || !self.hasStateSnapshot || !self.stateSnapshot.eligible ||
-        !self.explicitOptIn || ![self targetCanRender] ||
+    if (!frame || !target || !state.eligible || !self.explicitOptIn ||
+        ![self targetCanRender] || !self.superview || target.superview!=self.superview ||
         fabs(CGRectGetWidth(target.bounds)-LG_LOCAL_BUTTON_VIEW_POINTS)>0.01 ||
         fabs(CGRectGetHeight(target.bounds)-LG_LOCAL_BUTTON_VIEW_POINTS)>0.01 ||
         fabs(CGRectGetWidth(self.bounds)-LG_LOCAL_BUTTON_VIEW_POINTS)>0.01 ||
@@ -365,11 +528,11 @@ static const char kExpectedLocalShaderSHA256[] =
         !(frame.texture.usage&MTLTextureUsageShaderRead)) return NO;
     BOOL alive=[self.sourceProvider isOwnerInstanceAlive:c.ownerInstanceToken
                                               generation:c.ownerGeneration];
-    return LGLocalValidateSourceContract(&c,now,self.boundOwnerToken,
-        self.boundOwnerGeneration,self.minimumFrameGeneration,
-        self.stateSnapshot.geometryGeneration,(uint32_t)frame.texture.width,
-        (uint32_t)frame.texture.height,(uint32_t)frame.texture.pixelFormat,
-        (uint32_t)self.colorPixelFormat,alive,self.allowApproximateSource)==LGLocalSourceValid;
+    return LGLocalValidateSourceContract(&c,now,ownerToken,ownerGeneration,
+        minimumFrameGeneration,state.geometryGeneration,
+        (uint32_t)frame.texture.width,(uint32_t)frame.texture.height,
+        (uint32_t)frame.texture.pixelFormat,(uint32_t)self.colorPixelFormat,
+        alive,self.allowApproximateSource)==LGLocalSourceValid;
 }
 
 - (BOOL)isApproximateSource {
@@ -378,6 +541,10 @@ static const char kExpectedLocalShaderSHA256[] =
 - (BOOL)isSystemLiveBackdrop { return NO; }
 - (BOOL)hasCurrentCompletedValidSubmission {
     return [self currentCompletedFrameIsAvailable];
+}
+- (BOOL)hasDisplayableCompletedMaterial {
+    if (!NSThread.isMainThread) return NO;
+    return [self displayableCompletedMaterialIsAvailable];
 }
 - (BOOL)hasCurrentValidSourceFrame {
     return !self.hidden && self.sourceFrame && self.hasStateSnapshot &&
@@ -396,6 +563,19 @@ static const char kExpectedLocalShaderSHA256[] =
         self.explicitOptIn,out);
 }
 
+- (void)requestLocalDraw {
+    if (!NSThread.isMainThread || self.drawRequestScheduled || !self.pendingDraw) return;
+    self.drawRequestScheduled=YES;
+    [self setNeedsDisplay];
+    __weak LGLocalButtonMaterialView *weakSelf=self;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        LGLocalButtonMaterialView *strongSelf=weakSelf;
+        if (!strongSelf) return;
+        strongSelf.drawRequestScheduled=NO;
+        if (strongSelf.pendingDraw && strongSelf.sourceFrame && !strongSelf.hidden)
+            [strongSelf draw];
+    });
+}
 - (void)drawInMTKView:(MTKView *)view {
     if (!NSThread.isMainThread) return;
     LGLocalButtonTextureFrame *frame=self.sourceFrame;
@@ -408,21 +588,29 @@ static const char kExpectedLocalShaderSHA256[] =
     id<CAMetalDrawable> drawable=view.currentDrawable;
     MTLRenderPassDescriptor *pass=view.currentRenderPassDescriptor;
     if (!drawable || !pass || drawable.texture.pixelFormat!=self.colorPixelFormat) {
-        dispatch_semaphore_signal(self.localInFlight); [self clearLocalFrame]; return;
+        dispatch_semaphore_signal(self.localInFlight);
+        [self abandonCurrentSubmissionPreservingValidCompletion]; return;
     }
+    LGButtonOpticalState submittedState=self.stateSnapshot;
     LGLocalButtonUniforms uniforms={};
     if (![self buildUniformsForFrame:frame drawableSize:view.drawableSize
-                              state:self.stateSnapshot output:&uniforms]) {
+                              state:submittedState output:&uniforms]) {
         dispatch_semaphore_signal(self.localInFlight); [self clearLocalFrame]; return;
     }
     pass.colorAttachments[0].loadAction=MTLLoadActionClear;
     pass.colorAttachments[0].storeAction=MTLStoreActionStore;
     pass.colorAttachments[0].clearColor=MTLClearColorMake(0,0,0,0);
     id<MTLCommandBuffer> command=[self.localCommandQueue commandBuffer];
-    if (!command) { dispatch_semaphore_signal(self.localInFlight); [self clearLocalFrame]; return; }
+    if (!command) {
+        dispatch_semaphore_signal(self.localInFlight);
+        [self abandonCurrentSubmissionPreservingValidCompletion]; return;
+    }
     command.label=@"LiquidAss local 44pt source-to-drawable";
     id<MTLRenderCommandEncoder> encoder=[command renderCommandEncoderWithDescriptor:pass];
-    if (!encoder) { dispatch_semaphore_signal(self.localInFlight); [self clearLocalFrame]; return; }
+    if (!encoder) {
+        dispatch_semaphore_signal(self.localInFlight);
+        [self abandonCurrentSubmissionPreservingValidCompletion]; return;
+    }
     [encoder setRenderPipelineState:self.localPipeline];
     [encoder setFragmentTexture:frame.texture atIndex:0];
     [encoder setFragmentTexture:frame.texture atIndex:1]; /* mask disabled in this path */
@@ -445,16 +633,33 @@ static const char kExpectedLocalShaderSHA256[] =
             if (!strongSelf) return;
             if (strongSelf.submissionSerial==serial &&
                 strongSelf.sourceFrame==retainedFrame) {
-                if (!succeeded || ![strongSelf frameStillValid:retainedFrame now:CACurrentMediaTime()]) {
+                CFTimeInterval now=CACurrentMediaTime();
+                if (!succeeded) {
                     [strongSelf clearLocalFrame];
                     return;
                 }
+                LGLocalButtonSourceContract contract=retainedFrame.contract;
+                if (![strongSelf frameStillValid:retainedFrame state:submittedState
+                    ownerToken:contract.ownerInstanceToken
+                    ownerGeneration:contract.ownerGeneration
+                    minimumFrameGeneration:contract.frameGeneration now:now]) {
+                    [strongSelf clearLocalFrame]; return;
+                }
+                strongSelf.completedFrame=retainedFrame;
+                strongSelf.completedStateSnapshot=submittedState;
+                strongSelf.hasCompletedStateSnapshot=YES;
+                strongSelf.completedOwnerToken=contract.ownerInstanceToken;
+                strongSelf.completedOwnerGeneration=contract.ownerGeneration;
+                strongSelf.completedMinimumFrameGeneration=contract.frameGeneration;
+                strongSelf.completedSubmissionSerial=serial;
                 strongSelf.lastCommandBufferSucceeded=YES;
                 strongSelf.lastCompletedSubmissionSerial=serial;
+                [strongSelf setCompletedContentVisible:YES];
+                [strongSelf armSourceExpiryGuard];
                 [strongSelf publishAvailability:YES];
             }
             if (strongSelf.pendingDraw && strongSelf.sourceFrame)
-                [strongSelf setNeedsDisplay];
+                [strongSelf requestLocalDraw];
         });
     }];
     [command presentDrawable:drawable];
