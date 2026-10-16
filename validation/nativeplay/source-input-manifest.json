@@ -142,7 +142,7 @@
     "scripts/test_button_contact_source.py": "1e72a2492c81d84fe0480d2dde417badd55e81cec27b8eef72b4d960b669f242",
     "scripts/test_button_material_candidate.c": "c6f2b4e00f8a0fa079add32c678381bc0b3a13d38599a917a219174e80062d4d",
     "scripts/test_button_optics_source_identity.py": "f544027d05d8d33a4caef7ce5a93e5c788e19ca31fe371e028c03087860ab39c",
-    "scripts/test_button_overscan_contract.c": "d90c714dbbdac31f099a54bbd2e842be52553655209b10f5e8a046a58733de1b",
+    "scripts/test_button_overscan_contract.c": "5e063213025693f23f2a9e15fdd68742c5ba042ace5063c4302f6397c2ff9696",
     "scripts/test_button_overscan_source.py": "a097897f6fdcba98bdc048c10e466a9e3901dc90e3a932aed4857acf868a464e",
     "scripts/test_local_button_renderer.py": "df9ce679530ac50623724698730abaeffaa9990ad35112207e2af81159be643e",
     "scripts/test_local_button_source_contract.c": "c58f0716de8d27d4be1c3740c7f7fec6fcbbe4ea687c327b2a8ea8c59a8d5a89",

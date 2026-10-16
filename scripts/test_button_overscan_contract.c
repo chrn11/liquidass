@@ -31,8 +31,8 @@ int main(void){
  c=make(3,133);c.textureHeight=132;c.sourceOverscanEnabled=true;
  c.sourceRectInOwnerPoints.origin.x-=1.0/6.0;c.sourceRectInOwnerPoints.size.width+=1.0/3.0;
  assert(LGLocalSourceLayoutForContract(&c,133,132,&l)); // explicit fractional-pixel ROI with exact source extent
- assert(LGLocalButtonBuildUniforms(&c,&state,132,132,3,true,&u));assert(fabsf(u.buttonSourceTargetOriginPixels.x-.5)<1e-5);
- assert(fabsf(LGBOMapTargetUVToSource(.5,132,133,.5,true)-.5)<1e-7);
+ assert(LGLocalButtonBuildUniforms(&c,&state,132,132,3,true,&u));assert(fabsf(u.buttonSourceTargetOriginPixels.x-.5f)<1e-5f);
+ assert(fabsf(LGBOMapTargetUVToSource(.5f,132,133,.5f,true)-.5f)<1e-7f);
  c.sourceRectInOwnerPoints.origin.x=NAN;assert(!LGLocalSourceLayoutForContract(&c,133,132,&l));
  c=make(3,228);c.sourceOverscanEnabled=true;c.sourceRectInOwnerPoints=CGRectMake(-6,4,76,76);
  assert(!LGLocalSourceLayoutForContract(&c,227,228,&l));
