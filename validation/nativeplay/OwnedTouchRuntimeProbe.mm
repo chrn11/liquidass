@@ -118,6 +118,10 @@ static BOOL LGTouchAxisAlignedPath(UIView *view) {
 @property(nonatomic) BOOL steadyPressureReached;
 @property(nonatomic) float maximumOpticalPressure;
 @property(nonatomic) BOOL didCleanup;
+@property(nonatomic) BOOL readyRecordPublished;
+@property(nonatomic) CGRect lastPublishedScreenRect;
+- (void)publishOwnTouchReadyRecord;
+- (void)removeOwnTouchReadyRecord;
 @property(nonatomic) BOOL overlayGeometryValid;
 @property(nonatomic) BOOL initialSubmitReady;
 @property(nonatomic) BOOL initialUniformsBuilt;
@@ -347,6 +351,47 @@ static NSArray<UIColor *> *LGOwnedTouchPalette(void) {
     }
     self.sourceRoot=root; self.sourceBands=[bands copy];
 }
+- (NSURL *)ownTouchReadyURL {
+    NSURL *docs=[NSFileManager.defaultManager URLsForDirectory:NSDocumentDirectory inDomains:NSUserDomainMask].firstObject;
+    return [docs URLByAppendingPathComponent:@"native-owned-touch-ready.json"];
+}
+- (void)removeOwnTouchReadyRecord {
+    NSURL *url=[self ownTouchReadyURL];NSData *data=[NSData dataWithContentsOfURL:url];
+    NSDictionary *record=data?[NSJSONSerialization JSONObjectWithData:data options:0 error:nil]:nil;
+    if ([record[@"probeRunIdentifier"] isEqual:self.runIdentifier])
+        [NSFileManager.defaultManager removeItemAtURL:url error:nil];
+    self.readyRecordPublished=NO;
+}
+- (void)publishOwnTouchReadyRecord {
+    if (self.didCleanup || ![self isVisibleAndActive] ||
+        !self.material.hasCurrentCompletedValidSubmission) return;
+    UIWindow *window=self.target.window;
+    CGRect screenRect=[self.target convertRect:self.target.bounds toView:nil];
+    CGPoint center=CGPointMake(CGRectGetMidX(self.target.bounds),CGRectGetMidY(self.target.bounds));
+    CGPoint point=[self.target convertPoint:center toView:window];
+    UIView *hit=[window hitTest:point withEvent:nil];
+    BOOL actualHit=hit==self.target || [hit isDescendantOfView:self.target];
+    if (!actualHit || !LGTouchFiniteRect(screenRect)) {
+        [self removeOwnTouchReadyRecord];return;
+    }
+    if(self.readyRecordPublished && CGRectEqualToRect(self.lastPublishedScreenRect,screenRect))return;
+    NSDictionary *record=@{@"schemaVersion":@1,@"ready":@YES,
+        @"bundleIdentifier":NSBundle.mainBundle.bundleIdentifier?:@"",
+        @"build":NSBundle.mainBundle.infoDictionary[@"CFBundleVersion"]?:@"",
+        @"probeIdentifier":kOwnedTouchIdentifier,@"probeRunIdentifier":self.runIdentifier,
+        @"createdAtUnix":@(NSDate.date.timeIntervalSince1970),
+        @"targetRectScreenPoints":@{@"x":@(screenRect.origin.x),@"y":@(screenRect.origin.y),@"width":@(screenRect.size.width),@"height":@(screenRect.size.height)},
+        @"ownPublicWindowHitTestConfirmed":@(actualHit),
+        @"actualInitialGPUCompletedSerial":@(self.material.lastCompletedSubmissionSerial),
+        @"windowBounds":NSStringFromCGRect(window.bounds),
+        @"foregroundActiveAtPublish":@YES,@"inputNotSynthesizedByFixture":@YES,
+        @"notSettingsOrSystemHost":@YES};
+    NSData *encoded=[NSJSONSerialization dataWithJSONObject:record options:NSJSONWritingPrettyPrinted error:nil];
+    if(encoded && [encoded writeToURL:[self ownTouchReadyURL] options:NSDataWritingAtomic error:nil]){
+        self.readyRecordPublished=YES;self.lastPublishedScreenRect=screenRect;
+    }
+}
+
 - (BOOL)setupWithDevice:(id<MTLDevice>)device {
     UIView *button=self.originalButton, *parent=button.superview;
     NSString *bundle=NSBundle.mainBundle.bundleIdentifier?:@"";
@@ -673,6 +718,7 @@ static NSArray<UIColor *> *LGOwnedTouchPalette(void) {
     sample[@"actualCommandBufferSucceeded"]=@(view.lastCommandBufferSucceeded);
     sample[@"currentCompletedValidSubmission"]=@(view.hasCurrentCompletedValidSubmission);
     sample[@"completionObservedAtMonotonic"]=@(CACurrentMediaTime());
+    [self publishOwnTouchReadyRecord];
     NSDictionary *tuple=sample[@"sharedBuilderUniformTuple"];
     NSArray *center=tuple[@"contactCenterNormalized"];
     BOOL contact=[tuple[@"contactEnabled"] floatValue]>=0.5f &&
@@ -982,6 +1028,7 @@ static NSArray<UIColor *> *LGOwnedTouchPalette(void) {
 }
 - (void)cleanupFixture {
     if (self.didCleanup) return;
+    [self removeOwnTouchReadyRecord];
     self.didCleanup=YES;
     [self.refreshTimer invalidate]; self.refreshTimer=nil;
     [self.displayLink invalidate]; self.displayLink=nil; self.displayLinkTarget=nil;

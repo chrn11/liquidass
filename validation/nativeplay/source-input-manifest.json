@@ -15,7 +15,7 @@
     "docs/local-button-renderer.md"
   ],
   "buildBundle": "org.liquidass.native-play-lab",
-  "buildNumber": "27",
+  "buildNumber": "28",
   "inputSHA256": {
     ".github/workflows/local-renderer-macos.yml": "24c7fb8bdad1f3a48a0b39505c7b27045a65255b97b36ee4548ae35cce5c1b15",
     ".github/workflows/main.yml": "b5cf74cdccb47d409f381ba5077dd480f62d9d63c0aa83ad1d233488ee0e8b82",
@@ -172,11 +172,11 @@
     "validation/nativeplay/LocalRendererRuntimeProbe.h": "e8c3a3206e64ce9ec7cd8978f8caaf4180c4c995ea6d7ac7b3faaa6d07bcc701",
     "validation/nativeplay/LocalRendererRuntimeProbe.mm": "48f2bd4a2fc5b8f2db4d31fd5322bb2a9fcfca985610dcb047664871f6c13887",
     "validation/nativeplay/OwnedTouchRuntimeProbe.h": "724a0c329ea957a180701e1abbbabae3d945d7ff849023cf50e3b5e6bfb603c9",
-    "validation/nativeplay/OwnedTouchRuntimeProbe.mm": "371bf5a3ab917071eaafa1294e664a81e36d212cc71bd4867438648126846024",
+    "validation/nativeplay/OwnedTouchRuntimeProbe.mm": "7c347a33e81c679dfcfa150f713074f56acc7e68c6aac66d53e91313b26aba23",
     "validation/nativeplay/README.md": "0c4790cb08e7075421fe79e517c7f893a8bb5d99be0f695ad85b75fbbbd99763",
     "validation/nativeplay/baseline-overscan-source-manifest.json": "5495ec52f4de042cfc5fa5b074f55b9ae4a77341e28e60a1f0c4725306964e65",
     "validation/nativeplay/build-macos.sh": "52367b77b8017c7c1a4811cae574d406736d1beb46e0c0a9bdca75d84f6fdc20",
-    "validation/nativeplay/carrier/Info.plist": "3ec19898e1e85997b0a6f58b3366de7ac5eb8ecc574f92ed15536a1c69537e79",
+    "validation/nativeplay/carrier/Info.plist": "631b58dffd9373bfe0d549117587334f3c1f7dbda3ecef75a819cc6dbf8cdf28",
     "validation/nativeplay/carrier/InputBlack.png": "045a261ac526e40889b45db33c6f99c4c459900693f2dd6ba719b416645cb307",
     "validation/nativeplay/carrier/InputBotanical.png": "028a69496776ec609800cf9bf27201e122c0075e82f25fc9bd1e4b0d8743515b",
     "validation/nativeplay/carrier/InputGray.png": "81aa64bb3f40dd54f57c52c8a1e4a2cb85467eb520f109609018f0863b48539e",
@@ -209,7 +209,7 @@
     "validation/nativeplay/contact-inputs/overscan-source-provenance.json": "2fe9d755517b8eca7c0b6950945b02037a0279ad4afe84a897d92fc0eee7494b",
     "validation/nativeplay/contact-inputs/source-provenance.json": "b4c513a952bc66b5f94516d6849f52dd32dad529bcba68610a15afa60f9af487",
     "validation/nativeplay/package_ci_app.py": "a3579356d79eeae80d6274297c22b55fe02a1f2740ab459118dd5b33e3c71149",
-    "validation/nativeplay/verify_ci_inputs.py": "1c28e909c19eeea6c298c21ded70d71ada6fc625a0d677924ce060940e612124"
+    "validation/nativeplay/verify_ci_inputs.py": "a2af70fa1037ecc0bc2f8aa0ab515c5067024c6457e8955d9301f8a88cd39f38"
   },
   "defaultSystemCandidateOff": true,
   "runtimeSourceProvider": "Own static asset ONLY, not a system-background provider",
@@ -298,13 +298,14 @@
   },
   "actualUIKitTouchFixture": {
     "reviewSourceRoot": "/var/minis/workspace/liquidass-real-touch-reviewed/bab7a2c0-4e66-4319-bf31-6b9e86ab8d12",
-    "fixtureSHA256": "371bf5a3ab917071eaafa1294e664a81e36d212cc71bd4867438648126846024",
+    "fixtureSHA256": "7c347a33e81c679dfcfa150f713074f56acc7e68c6aac66d53e91313b26aba23",
     "fixtureHeaderSHA256": "724a0c329ea957a180701e1abbbabae3d945d7ff849023cf50e3b5e6bfb603c9",
     "scope": "Finite original-App controller fixture with actual physical UIKit touches; NOT original Settings hook, no screen/system source read",
     "same149ProductSourceUnchanged": true,
     "parentReviewFixes": [
       "Use exact UIWindow root identity rather than requiring a window ancestor on UIWindow itself",
-      "Retain only own-fixture visibility metadata on startup failure"
+      "Retain only own-fixture visibility metadata on startup failure",
+      "Write and clean an ephemeral own-App ready record only after actual GPU completion and public UIWindow hitTest match; never use a stale or foreign-App coordinate"
     ]
   }
 }
