@@ -15,7 +15,7 @@
     "docs/local-button-renderer.md"
   ],
   "buildBundle": "org.liquidass.native-play-lab",
-  "buildNumber": "25",
+  "buildNumber": "26",
   "inputSHA256": {
     ".github/workflows/local-renderer-macos.yml": "24c7fb8bdad1f3a48a0b39505c7b27045a65255b97b36ee4548ae35cce5c1b15",
     ".github/workflows/main.yml": "b5cf74cdccb47d409f381ba5077dd480f62d9d63c0aa83ad1d233488ee0e8b82",
@@ -170,11 +170,13 @@
     "validation/nativeplay/AppOwnedBackgroundRuntimeProbe.h": "d671c816e8816145663421be7d0d5610b4701afe06084c0c816e75e887c78908",
     "validation/nativeplay/AppOwnedBackgroundRuntimeProbe.mm": "935c2a0a76b42574baf826ee36613754dae1271c729e6087aac693d92ba87c4e",
     "validation/nativeplay/LocalRendererRuntimeProbe.h": "e8c3a3206e64ce9ec7cd8978f8caaf4180c4c995ea6d7ac7b3faaa6d07bcc701",
-    "validation/nativeplay/LocalRendererRuntimeProbe.mm": "8221f11f9146a7ca9c31520ad3853b8862a096ab1e6ca848318c8f331ac76f9b",
+    "validation/nativeplay/LocalRendererRuntimeProbe.mm": "48f2bd4a2fc5b8f2db4d31fd5322bb2a9fcfca985610dcb047664871f6c13887",
+    "validation/nativeplay/OwnedTouchRuntimeProbe.h": "724a0c329ea957a180701e1abbbabae3d945d7ff849023cf50e3b5e6bfb603c9",
+    "validation/nativeplay/OwnedTouchRuntimeProbe.mm": "3724c6f9b76888026f7478aead6ee9cacd2f681557fe02a35c8ff5d28faf57ee",
     "validation/nativeplay/README.md": "0c4790cb08e7075421fe79e517c7f893a8bb5d99be0f695ad85b75fbbbd99763",
     "validation/nativeplay/baseline-overscan-source-manifest.json": "5495ec52f4de042cfc5fa5b074f55b9ae4a77341e28e60a1f0c4725306964e65",
-    "validation/nativeplay/build-macos.sh": "98d3bced5eeec5bffd192a18e0ade8f2849d1744dc41aa1bab1acc1b9018f5d4",
-    "validation/nativeplay/carrier/Info.plist": "276b28a8411f6eae3f6e0dd94e17038cb0a6ed337da6615f8e7e29002fed5f6c",
+    "validation/nativeplay/build-macos.sh": "57b91b54e23b30bd62214c9a415314bba8b69aa4b60a05f2387a195163659937",
+    "validation/nativeplay/carrier/Info.plist": "789043d0a3a6e8e6fefdabd219c45b6b4b5f2931736121127e312d7b413956be",
     "validation/nativeplay/carrier/InputBlack.png": "045a261ac526e40889b45db33c6f99c4c459900693f2dd6ba719b416645cb307",
     "validation/nativeplay/carrier/InputBotanical.png": "028a69496776ec609800cf9bf27201e122c0075e82f25fc9bd1e4b0d8743515b",
     "validation/nativeplay/carrier/InputGray.png": "81aa64bb3f40dd54f57c52c8a1e4a2cb85467eb520f109609018f0863b48539e",
@@ -206,8 +208,8 @@
     "validation/nativeplay/contact-inputs/grid-228.bgra": "ba130cabb595f2d7c3c41c978c8b731c37119fed2b918eb62f7597b53ba51caf",
     "validation/nativeplay/contact-inputs/overscan-source-provenance.json": "2fe9d755517b8eca7c0b6950945b02037a0279ad4afe84a897d92fc0eee7494b",
     "validation/nativeplay/contact-inputs/source-provenance.json": "b4c513a952bc66b5f94516d6849f52dd32dad529bcba68610a15afa60f9af487",
-    "validation/nativeplay/package_ci_app.py": "f2de5ea7295596ce87908dbd2a06c6267845dd28f927ce7f45c5b02475ad21bd",
-    "validation/nativeplay/verify_ci_inputs.py": "b10ee72f77848b4758358532bb5ce79f875d17f155c0566aefd1ea2b73f17258"
+    "validation/nativeplay/package_ci_app.py": "a3579356d79eeae80d6274297c22b55fe02a1f2740ab459118dd5b33e3c71149",
+    "validation/nativeplay/verify_ci_inputs.py": "21581ff39de73a7f02d343071e4faf31ecbdd6197bf0bb9a0dda6447548eaf74"
   },
   "defaultSystemCandidateOff": true,
   "runtimeSourceProvider": "Own static asset ONLY, not a system-background provider",
@@ -293,5 +295,12 @@
     "staticOnlyHostClaim": "Original Settings Hook is syntax-checked, not system-enabled",
     "systemBackgroundProvider": "NOT_IMPLEMENTED",
     "newVerification": "Real actual completed-frame retention, unchanged100ms deadline, explicit host cancellation and asymmetric source coordinates; not screen-pixel proof"
+  },
+  "actualUIKitTouchFixture": {
+    "reviewSourceRoot": "/var/minis/workspace/liquidass-real-touch-reviewed/bab7a2c0-4e66-4319-bf31-6b9e86ab8d12",
+    "fixtureSHA256": "3724c6f9b76888026f7478aead6ee9cacd2f681557fe02a35c8ff5d28faf57ee",
+    "fixtureHeaderSHA256": "724a0c329ea957a180701e1abbbabae3d945d7ff849023cf50e3b5e6bfb603c9",
+    "scope": "Finite original-App controller fixture with actual physical UIKit touches; NOT original Settings hook, no screen/system source read",
+    "same149ProductSourceUnchanged": true
   }
 }

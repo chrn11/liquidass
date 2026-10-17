@@ -1,5 +1,6 @@
 #import "LocalRendererRuntimeProbe.h"
 #import "AppOwnedBackgroundRuntimeProbe.h"
+#import "OwnedTouchRuntimeProbe.h"
 #import "LGLocalButtonMaterialView.h"
 #import "LGLocalButtonUniforms.h"
 #import <MetalKit/MetalKit.h>
@@ -106,6 +107,7 @@ static void LRDelay(NSTimeInterval duration, dispatch_block_t done) {
 @property(nonatomic,copy) void (^completion)(NSString *,NSString *);
 @property(nonatomic) BOOL finished;
 @property(nonatomic) BOOL checkedOwnedSource;
+@property(nonatomic) BOOL checkedRealUIKitTouch;
 @property(nonatomic) uint64_t lastAcceptedA;
 @property(nonatomic) LGButtonOpticalState contactReplayA,contactReplayB;
 - (void)start;
@@ -408,14 +410,26 @@ static void LRDelay(NSTimeInterval duration, dispatch_block_t done) {
             [self finish];
         });
         return;
-    }self.finished=YES;
+    }
+    if(!self.checkedRealUIKitTouch) {
+        self.checkedRealUIKitTouch=YES;
+        RunOwnedTouchRuntimeProbe(self.device,self.container,^(NSDictionary *touch){
+            self.report[@"realUIKitTouchProbe"]=touch;
+            BOOL passed=[touch[@"status"] isEqualToString:@"PASS_REAL_UIKIT_TOUCH_AND_COMPLETED_LOCAL_RENDER"];
+            for(NSDictionary *entry in touch[@"checks"]) passed=passed && [entry[@"pass"] boolValue];
+            [self record:@"K_real_UIKit_touch_actual_material_completion" pass:passed details:@{@"touchStatus":touch[@"status"]?:@"NO_STATUS",@"systemHookRuntime":@"NOT_RUN",@"source":@"Original-App temporary controller fixture only"}];
+            [self finish];
+        });
+        return;
+    }
+    self.finished=YES;
     [self.va invalidateLocalSource];[self.vb invalidateLocalSource];
     [self.va removeFromSuperview];[self.vb removeFromSuperview];[self.ta removeFromSuperview];[self.tb removeFromSuperview];
     BOOL pass=self.checks.count>=15;
     for(NSDictionary *r in self.checks)pass=pass&&[r[@"pass"] boolValue];
     self.report[@"checks"]=self.checks;self.report[@"drawFrames"]=self.draws;
     self.report[@"acceptanceStatus"]=pass?@"REAL_CLASS_DRAW_AND_GPU_COMPLETION_PASS_WITH_STRESS_LIMITS":@"REAL_CLASS_RUNTIME_PARTIAL_OR_FAIL";
-    self.report[@"runtimeLimitations"]=@{@"systemBackgroundProvider":@"NOT_IMPLEMENTED",@"pixelReadback":@"NOT_RUN; framebufferOnlyYES",@"threeInFlightGPUCapStress":@"NOT_OBSERVED; frame leases are not GPU concurrency",@"oldCompletedCallbackAfterInvalidationRace":@"NOT_OBSERVED: pending invalidation only",@"realUIKitTouch":@NO,@"systemLiveBackdrop":@NO};
+    self.report[@"runtimeLimitations"]=@{@"systemBackgroundProvider":@"NOT_IMPLEMENTED",@"pixelReadback":@"NOT_RUN; framebufferOnlyYES",@"threeInFlightGPUCapStress":@"NOT_OBSERVED; frame leases are not GPU concurrency",@"oldCompletedCallbackAfterInvalidationRace":@"NOT_OBSERVED: pending invalidation only",@"realUIKitTouch":@([self.report[@"realUIKitTouchProbe"][@"trueUIKitTouch"] boolValue]),@"systemLiveBackdrop":@NO};
     if(self.pa&&self.pb)self.report[@"leaseAccounting"]=@{@"activeA":@(self.pa.leases.active),@"maximumOutstandingFrameLeasesA":@(self.pa.leases.maximum),@"endedA":@(self.pa.leases.ended),@"leaseEventsA":[self.pa.leases.events copy],@"activeB":@(self.pb.leases.active),@"endedB":@(self.pb.leases.ended)};
     self.report[@"createdAt"]=[[NSISO8601DateFormatter new]stringFromDate:[NSDate date]];
     NSString *name=[NSString stringWithFormat:@"native-local-renderer-%@.json",self.report[@"runID"]];

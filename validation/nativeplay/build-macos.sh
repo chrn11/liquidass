@@ -37,9 +37,10 @@ xcrun --sdk iphoneos clang++ "${CFLAGS[@]}" -std=c++17 -c "$ROOT/validation/nati
 xcrun --sdk iphoneos clang++ "${CFLAGS[@]}" -std=c++17 -c "$ROOT/Shared/LGLocalButtonMaterialView.mm" -o "$O/LGLocalButtonMaterialView.o"
 xcrun --sdk iphoneos clang++ "${CFLAGS[@]}" -std=c++17 -c "$ROOT/Shared/LGAppOwnedButtonSourceProvider.mm" -o "$O/LGAppOwnedButtonSourceProvider.o"
 xcrun --sdk iphoneos clang++ "${CFLAGS[@]}" -std=c++17 -c "$ROOT/validation/nativeplay/AppOwnedBackgroundRuntimeProbe.mm" -o "$O/AppOwnedBackgroundRuntimeProbe.o"
+xcrun --sdk iphoneos clang++ "${CFLAGS[@]}" -std=c++17 -Werror=objc-method-access -c "$ROOT/validation/nativeplay/OwnedTouchRuntimeProbe.mm" -o "$O/OwnedTouchRuntimeProbe.o"
 xcrun --sdk iphoneos clang++ -target arm64-apple-ios16.5 -isysroot "$SDK" \
   -miphoneos-version-min=16.5 -Wl,-no_adhoc_codesign -o "$APP/NativePlayLab" \
-  "$O/main.o" "$O/NativePlayLabViewController.o" "$O/LocalRendererRuntimeProbe.o" "$O/LGLocalButtonMaterialView.o" "$O/LGAppOwnedButtonSourceProvider.o" "$O/AppOwnedBackgroundRuntimeProbe.o" \
+  "$O/main.o" "$O/NativePlayLabViewController.o" "$O/LocalRendererRuntimeProbe.o" "$O/LGLocalButtonMaterialView.o" "$O/LGAppOwnedButtonSourceProvider.o" "$O/AppOwnedBackgroundRuntimeProbe.o" "$O/OwnedTouchRuntimeProbe.o" \
   -framework UIKit -framework Metal -framework MetalKit -framework QuartzCore \
   -framework CoreGraphics -framework ImageIO -framework Foundation -lobjc -lc++
 # No codesign/ldid, installation, release publication, device preferences or restart.
