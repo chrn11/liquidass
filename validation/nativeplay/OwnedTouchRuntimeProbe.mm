@@ -279,9 +279,13 @@ static NSArray<UIColor *> *LGOwnedTouchPalette(void) {
         UIApplication.sharedApplication.applicationState!=UIApplicationStateActive) return NO;
     if (@available(iOS 13.0,*))
         if (self.target.window.windowScene.activationState!=UISceneActivationStateForegroundActive) return NO;
-    for (UIView *v=self.target; v; v=v.superview)
-        if (v.hidden || v.alpha<0.01 || v.window!=self.target.window) return NO;
-    return self.scopeView.superview!=nil && !self.scopeView.hidden && self.scopeView.alpha>=0.01;
+    UIWindow *window=self.target.window;
+    for (UIView *v=self.target; v; v=v.superview) {
+        if (v.hidden || v.alpha<0.01) return NO;
+        if ([v isKindOfClass:UIWindow.class]) return v==window;
+        if (v.window!=window) return NO;
+    }
+    return NO;
 }
 - (BOOL)synchronizeOverlayGeometry {
     UIView *button=self.originalButton, *parent=button.superview;
@@ -927,6 +931,12 @@ static NSArray<UIColor *> *LGOwnedTouchPalette(void) {
     if (target && target.superview) targetInParent=[target convertRect:target.bounds toView:target.superview.superview];
     if (self.scopeView && self.scopeView.superview) scopeInParent=[self.scopeView convertRect:self.scopeView.bounds toView:self.scopeView.superview];
     if (target && target.window) screenFrame=[target convertRect:target.bounds toView:nil];
+    NSMutableArray *visibilityAncestors=[NSMutableArray array];
+    UIWindow *targetWindow=target.window;
+    for(UIView *v=target;v;v=v.superview) {
+        [visibilityAncestors addObject:@{@"class":NSStringFromClass(v.class),@"hidden":@(v.hidden),@"alpha":@(v.alpha),@"sameWindow":@(v.window==targetWindow),@"isTargetWindow":@(v==targetWindow)}];
+    }
+    NSDictionary *visibility=@{@"applicationState":@(UIApplication.sharedApplication.applicationState),@"sceneState":@(targetWindow.windowScene?targetWindow.windowScene.activationState:-999),@"targetWindowMatchesScope":@(targetWindow&&targetWindow==self.scopeView.window),@"visibleActive":@([self isVisibleAndActive]),@"ancestors":visibilityAncestors};
     NSDictionary *sourceInfo=@{
         @"providerClass":self.provider?NSStringFromClass(self.provider.class):@"unavailable",
         @"baseProviderClass":NSStringFromClass(LGAppOwnedButtonSourceProvider.class),
@@ -966,6 +976,7 @@ static NSArray<UIColor *> *LGOwnedTouchPalette(void) {
             @"endTracking":@(target.endTrackingCalls),@"cancelTracking":@(target.cancelTrackingCalls)},
         @"latestActualCompletedSerial":@(self.material.lastCompletedSubmissionSerial),
         @"latestCommandSucceeded":@(self.material.lastCommandBufferSucceeded),
+        @"fixtureVisibilityAtFinish":visibility,
         @"timeoutReached":@(self.timeoutReached),@"cleanupCompleted":@NO};
     return result;
 }
