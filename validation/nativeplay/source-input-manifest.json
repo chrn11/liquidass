@@ -175,7 +175,7 @@
     "validation/nativeplay/OwnedTouchRuntimeProbe.mm": "3724c6f9b76888026f7478aead6ee9cacd2f681557fe02a35c8ff5d28faf57ee",
     "validation/nativeplay/README.md": "0c4790cb08e7075421fe79e517c7f893a8bb5d99be0f695ad85b75fbbbd99763",
     "validation/nativeplay/baseline-overscan-source-manifest.json": "5495ec52f4de042cfc5fa5b074f55b9ae4a77341e28e60a1f0c4725306964e65",
-    "validation/nativeplay/build-macos.sh": "57b91b54e23b30bd62214c9a415314bba8b69aa4b60a05f2387a195163659937",
+    "validation/nativeplay/build-macos.sh": "52367b77b8017c7c1a4811cae574d406736d1beb46e0c0a9bdca75d84f6fdc20",
     "validation/nativeplay/carrier/Info.plist": "789043d0a3a6e8e6fefdabd219c45b6b4b5f2931736121127e312d7b413956be",
     "validation/nativeplay/carrier/InputBlack.png": "045a261ac526e40889b45db33c6f99c4c459900693f2dd6ba719b416645cb307",
     "validation/nativeplay/carrier/InputBotanical.png": "028a69496776ec609800cf9bf27201e122c0075e82f25fc9bd1e4b0d8743515b",
