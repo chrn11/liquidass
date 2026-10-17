@@ -99,9 +99,10 @@ int main(void){@autoreleasepool{
  NSData *oldBytes=[NSData dataWithContentsOfFile:oldPath],*newBytes=[NSData dataWithContentsOfFile:newPath];
  if(!oldBytes.length||!newBytes.length)return 3;
  id<MTLDevice>device=MTLCreateSystemDefaultDevice();if(!device){puts("NOT_RUN: Mac runner has no Metal device");return 77;}
- id<MTLCommandQueue>queue=[device newCommandQueue];id<MTLRenderPipelineState>pipelines[2]={nil,nil};
+ id<MTLCommandQueue>queue=[device newCommandQueue];id<MTLRenderPipelineState>baselinePipeline=nil,candidatePipeline=nil;
  NSString *oldSource=[[NSString alloc]initWithData:oldBytes encoding:NSUTF8StringEncoding];NSString *newSource=[[NSString alloc]initWithData:newBytes encoding:NSUTF8StringEncoding];
- if(!MakePipeline(device,oldSource.UTF8String,MTLPixelFormatBGRA8Unorm_sRGB,&pipelines[0])||!MakePipeline(device,newSource.UTF8String,MTLPixelFormatBGRA8Unorm_sRGB,&pipelines[1]))return 4;
+ if(!MakePipeline(device,oldSource.UTF8String,MTLPixelFormatBGRA8Unorm_sRGB,&baselinePipeline)||!MakePipeline(device,newSource.UTF8String,MTLPixelFormatBGRA8Unorm_sRGB,&candidatePipeline))return 4;
+ id<MTLRenderPipelineState>pipelines[2]={baselinePipeline,candidatePipeline};
  MTLSamplerDescriptor *sd=[MTLSamplerDescriptor new];sd.minFilter=sd.magFilter=MTLSamplerMinMagFilterLinear;sd.sAddressMode=sd.tAddressMode=MTLSamplerAddressModeClampToEdge;id<MTLSamplerState>sampler=[device newSamplerStateWithDescriptor:sd];
  NSString *png=[out stringByAppendingPathComponent:@"pngs"];[[NSFileManager defaultManager]createDirectoryAtPath:png withIntermediateDirectories:YES attributes:nil error:nil];NSMutableArray *records=[NSMutableArray array],*guards=[NSMutableArray array];BOOL all=YES;
  constexpr NSUInteger T=132,S=228,O=48;const size_t bytes=T*T*4;
