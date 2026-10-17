@@ -1,0 +1,36 @@
+{
+  "botanical": {
+    "sourceImage480x360Crop": [
+      126,
+      66,
+      228,
+      228
+    ],
+    "targetROIInsideSource": [
+      48,
+      48,
+      132,
+      132
+    ],
+    "sourceToTargetSameScale": 3,
+    "rawBGRA_SHA256": "ca47645fb8a108fa625edbaa759774104e317cfb1fd899de90cc494d65f68650",
+    "notMaterialOutput": true
+  },
+  "grid": {
+    "sourceImage480x360Crop": [
+      126,
+      66,
+      228,
+      228
+    ],
+    "targetROIInsideSource": [
+      48,
+      48,
+      132,
+      132
+    ],
+    "sourceToTargetSameScale": 3,
+    "rawBGRA_SHA256": "ba130cabb595f2d7c3c41c978c8b731c37119fed2b918eb62f7597b53ba51caf",
+    "notMaterialOutput": true
+  }
+}

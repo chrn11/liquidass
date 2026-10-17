@@ -1,0 +1,33 @@
+name: Material optics same-input review
+on:
+  push:
+    branches:
+      - 'research/local-renderer-ci-*'
+    paths:
+      - 'validation/material-optics/**'
+      - '.github/workflows/material-optics-review.yml'
+permissions:
+  contents: read
+concurrency:
+  group: material-optics-review-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  same-input-metal:
+    runs-on: macos-15
+    timeout-minutes: 15
+    steps:
+      - name: Check out isolated material source and read-only baseline
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Compile and actually render both material versions using Apple Metal
+        shell: bash
+        run: bash validation/material-optics/run-macos-review.sh
+      - name: Upload actual GPU originals and exact-source evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Material-optics-AB-613854a3
+          path: ci-artifacts/material-optics-review/
+          if-no-files-found: error
+          retention-days: 7

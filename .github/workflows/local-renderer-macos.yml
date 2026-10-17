@@ -4,6 +4,10 @@ on:
   push:
     branches:
       - 'research/local-renderer-ci-*'
+    paths-ignore:
+      - 'validation/material-optics/**'
+      - '.github/workflows/material-optics-review.yml'
+      - 'validation/nativeplay/source-input-manifest.json'
 
 permissions:
   contents: read

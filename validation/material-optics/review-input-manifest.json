@@ -1,0 +1,30 @@
+{
+  "candidateID": "613854a3-e925-456f-a447-0f6520480bbe",
+  "changedProductFiles": [
+    "Shared/LGButtonOpticsFormula.inc",
+    "Shared/LGLocalButtonShaderSource.h"
+  ],
+  "baseline149Preserved": true,
+  "baselineMSLSHA256": "efe6ff61dcc87625ce4664c940ae55de908878b31255fcab9a7167954e4efb2d",
+  "candidateMSLSHA256": "d122e451f8ba3dc97b0fd4126e8b7199ef5e08cfdcaed99986afd2d68b4dd7ca",
+  "formulaSHA256": "5add2ca438b10592092be296ea0253b213e90022c82361f8a7eb123edbf88c4e",
+  "reviewerUniformHeaders": "Original root Shared/LGLocalButtonUniforms.h 240B, same108/2/1.6/16pt",
+  "notInstalledOrEnabled": true,
+  "runtimeClassPinIntegration": "NOT_UPDATED: decide from true GPU A/B before integrating candidate into local class",
+  "compiler": "GitHub Actions macOS/Xcode only",
+  "visualAcceptance": "NOT_RUN",
+  "fixedInputSHA256": {
+    "run-macos-review.sh": "85efa6754ec0b060416ccde4e0556cfe028315ddede7a3209ba1f79fedf3f994",
+    "MaterialABRuntimeReview.mm": "1c15d75f673f1fd3361d5b19965d3daf1be2208a57e5168adc4f9335589d46de",
+    "README.md": "7352ea55a01c34b6fa1cf035664091fe6a28d8cde09e94cd0e5a504e42d7f7e4",
+    "candidate.metal": "d122e451f8ba3dc97b0fd4126e8b7199ef5e08cfdcaed99986afd2d68b4dd7ca",
+    "baseline.metal": "efe6ff61dcc87625ce4664c940ae55de908878b31255fcab9a7167954e4efb2d",
+    "candidate-source/Shared/LGButtonOpticsFormula.inc": "5add2ca438b10592092be296ea0253b213e90022c82361f8a7eb123edbf88c4e",
+    "inputs/overscan-source-provenance.json": "2fe9d755517b8eca7c0b6950945b02037a0279ad4afe84a897d92fc0eee7494b",
+    "inputs/grid-228.bgra": "ba130cabb595f2d7c3c41c978c8b731c37119fed2b918eb62f7597b53ba51caf",
+    "candidate-source/Shared/LGLocalSourceMapping.inc": "fc1099f53e3309ecd7e1d30afe888ed616cab584a38abb10e6b6a91fc176c7ee",
+    "candidate-source/validation/natural-volume-candidate/test_natural_volume_cpu.c": "3650ba6ad760b830d9165c9a1aaaafa73a7d63ce0648d8bc5fd4025cab14a3ad",
+    "candidate-source/Shared/LGButtonMaterialCandidate.h": "c72c385dc1e2212a0ff8fa6657d819156aa1137f4440bcf382552012f4e20a02",
+    "inputs/botanical-228.bgra": "ca47645fb8a108fa625edbaa759774104e317cfb1fd899de90cc494d65f68650"
+  }
+}
