@@ -174,7 +174,7 @@ LGBO_STMT(float pathLength = LGBOMin(displacementCap, heightAmplitude);)
 /* On the exact44pt button, the inherited16pt bezel suppressed refraction
  * through most of the22pt radius. Keep bezel as a maximum budget, but make the
  * actual optical shoulder proportional to radius, never a painted rim/light. */
-LGBO_STMT(float radialEdgeDepth = LGBOMax(pointScale * 1.5f, depthRadius * 0.18f);)
+LGBO_STMT(float radialEdgeDepth = LGBOMax(pointScale * 1.5f, depthRadius * 0.3f);)
 LGBO_STMT(float effectiveEdgeDepth = LGBOMin(LGBOMax(bezel, 1.0f), radialEdgeDepth);)
 LGBO_STMT(float edgeT = LGBOClamp(depth / effectiveEdgeDepth, 0.0f, 1.0f);)
 LGBO_STMT(float edgeFade = edgeT * edgeT * (3.0f - 2.0f * edgeT);)
