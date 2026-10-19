@@ -60,23 +60,16 @@ float4 localButtonMinifiedSample(texture2d<float, access::sample> source,
     float2 dimensions=float2((float)source.get_width(),(float)source.get_height());
     float2 halfTexel=0.5f/dimensions;
     float2 highUV=1.0f-halfTexel;
-    if (footprint.tapCount!=2 && footprint.tapCount!=4)
+    if (footprint.tapCount!=4)
         return source.sample(s,sourceUV,level(0.0f));
-    if (footprint.tapCount==2) {
-        float2 delta=float2(footprint.axisX,footprint.axisY);
-        delta*=0.25f*footprint.filterWidth;
-        delta/=dimensions;
-        float2 uv0=clamp(sourceUV-delta,halfTexel,highUV);
-        float2 uv1=clamp(sourceUV+delta,halfTexel,highUV);
-        return 0.5f*(source.sample(s,uv0,level(0.0f))+
-                     source.sample(s,uv1,level(0.0f)));
-    }
-    float2 axis= float2(footprint.axisX,footprint.axisY);
-    float2 d=axis*(0.125f*footprint.filterWidth)/dimensions;
-    float2 a=clamp(sourceUV-axis*(0.375f*footprint.filterWidth)/dimensions,halfTexel,highUV);
-    float2 b=clamp(sourceUV-d,halfTexel,highUV);
-    float2 c=clamp(sourceUV+d,halfTexel,highUV);
-    float2 e=clamp(sourceUV+axis*(0.375f*footprint.filterWidth)/dimensions,halfTexel,highUV);
+    float2 deltaA=float2(3.0f*footprint.kernelXX+footprint.kernelXY,
+                         3.0f*footprint.kernelXY+footprint.kernelYY)/dimensions;
+    float2 deltaB=float2(footprint.kernelXX-3.0f*footprint.kernelXY,
+                         footprint.kernelXY-3.0f*footprint.kernelYY)/dimensions;
+    float2 a=clamp(sourceUV-deltaA,halfTexel,highUV);
+    float2 b=clamp(sourceUV-deltaB,halfTexel,highUV);
+    float2 c=clamp(sourceUV+deltaB,halfTexel,highUV);
+    float2 e=clamp(sourceUV+deltaA,halfTexel,highUV);
     return 0.25f*(source.sample(s,a,level(0.0f))+
                   source.sample(s,b,level(0.0f))+
                   source.sample(s,c,level(0.0f))+
@@ -252,7 +245,7 @@ def main():
         raise SystemExit('optical sample appears before its bounded footprint')
     if 'opticalSample=src.sample(s,localButtonSourceUV(src,u,opticalUV));' not in source or 'environmentSample=src.sample(s,localButtonSourceUV(src,u,environmentUV));' not in source:
         raise SystemExit('uncompressed direct sampler path drift')
-    if 'source.sample(s,uv0,level(0.0f))' not in source or 'source.sample(s,e,level(0.0f))' not in source:
+    if 'source.sample(s,a,level(0.0f))' not in source or 'source.sample(s,e,level(0.0f))' not in source:
         raise SystemExit('bounded explicit level-zero taps missing')
     if re.search(r'\b(?:ddx|ddy)\s*\(',source):
         raise SystemExit('fragment derivatives must not enter shared shader call chain')

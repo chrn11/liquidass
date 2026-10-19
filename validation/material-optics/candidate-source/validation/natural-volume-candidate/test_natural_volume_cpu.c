@@ -113,9 +113,10 @@ static void testLocalMinificationFootprint(void) {
     assert(magnified.valid && magnified.tapCount==1);
 
     LGMinificationFootprint compressed=LGBOAnalyzeMinificationFootprint(2,0,0,1);
-    assert(compressed.valid && compressed.tapCount==2);
+    assert(compressed.valid && compressed.tapCount==4);
     assert(fabsf(compressed.major-2.0f)<1e-5f && fabsf(compressed.minor-1.0f)<1e-5f);
-    assert(fabsf(fabsf(compressed.axisX)-1.0f)<1e-5f && fabsf(compressed.axisY)<1e-5f);
+    assert(fabsf(compressed.kernelXX*compressed.kernelXX-.05f)<1e-6f);
+    assert(compressed.kernelXY==0 && compressed.kernelYY==0);
     assert(compressed.filterWidth<=4.0f);
 
     LGMinificationFootprint diagonal=LGBOAnalyzeMinificationFootprint(2,2,-2,2);
@@ -129,6 +130,28 @@ static void testLocalMinificationFootprint(void) {
     assert(four.filterWidth==4.0f); /* explicit bounded support */
     LGMinificationFootprint invalid=LGBOAnalyzeMinificationFootprint(NAN,0,0,1);
     assert(!invalid.valid && invalid.tapCount==1);
+    assert(fabsf(diagonal.kernelXX-diagonal.kernelYY)<1e-6f && diagonal.kernelXY==0);
+    assert(fabsf(diagonal.kernelXX*diagonal.kernelXX-7.0f/60.0f)<1e-6f);
+    assert(fabsf(four.kernelXX-.5f)<1e-6f && four.kernelYY==0);
+    // The kernel must vanish at unit footprint and have no special2.5 split.
+    const float boundaries[]={1.0f,1.001f,1.25f,2.5f,4.0f};
+    for(unsigned i=0;i<5;i++) {
+        float t=boundaries[i];
+        LGMinificationFootprint lo=LGBOAnalyzeMinificationFootprint(t-.0001f,0,0,1);
+        LGMinificationFootprint hi=LGBOAnalyzeMinificationFootprint(t+.0001f,0,0,1);
+        assert(lo.valid&&hi.valid&&fabsf(lo.kernelXX-hi.kernelXX)<.001f);
+    }
+    LGMinificationFootprint sx=LGBOAnalyzeMinificationFootprint(2.00001f,0,0,1.99999f);
+    LGMinificationFootprint sy=LGBOAnalyzeMinificationFootprint(1.99999f,0,0,2.00001f);
+    assert(fabsf(sx.kernelXX-sy.kernelXX)<.001f && fabsf(sx.kernelYY-sy.kernelYY)<.001f);
+    // Tap-center radius <=sqrt(2.5), independent of arbitrary SVD axis signs.
+    for(int i=-8;i<=8;i++)for(int j=-8;j<=8;j++) {
+        LGMinificationFootprint q=LGBOAnalyzeMinificationFootprint((float)i,.3f,-.2f,(float)j);
+        assert(q.valid);
+        float ax=3*q.kernelXX+q.kernelXY,ay=3*q.kernelXY+q.kernelYY;
+        float bx=q.kernelXX-3*q.kernelXY,by=q.kernelXY-3*q.kernelYY;
+        assert(ax*ax+ay*ay<=2.5001f && bx*bx+by*by<=2.5001f);
+    }
 }
 
 int main(void) {

@@ -160,7 +160,30 @@ int main(int argc,const char **argv) {
             !Near(highEdge[0],1)||!Near(highEdge[1],0)||!Near(highEdge[2],0)||!Near(highEdge[3],1)){
             std::fprintf(stderr,"FAIL footprint taps escaped physical half-texel source bounds\n");return 11;
         }
-        std::puts("PASS Metal bounded 1/2/4-tap footprint, exact no-minification path, opaque black/gray/white, premul-alpha, source-edge clamp");
+        // Moving patterns must not pop at the former1.001/2.5 thresholds or
+        // when an isotropic footprint exchanges its principal-axis ordering.
+        const float boundaries[]={1.0f,1.001f,1.25f,2.5f,4.0f};
+        for(float boundary:boundaries) {
+            float lo[4],hi[4];
+            if(!Probe(device,queue,pipeline,texture,simd_make_float2(16.5f/n,16.5f/n),
+                simd_make_float2(boundary-.0001f,0),simd_make_float2(0,1),true,lo) ||
+               !Probe(device,queue,pipeline,texture,simd_make_float2(16.5f/n,16.5f/n),
+                simd_make_float2(boundary+.0001f,0),simd_make_float2(0,1),true,hi))return 12;
+            for(int c=0;c<4;c++)if(!Near(lo[c],hi[c],.002f)){
+                std::fprintf(stderr,"FAIL footprint transition at %.4f, channel%d: %.6f / %.6f\n",boundary,c,lo[c],hi[c]);return 13;
+            }
+        }
+        float isoA[4],isoB[4];
+        if(!Probe(device,queue,pipeline,texture,simd_make_float2(16.3f/n,16.1f/n),
+            simd_make_float2(2.00001f,0),simd_make_float2(0,1.99999f),true,isoA) ||
+           !Probe(device,queue,pipeline,texture,simd_make_float2(16.3f/n,16.1f/n),
+            simd_make_float2(1.99999f,0),simd_make_float2(0,2.00001f),true,isoB))return 14;
+        for(int c=0;c<4;c++)if(!Near(isoA[c],isoB[c],.002f))return 15;
+        std::vector<float> clear(n*n*4,0.0f);id<MTLTexture> transparent=MakeTexture(device,n,n,clear);float z[4];
+        if(!transparent || !Probe(device,queue,pipeline,transparent,simd_make_float2(.5f,.5f),
+            simd_make_float2(4,0),simd_make_float2(0,4),true,z))return 16;
+        for(int c=0;c<4;c++)if(z[c]!=0)return 17;
+        std::puts("PASS Metal continuous PSD four-tap excess footprint, direct identity, threshold/isotropy continuity, opaque passive colors, premul/zero alpha, source-edge clamp");
         return 0;
     }
 }

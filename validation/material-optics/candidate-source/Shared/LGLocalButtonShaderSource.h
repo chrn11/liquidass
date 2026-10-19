@@ -262,49 +262,55 @@ if (!isfinite(sourcePixel)) return 0.0f;
 return LGBOClamp(sourcePixel, 0.5f, sourcePixels - 0.5f) / sourcePixels;
 }
 struct LGMinificationFootprint {
-float axisX;
-float axisY;
 float major;
 float minor;
 float filterWidth;
+float kernelXX;
+float kernelXY;
+float kernelYY;
 int tapCount;
 bool valid;
 };
+float LGBOMinificationExcess(float singularValue) {
+float q=LGBOClamp((singularValue-1.0f)*4.0f,0.0f,1.0f);
+float activation=q*q*(3.0f-2.0f*q);
+float support=LGBOClamp(singularValue,1.0f,4.0f);
+return (support*support-1.0f)*activation*activation;
+}
 LGMinificationFootprint LGBOAnalyzeMinificationFootprint(float dxX, float dxY, float dyX, float dyY) {
 LGMinificationFootprint out;
-out.axisX = 1.0f;
-out.axisY = 0.0f;
-out.major = 1.0f;
-out.minor = 1.0f;
-out.filterWidth = 1.0f;
-out.tapCount = 1;
-out.valid = false;
-if (!isfinite(dxX) || !isfinite(dxY) || !isfinite(dyX) || !isfinite(dyY)) return out;
-float c00 = dxX * dxX + dyX * dyX;
-float c01 = dxX * dxY + dyX * dyY;
-float c11 = dxY * dxY + dyY * dyY;
-float trace = c00 + c11;
-float discriminant = sqrt(LGBOClamp((c00 - c11) * (c00 - c11) + 4.0f * c01 * c01, 0.0f, 3.0e38f));
-float lambdaMajor = LGBOClamp(0.5f * (trace + discriminant), 0.0f, 3.0e38f);
-float lambdaMinor = LGBOClamp(0.5f * (trace - discriminant), 0.0f, lambdaMajor);
-float major = sqrt(lambdaMajor);
-float minor = sqrt(lambdaMinor);
-if (!isfinite(major) || !isfinite(minor)) return out;
-out.major = major;
-out.minor = minor;
-out.valid = true;
-if (major <= 1.001f) return out;
-float axisX = 1.0f;
-float axisY = 0.0f;
-if (c00 >= c11 && fabs(c01) <= 0.000001f) { axisX = 1.0f; axisY = 0.0f; }
-else if (fabs(c01) <= 0.000001f) { axisX = 0.0f; axisY = 1.0f; }
-else { axisX = lambdaMajor - c11; axisY = c01; if (axisX * axisX + axisY * axisY <= 0.000000000001f) { axisX = c01; axisY = lambdaMajor - c00; } }
-float axisLength = sqrt(axisX * axisX + axisY * axisY);
-if (!isfinite(axisLength) || axisLength <= 0.000001f) return out;
-out.axisX = axisX / axisLength;
-out.axisY = axisY / axisLength;
-out.filterWidth = LGBOClamp(major, 1.0f, 4.0f);
-out.tapCount = major <= 2.5f ? 2 : 4;
+out.major=1.0f; out.minor=1.0f; out.filterWidth=1.0f;
+out.kernelXX=0.0f; out.kernelXY=0.0f; out.kernelYY=0.0f;
+out.tapCount=1; out.valid=false;
+if (!isfinite(dxX)||!isfinite(dxY)||!isfinite(dyX)||!isfinite(dyY)) return out;
+float c00=dxX*dxX+dyX*dyX;
+float c01=dxX*dxY+dyX*dyY;
+float c11=dxY*dxY+dyY*dyY;
+float trace=c00+c11;
+if (!isfinite(c00)||!isfinite(c01)||!isfinite(c11)||!isfinite(trace)) return out;
+float delta=c00-c11;
+float discScale=LGBOMax(fabs(delta),2.0f*fabs(c01));
+float discriminant=0.0f;
+if (discScale>0.0f) { float a=delta/discScale; float b=2.0f*c01/discScale; discriminant=discScale*sqrt(a*a+b*b); }
+float lambdaMajor=LGBOMax(0.0f,0.5f*(trace+discriminant));
+float lambdaMinor=LGBOClamp(0.5f*(trace-discriminant),0.0f,lambdaMajor);
+float major=sqrt(lambdaMajor); float minor=sqrt(lambdaMinor);
+if (!isfinite(major)||!isfinite(minor)) return out;
+out.major=major; out.minor=minor; out.filterWidth=LGBOClamp(major,1.0f,4.0f); out.valid=true;
+if (major<=1.0f) return out;
+float eMajor=LGBOMinificationExcess(major); float eMinor=LGBOMinificationExcess(minor);
+float spectralSlope=(eMajor-eMinor)/LGBOMax(discriminant,1.0e-20f);
+float e00=LGBOMax(0.0f,eMinor+spectralSlope*(c00-lambdaMinor));
+float e01=spectralSlope*c01;
+float e11=LGBOMax(0.0f,eMinor+spectralSlope*(c11-lambdaMinor));
+float rootDet=sqrt(LGBOMax(0.0f,e00*e11-e01*e01));
+float divisor=sqrt(LGBOMax(0.0f,e00+e11+2.0f*rootDet));
+if (!isfinite(divisor)||divisor<=1.0e-12f) return out;
+float gain=0.12909944487358055f/divisor;
+out.kernelXX=(e00+rootDet)*gain;
+out.kernelXY=e01*gain;
+out.kernelYY=(e11+rootDet)*gain;
+out.tapCount=4;
 return out;
 }
 
@@ -354,23 +360,16 @@ float4 localButtonMinifiedSample(texture2d<float, access::sample> source,
     float2 dimensions=float2((float)source.get_width(),(float)source.get_height());
     float2 halfTexel=0.5f/dimensions;
     float2 highUV=1.0f-halfTexel;
-    if (footprint.tapCount!=2 && footprint.tapCount!=4)
+    if (footprint.tapCount!=4)
         return source.sample(s,sourceUV,level(0.0f));
-    if (footprint.tapCount==2) {
-        float2 delta=float2(footprint.axisX,footprint.axisY);
-        delta*=0.25f*footprint.filterWidth;
-        delta/=dimensions;
-        float2 uv0=clamp(sourceUV-delta,halfTexel,highUV);
-        float2 uv1=clamp(sourceUV+delta,halfTexel,highUV);
-        return 0.5f*(source.sample(s,uv0,level(0.0f))+
-                     source.sample(s,uv1,level(0.0f)));
-    }
-    float2 axis= float2(footprint.axisX,footprint.axisY);
-    float2 d=axis*(0.125f*footprint.filterWidth)/dimensions;
-    float2 a=clamp(sourceUV-axis*(0.375f*footprint.filterWidth)/dimensions,halfTexel,highUV);
-    float2 b=clamp(sourceUV-d,halfTexel,highUV);
-    float2 c=clamp(sourceUV+d,halfTexel,highUV);
-    float2 e=clamp(sourceUV+axis*(0.375f*footprint.filterWidth)/dimensions,halfTexel,highUV);
+    float2 deltaA=float2(3.0f*footprint.kernelXX+footprint.kernelXY,
+                         3.0f*footprint.kernelXY+footprint.kernelYY)/dimensions;
+    float2 deltaB=float2(footprint.kernelXX-3.0f*footprint.kernelXY,
+                         footprint.kernelXY-3.0f*footprint.kernelYY)/dimensions;
+    float2 a=clamp(sourceUV-deltaA,halfTexel,highUV);
+    float2 b=clamp(sourceUV-deltaB,halfTexel,highUV);
+    float2 c=clamp(sourceUV+deltaB,halfTexel,highUV);
+    float2 e=clamp(sourceUV+deltaA,halfTexel,highUV);
     return 0.25f*(source.sample(s,a,level(0.0f))+
                   source.sample(s,b,level(0.0f))+
                   source.sample(s,c,level(0.0f))+
@@ -896,4 +895,4 @@ fragment float4 liquidGlassFragment(
 }
 
 )LGLOCALMSL";
-static const char kLGLocalButtonCandidateMSLSHA256[] = "8130af9b91f9106aee4f3cfce3d361fab57bdb007da65f8d0c00a9a90677c83e";
+static const char kLGLocalButtonCandidateMSLSHA256[] = "47236872a6f737027979c6b5b4a678a373501e5dd53d01b263276087d1bb39a9";

@@ -12,8 +12,11 @@ generator=(ROOT/'scripts/generate_local_button_shader.py').read_text()
 formula=(ROOT/'Shared/LGButtonOpticsFormula.inc').read_bytes()
 manifest=ROOT/'docs/natural-volume-candidate-manifest.json'
 assert hashlib.sha256(formula).hexdigest()=='56c17dc7dfd4c1cd3785bd5cf1727dcd05e64be03ea091691252d6617e185525'
-assert 'tapCount = 1' in helper and 'major <= 1.001f' in helper
-assert 'major <= 2.5f ? 2 : 4' in helper and 'LGBOClamp(major, 1.0f, 4.0f)' in helper
+assert 'out.tapCount=1' in helper and 'if (major<=1.0f)' in helper
+assert 'kernelXX' in helper and 'kernelXY' in helper and 'kernelYY' in helper
+assert 'LGBOMinificationExcess' in helper and 'support*support-1.0f' in helper
+assert 'axisX' not in helper and 'tapCount = major <=' not in helper
+assert 'LGBOClamp(major,1.0f,4.0f)' in helper
 assert msl.startswith('#define LG_BUTTON_OPTICS_COMPILED 1\n')
 assert len(re.findall(r'localButtonEvaluateAt\(float2\(px\.x',msl))==4
 assert 'LGMinificationFootprint opticalFootprint=' in msl
@@ -21,7 +24,8 @@ assert msl.index('LGMinificationFootprint opticalFootprint=') < msl.index('float
 assert 'opticalSample=src.sample(s,localButtonSourceUV(src,u,opticalUV));' in msl
 assert 'environmentSample=src.sample(s,localButtonSourceUV(src,u,environmentUV));' in msl
 assert msl.count('localButtonMinifiedSample(src,s,')==2
-assert 'source.sample(s,uv0,level(0.0f))' in msl and 'source.sample(s,e,level(0.0f))' in msl
+assert 'source.sample(s,a,level(0.0f))' in msl and 'source.sample(s,e,level(0.0f))' in msl
+assert '3.0f*footprint.kernelXX+footprint.kernelXY' in msl
 assert not re.search(r'\b(?:ddx|ddy)\s*\(',msl)
 assert 'filter::linear, address::clamp_to_edge' in msl
 assert '#include "LGLocalMinification.inc"' in (ROOT/'Shared/LGButtonMaterialCandidate.h').read_text()
