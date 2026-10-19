@@ -12,7 +12,7 @@ generator=(ROOT/'scripts/generate_local_button_shader.py').read_text()
 formula=(ROOT/'Shared/LGButtonOpticsFormula.inc').read_bytes()
 manifest=ROOT/'docs/natural-volume-candidate-manifest.json'
 # This is an explicitly different optical model, not an AA-only identity claim.
-assert hashlib.sha256(formula).hexdigest()=='702874670ddffd0939f8b14cd69aef9998643443edda81fb8afc4f7c2458d92e'
+assert hashlib.sha256(formula).hexdigest()=='c331205eb0b00dfab7cae541d42b0753d4fd09ec867c6b3f708516b9c55c27c5'
 assert b'LGBOSmoothCappedLength(LGBOMax(out.height, 0.0f), displacementCap)' in formula
 assert b'out.environmentWeight = 0.0f' in formula
 assert b'out.environmentOffsetX = out.offsetX' in formula

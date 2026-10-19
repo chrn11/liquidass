@@ -155,7 +155,35 @@ static void testLocalMinificationFootprint(void) {
     }
 }
 
+static void testFiniteSphericalCap(void) {
+    const float R=66.0f,Rc=114.0f;
+    const float sag=R*R/(Rc+sqrtf(Rc*Rc-R*R));
+    LGButtonOpticsResult middle=LGButtonOpticsEvaluate(66,66,132,132,66,66,66,48,108,1.6f,2,132*7.0f/36.0f,3,3,true);
+    assert(middle.valid&&fabsf(middle.height-sag)<1e-4f);
+    assert(middle.offsetX==0&&middle.offsetY==0&&middle.environmentWeight==0);
+    LGButtonOpticsResult press=LGButtonOpticsEvaluate(66,66,132,132,66,66,66,48,52.8f,1.6f,1.8f,132*7.0f/36.0f,3,3,true);
+    assert(fabsf(press.height-sag*.8f)<1e-4f);
+    float previous=0;
+    for(unsigned i=1;i<660;i++) {
+        float x=132.0f-i*.1f;
+        LGButtonOpticsResult q=LGButtonOpticsEvaluate(x,66,132,132,66,66,66,48,108,1.6f,2,132*7.0f/36.0f,3,3,true);
+        assert(q.valid&&q.height>=previous-1e-4f&&q.height<=sag+1e-4f);previous=q.height;
+        float normalZ=sqrtf(fmaxf(0,1-q.normalX*q.normalX-q.normalY*q.normalY));
+        assert(normalZ>0.80f); // finite rim slope instead of almost-horizontal normal
+        if(i>2&&i<658) {
+            const float e=.05f;
+            LGButtonOpticsResult a=LGButtonOpticsEvaluate(x-e,66,132,132,66,66,66,48,108,1.6f,2,132*7.0f/36.0f,3,3,true);
+            LGButtonOpticsResult b=LGButtonOpticsEvaluate(x+e,66,132,132,66,66,66,48,108,1.6f,2,132*7.0f/36.0f,3,3,true);
+            assert(fabsf(q.normalX/normalZ+(b.height-a.height)/(2*e))<.001f);
+        }
+    }
+    for(int y=1;y<132;y++)for(int x=1;x<132;x++) {
+        LGButtonOpticsResult q=LGButtonOpticsEvaluateWithContact(x,y,132,132,66,66,66,48,108,1.6f,2,132*7.0f/36.0f,3,3,true,true,.06f,.5f,1);
+        assert(q.valid&&q.height>=-1e-5f&&q.height<=sag+1e-4f);
+    }
+}
 int main(void) {
+    testFiniteSphericalCap();
     testSmoothLimiter();
     testIdentityAndContactIsolation();
     testOpticalEdgeContinuity();
