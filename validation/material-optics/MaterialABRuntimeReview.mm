@@ -35,6 +35,7 @@ static bool MakePipeline(id<MTLDevice> device, const char *source,
     return *out!=nil;
 }
 
+static double gLastGPUSeconds=0.0;
 static std::vector<uint8_t> Render(id<MTLDevice> device,id<MTLCommandQueue> queue,
     id<MTLRenderPipelineState> pipeline,id<MTLSamplerState> sampler,
     id<MTLTexture> source,const void *uniformBytes,NSUInteger uniformLength,
@@ -59,8 +60,32 @@ static std::vector<uint8_t> Render(id<MTLDevice> device,id<MTLCommandQueue> queu
     if (cb.status!=MTLCommandBufferStatusCompleted) {
         std::fprintf(stderr,"Metal render failed: %s\n",cb.error.localizedDescription.UTF8String);return {};
     }
+    gLastGPUSeconds=cb.GPUEndTime>cb.GPUStartTime?cb.GPUEndTime-cb.GPUStartTime:0.0;
     std::vector<uint8_t> out(W*H*4);
     [target getBytes:out.data() bytesPerRow:W*4 fromRegion:MTLRegionMake2D(0,0,W,H) mipmapLevel:0];
+    return out;
+}
+
+static NSArray *BenchmarkSampling(id<MTLDevice> device,id<MTLCommandQueue> queue,
+    id<MTLRenderPipelineState> baseline,id<MTLRenderPipelineState> candidate,
+    id<MTLSamplerState> sampler,id<MTLTexture> texture,const LGLocalButtonUniforms &u) {
+    std::vector<double>gpu[2],wall[2];
+    for(unsigned i=0;i<32;i++)for(unsigned v=0;v<2;v++) {
+        CFAbsoluteTime before=CFAbsoluteTimeGetCurrent();
+        auto pixels=Render(device,queue,v?candidate:baseline,sampler,texture,&u,sizeof(u),132,132);
+        double elapsed=CFAbsoluteTimeGetCurrent()-before;
+        if(pixels.size()!=132*132*4)return nil;
+        if(i>=8){wall[v].push_back(elapsed);if(gLastGPUSeconds>0&&std::isfinite(gLastGPUSeconds))gpu[v].push_back(gLastGPUSeconds);}
+    }
+    NSMutableArray *out=[NSMutableArray array];
+    for(unsigned v=0;v<2;v++) {
+        std::sort(gpu[v].begin(),gpu[v].end());std::sort(wall[v].begin(),wall[v].end());
+        id gpuMedian=gpu[v].empty()?(id)[NSNull null]:@(1000.0*gpu[v][gpu[v].size()/2]);
+        [out addObject:@{@"variant":v?@"newCandidate":@"frozenBaseline",@"warmup":@8,@"measuredCommandBuffers":@24,
+            @"GPUTimeSamplesAvailable":@(gpu[v].size()),@"GPUTimeMedianMilliseconds":gpuMedian,
+            @"CPUWallIncludingAllocationAndReadbackMedianMilliseconds":@(1000.0*wall[v][wall[v].size()/2]),
+            @"notIPhonePerformanceOrBudgetSignoff":@YES}];
+    }
     return out;
 }
 
@@ -104,7 +129,7 @@ int main(void){@autoreleasepool{
  if(!MakePipeline(device,oldSource.UTF8String,MTLPixelFormatBGRA8Unorm_sRGB,&baselinePipeline)||!MakePipeline(device,newSource.UTF8String,MTLPixelFormatBGRA8Unorm_sRGB,&candidatePipeline))return 4;
  id<MTLRenderPipelineState>pipelines[2]={baselinePipeline,candidatePipeline};
  MTLSamplerDescriptor *sd=[MTLSamplerDescriptor new];sd.minFilter=sd.magFilter=MTLSamplerMinMagFilterLinear;sd.sAddressMode=sd.tAddressMode=MTLSamplerAddressModeClampToEdge;id<MTLSamplerState>sampler=[device newSamplerStateWithDescriptor:sd];
- NSString *png=[out stringByAppendingPathComponent:@"pngs"];[[NSFileManager defaultManager]createDirectoryAtPath:png withIntermediateDirectories:YES attributes:nil error:nil];NSMutableArray *records=[NSMutableArray array],*guards=[NSMutableArray array];BOOL all=YES;
+ NSString *png=[out stringByAppendingPathComponent:@"pngs"];[[NSFileManager defaultManager]createDirectoryAtPath:png withIntermediateDirectories:YES attributes:nil error:nil];NSMutableArray *records=[NSMutableArray array],*guards=[NSMutableArray array],*timings=[NSMutableArray array];BOOL all=YES;
  constexpr NSUInteger T=132,S=228,O=48;const size_t bytes=T*T*4;
  for(NSString *scene in @[@"botanical",@"grid",@"black",@"gray",@"white"]){
   std::vector<uint8_t>source(S*S*4);
@@ -121,6 +146,10 @@ int main(void){@autoreleasepool{
    LGButtonOpticalState state={};state.eligible=true;state.geometryGeneration=1;state.phase=LGOpticalIdle;
    if(step==1||step==2){state.tracking=true;state.phase=LGOpticalTrackingInside;state.pressure=state.target=1;state.touchValid=true;state.touchX=step==1?.12f:.88f;state.touchY=.5f;}
    LGLocalButtonUniforms u={};if(!LGLocalButtonBuildUniforms(&c,&state,T,T,3,true,&u))return 7;
+   if(step==0&&([scene isEqual:@"botanical"]||[scene isEqual:@"grid"])) {
+    NSArray *bench=BenchmarkSampling(device,queue,baselinePipeline,candidatePipeline,sampler,texture,u);if(!bench)return 14;
+    [timings addObject:@{@"scene":scene,@"statistics":bench,@"scope":@"Alternating same actual Mac GPU input; not A15 or system cost signoff"}];
+   }
    for(unsigned variant=0;variant<2;variant++){
     auto pixels=Render(device,queue,pipelines[variant],sampler,texture,&u,sizeof u,T,T);if(pixels.size()!=bytes)return 8;
     if(step==0)idle[variant]=pixels;
@@ -138,7 +167,7 @@ int main(void){@autoreleasepool{
   LGButtonOpticalState noTouch={};noTouch.eligible=true;noTouch.geometryGeneration=1;LGLocalButtonUniforms neutral={};if(!LGLocalButtonBuildUniforms(&c,&noTouch,T,T,3,true,&neutral))return 10;neutral.glassThickness=0;
   for(unsigned variant=0;variant<2;variant++){auto zero=Render(device,queue,pipelines[variant],sampler,texture,&neutral,sizeof neutral,T,T);unsigned max=0;if(zero.size()!=bytes)return 11;for(size_t k=0;k<bytes;k++)max=std::max(max,(unsigned)abs((int)zero[k]-(int)roi[k]));all=all&&max<=1;[guards addObject:@{@"scene":scene,@"variant":@(variant),@"check":@"zeroThicknessSourceIdentity",@"maxByteDelta":@(max),@"pass":@(max<=1)}];}
  }
- NSDictionary *report=@{@"scope":@"Same owned inputs and production240B uniforms; completed macOS Metal offscreen readbacks, NOT iPhone or system-host visual acceptance",@"oldMSLSHA256":BytesHash(oldBytes),@"newMSLSHA256":BytesHash(newBytes),@"actualMetalDeviceName":device.name?:@"unknown",@"targetPixels":@132,@"sourcePixels":@228,@"targetOriginPixels":@[@48,@48],@"allSafetyGuards":@(all),@"records":records,@"guards":guards,@"visualGoal":@"NOT_ACCEPTED_AUTOMATICALLY: parent must inspect actual images",@"systemRuntime":@"NOT_RUN",@"trueUIKitInputForThisMacTest":@NO};
+ NSDictionary *report=@{@"scope":@"Same owned inputs and production240B uniforms; completed macOS Metal offscreen readbacks, NOT iPhone or system-host visual acceptance",@"oldMSLSHA256":BytesHash(oldBytes),@"newMSLSHA256":BytesHash(newBytes),@"actualMetalDeviceName":device.name?:@"unknown",@"targetPixels":@132,@"sourcePixels":@228,@"targetOriginPixels":@[@48,@48],@"allSafetyGuards":@(all),@"records":records,@"guards":guards,@"macOffscreenCommandBenchmarks":timings,@"visualGoal":@"NOT_ACCEPTED_AUTOMATICALLY: parent must inspect actual images",@"systemRuntime":@"NOT_RUN",@"trueUIKitInputForThisMacTest":@NO};
  NSData *data=[NSJSONSerialization dataWithJSONObject:report options:NSJSONWritingPrettyPrinted|NSJSONWritingSortedKeys error:nil];if(!data||![data writeToFile:[out stringByAppendingPathComponent:@"material-ab-readbacks.json"] atomically:YES])return 12;
  printf("%s material A/B same-input Metal readbacks; images=%lu, finite/passive/zero-thickness/shape-outside guards only; visual acceptance is separate\n",all?"PASS":"FAIL",(unsigned long)records.count);
  return all?0:13;
