@@ -216,9 +216,50 @@ LGBO_FUNCTION_BEGIN(LGButtonOpticsResult, LGButtonOpticsEvaluate, (float x, floa
 LGBO_STMT(return LGButtonOpticsEvaluateWithContact(x, y, width, height, centerX, centerY, radius, bezel, glassThickness, refractiveIndex, refractionScale, displacementCap, pointScale, rendererScale, enabled, false, 0.0f, 0.0f, 0.0f);)
 LGBO_FUNCTION_END
 
-/* Mix a same-live-source thickness-path sample in native Metal space;
- * this does not claim external reflected radiance. Preserve premultiplication
- * and transmitted alpha; _sRGB Metal samples are already linear. */
+/* Candidate-only image-driven edge-radiance approximation. The source is the
+ * explicitly leased background plane, not an inferred environment map. A
+ * Schlick reflectance-shaped coefficient limits a local edge cue; the C/MSL
+ * caller must additionally require the explicit candidate overscan lease. */
+LGBO_FUNCTION_BEGIN(float, LGBOImageEdgeRadianceWeight, (LGButtonOpticsResult q, float width, float height, float bezel, float pointScale, float refractiveIndex, bool enabled, bool leasedOverscan))
+LGBO_STMT(if (!q.valid || !enabled || !leasedOverscan || !isfinite(width) || !isfinite(height) || !isfinite(bezel) || !isfinite(pointScale) || !isfinite(refractiveIndex) || !isfinite(q.signedDistance) || !isfinite(q.height) || !isfinite(q.normalX) || !isfinite(q.normalY) || q.signedDistance >= 0.0f || q.height <= 0.0f || width < 1.0f || width > 16384.0f || height < 1.0f || height > 16384.0f || pointScale < 0.5f || pointScale > 4.0f || refractiveIndex <= 1.0f || refractiveIndex > 3.2f) return 0.0f;)
+LGBO_STMT(float shortest = LGBOMin(width, height);)
+LGBO_STMT(float radialEdgeDepth = LGBOMax(pointScale * 1.5f, shortest * 0.15f);)
+LGBO_STMT(float effectiveEdgeDepth = LGBOMin(LGBOMax(bezel, 1.0f), radialEdgeDepth);)
+LGBO_STMT(if (effectiveEdgeDepth <= 0.0f) return 0.0f;)
+LGBO_STMT(float edgeT = LGBOClamp(-q.signedDistance / effectiveEdgeDepth, 0.0f, 1.0f);)
+LGBO_STMT(float edgeBand = 1.0f - edgeT * edgeT * (3.0f - 2.0f * edgeT);)
+LGBO_STMT(float normalXY2 = LGBOClamp(q.normalX * q.normalX + q.normalY * q.normalY, 0.0f, 1.0f);)
+LGBO_STMT(float cosineIncident = sqrt(LGBOClamp(1.0f - normalXY2, 0.0f, 1.0f));)
+LGBO_STMT(float ratio = (refractiveIndex - 1.0f) / (refractiveIndex + 1.0f);)
+LGBO_STMT(float f0 = ratio * ratio;)
+LGBO_STMT(float oneMinusCosine = 1.0f - cosineIncident;)
+LGBO_STMT(float oneMinusCosine2 = oneMinusCosine * oneMinusCosine;)
+LGBO_STMT(float schlick = f0 + (1.0f - f0) * oneMinusCosine2 * oneMinusCosine2 * oneMinusCosine;)
+LGBO_STMT(float weight = edgeBand * schlick;)
+LGBO_STMT(if (!isfinite(weight)) return 0.0f;)
+LGBO_STMT(return LGBOClamp(weight, 0.0f, 0.28f);)
+LGBO_FUNCTION_END
+
+/* Explicit image-space cone width, not a physical world-space reflection
+ * distance: 12-degree half-angle times local cap height, capped at the legal
+ * 16-point source overscan. The real leased source is sampled by the caller. */
+LGBO_FUNCTION_BEGIN(float, LGBOImageEdgeRadianceRadius, (float localHeight, float pointScale))
+LGBO_STMT(if (!isfinite(localHeight) || !isfinite(pointScale) || pointScale <= 0.0f) return 0.0f;)
+LGBO_STMT(float screenConeTangent = 0.21255656f;)
+LGBO_STMT(float requestedRadius = LGBOMax(localHeight, 0.0f) * screenConeTangent;)
+LGBO_STMT(float legalRadius = 16.0f * pointScale;)
+LGBO_STMT(return LGBOSmoothCappedLength(requestedRadius, legalRadius);)
+LGBO_FUNCTION_END
+
+/* Four equal, nonnegative quadrature weights preserve a constant source and
+ * make the cone integral a convex average of actual captured radiance. */
+LGBO_FUNCTION_BEGIN(float, LGBOAverageFourRadianceSamples, (float a, float b, float c, float d))
+LGBO_STMT(return 0.25f * (a + b + c + d);)
+LGBO_FUNCTION_END
+
+/* Mix an optional same-live-source low-frequency edge integral in native Metal
+ * space. It is a bounded image-driven cue, not external reflected radiance.
+ * Preserve premultiplication and transmitted alpha; _sRGB samples are linear. */
 LGBO_FUNCTION_BEGIN(float, LGBOEnvironmentMixPremultipliedChannel, (float transmittedPremul, float transmittedAlpha, float environmentPremul, float environmentAlpha, float weight))
 LGBO_STMT(float alpha = LGBOClamp(transmittedAlpha, 0.0f, 1.0f);)
 LGBO_STMT(if (alpha <= 0.00001f) return 0.0f;)

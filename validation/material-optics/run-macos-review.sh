@@ -25,7 +25,17 @@ xcrun --sdk macosx clang -std=c11 -Wall -Wextra -Werror \
   -I"$V/candidate-source/Shared" -I"$ROOT/Shared" "$V/diagnose_mapping.c" -lm -o "$OUT/diagnose-mapping"
 "$OUT/diagnose-mapping" > "$OUT/exact-optical-mapping-diagnostics.json"
 if [[ -f "$V/candidate-source/Shared/LGLocalMinification.inc" ]]; then
-  python3 "$V/candidate-source/scripts/test_button_minification_source.py" "$V/candidate.metal"
+  if [[ -f "$V/candidate-source/scripts/test_button_edge_radiance_source.py" ]]; then
+    python3 "$V/candidate-source/scripts/test_button_edge_radiance_source.py"
+    xcrun --sdk macosx clang -std=c11 -Wall -Wextra -Werror -I"$V/candidate-source/Shared" \
+      "$V/candidate-source/validation/edge-radiance-candidate/test_edge_radiance_cpu.c" -lm -o "$OUT/edge-radiance-cpu"
+    "$OUT/edge-radiance-cpu" > "$OUT/edge-radiance-cpu.log"
+    xcrun --sdk macosx clang -std=c11 -Wall -Wextra -Werror -I"$V/candidate-source/Shared" \
+      "$V/edge_coordinate_diagnostics.c" -lm -o "$OUT/edge-coordinate-diagnostics"
+    "$OUT/edge-coordinate-diagnostics" > "$OUT/edge-coordinate-diagnostics.json"
+  else
+    python3 "$V/candidate-source/scripts/test_button_minification_source.py" "$V/candidate.metal"
+  fi
   xcrun --sdk macosx clang++ -std=c++17 -fobjc-arc -fblocks \
     "$V/candidate-source/scripts/test_button_minification_metal.mm" \
     -framework Foundation -framework Metal -framework CoreGraphics -o "$OUT/minification-probe"

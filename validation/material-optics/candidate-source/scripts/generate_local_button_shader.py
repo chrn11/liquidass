@@ -76,6 +76,42 @@ float4 localButtonMinifiedSample(texture2d<float, access::sample> source,
                   source.sample(s,e,level(0.0f)));
 }
 '''
+EDGE_RADIANCE_MSL_HELPER='''
+float4 localButtonEdgeRadianceSample(texture2d<float, access::sample> src,
+                                     sampler s, float2 centerUV,
+                                     LGButtonOpticsResult optics,
+                                     constant Uniforms &u) {
+    float2 dimensions=float2((float)src.get_width(),(float)src.get_height());
+    float2 halfTexel=0.5f/dimensions;
+    float2 highUV=1.0f-halfTexel;
+    float2 roiMin=u.buttonSourceTargetOriginPixels/dimensions;
+    float2 roiMax=(u.buttonSourceTargetOriginPixels+u.resolution)/dimensions;
+    float2 legalPad=float2(16.0f*u.buttonCandidatePointScale)/dimensions;
+    float2 lowUV=max(halfTexel,roiMin-legalPad);
+    float2 legalHighUV=min(highUV,roiMax+legalPad);
+    float2 center=clamp(centerUV,lowUV,legalHighUV)*dimensions;
+    float2 outward=float2(optics.normalX,optics.normalY);
+    float normalLength=length(outward);
+    outward=normalLength>0.0001f ? outward/normalLength : float2(1.0f,0.0f);
+    float2 tangent=float2(-outward.y,outward.x);
+    float radius=LGBOImageEdgeRadianceRadius(optics.height,u.buttonCandidatePointScale);
+    float2 radial=radius*outward;
+    float2 lateral=radius*tangent;
+    float2 p0=clamp((center+radial)/dimensions,lowUV,legalHighUV);
+    float2 p1=clamp((center-radial)/dimensions,lowUV,legalHighUV);
+    float2 p2=clamp((center+lateral)/dimensions,lowUV,legalHighUV);
+    float2 p3=clamp((center-lateral)/dimensions,lowUV,legalHighUV);
+    float4 a=src.sample(s,p0,level(0.0f));
+    float4 b=src.sample(s,p1,level(0.0f));
+    float4 c=src.sample(s,p2,level(0.0f));
+    float4 d=src.sample(s,p3,level(0.0f));
+    return float4(
+        LGBOAverageFourRadianceSamples(a.r,b.r,c.r,d.r),
+        LGBOAverageFourRadianceSamples(a.g,b.g,c.g,d.g),
+        LGBOAverageFourRadianceSamples(a.b,b.b,c.b,d.b),
+        LGBOAverageFourRadianceSamples(a.a,b.a,c.a,d.a));
+}
+'''
 
 
 def wrap_local_source_samples(source):
@@ -175,9 +211,19 @@ def main():
     old_tail='u.buttonCandidatePointScale, u.buttonCandidateRendererScale, true);'
     new_tail=('u.buttonCandidatePointScale, u.buttonCandidateRendererScale, true,\n'
               '            u.buttonContactEnabled > 0.5f, u.buttonContactCenter.x,\n'
-              '            u.buttonContactCenter.y, u.buttonContactPressure);')
+              '            u.buttonContactCenter.y, u.buttonContactPressure);\n'
+              '        optics.environmentWeight=LGBOImageEdgeRadianceWeight(\n'
+              '            optics,fw,fh,bezel,u.buttonCandidatePointScale,\n'
+              '            u.refractiveIndex,true,u.buttonSourceOverscanEnabled > 0.5f);')
     if base.count(old_tail)!=1: raise SystemExit('raw candidate call argument anchor drift')
     base=base.replace(old_tail,new_tail,1)
+    old_environment_comment='''        /* Source-plane radiance approximation: a second low-cost sample from
+         * the same live CA origTex. This is not an external environment map. */'''
+    new_environment_comment='''        /* Candidate-only four-point low-frequency radiance integral from the
+         * same leased source. It is not a second clear image or reflection map. */'''
+    if base.count(old_environment_comment)!=1:
+        raise SystemExit('raw environment comment anchor drift')
+    base=base.replace(old_environment_comment,new_environment_comment,1)
     optical='        float2 opticalUV = float2(optics.sampleU, optics.sampleV);'
     environment='        float2 environmentUV = float2(optics.environmentU, optics.environmentV);'
     if base.count(optical)!=1 or base.count(environment)!=1:
@@ -194,16 +240,9 @@ def main():
         float2 localOpticalPlusX =localButtonSourceTexels(src,u,localButtonPlusX, float2(px.x+0.5f,px.y),false);
         float2 localOpticalMinusY=localButtonSourceTexels(src,u,localButtonMinusY,float2(px.x,px.y-0.5f),false);
         float2 localOpticalPlusY =localButtonSourceTexels(src,u,localButtonPlusY, float2(px.x,px.y+0.5f),false);
-        float2 localEnvironmentMinusX=localButtonSourceTexels(src,u,localButtonMinusX,float2(px.x-0.5f,px.y),true);
-        float2 localEnvironmentPlusX =localButtonSourceTexels(src,u,localButtonPlusX, float2(px.x+0.5f,px.y),true);
-        float2 localEnvironmentMinusY=localButtonSourceTexels(src,u,localButtonMinusY,float2(px.x,px.y-0.5f),true);
-        float2 localEnvironmentPlusY =localButtonSourceTexels(src,u,localButtonPlusY, float2(px.x,px.y+0.5f),true);
         LGMinificationFootprint opticalFootprint=LGBOAnalyzeMinificationFootprint(
             localOpticalPlusX.x-localOpticalMinusX.x,localOpticalPlusX.y-localOpticalMinusX.y,
             localOpticalPlusY.x-localOpticalMinusY.x,localOpticalPlusY.y-localOpticalMinusY.y);
-        LGMinificationFootprint environmentFootprint=LGBOAnalyzeMinificationFootprint(
-            localEnvironmentPlusX.x-localEnvironmentMinusX.x,localEnvironmentPlusX.y-localEnvironmentMinusX.y,
-            localEnvironmentPlusY.x-localEnvironmentMinusY.x,localEnvironmentPlusY.y-localEnvironmentMinusY.y);
 '''
     if base.count(optical_setup)!=1: raise SystemExit('candidate optical UV setup anchor drift')
     base=base.replace(optical_setup,optical_setup+'\n'+footprint_code,1)
@@ -214,18 +253,17 @@ def main():
         else
             opticalSample=src.sample(s,localButtonSourceUV(src,u,opticalUV));'''
     old_environment_sample='        float4 environmentSample = src.sample(s, localButtonSourceUV(src, u,  environmentUV));'
-    new_environment_sample='''        float4 environmentSample;
-        if (environmentFootprint.tapCount > 1)
-            environmentSample=localButtonMinifiedSample(src,s,localButtonSourceUV(src,u,environmentUV),environmentFootprint);
-        else
-            environmentSample=src.sample(s,localButtonSourceUV(src,u,environmentUV));'''
+    new_environment_sample='''        float4 environmentSample=opticalSample;
+        if (u.buttonSourceOverscanEnabled > 0.5f && optics.environmentWeight > 0.0f)
+            environmentSample=localButtonEdgeRadianceSample(
+                src,s,localButtonSourceUV(src,u,environmentUV),optics,u);'''
     if base.count(old_optical_sample)!=1 or base.count(old_environment_sample)!=1:
-        raise SystemExit('candidate optical/environment sample anchor drift')
+        raise SystemExit('candidate optical/environment sample anchors drift')
     base=base.replace(old_optical_sample,new_optical_sample,1)
     base=base.replace(old_environment_sample,new_environment_sample,1)
     formula=expand_formula(SHARED/'LGButtonOpticsFormula.inc')
     formula+=expand_formula(SHARED/'LGLocalSourceMapping.inc')
-    formula+=expand_formula(SHARED/'LGLocalMinification.inc')+SOURCE_UV_HELPER+MINIFICATION_MSL_HELPER
+    formula+=expand_formula(SHARED/'LGLocalMinification.inc')+SOURCE_UV_HELPER+MINIFICATION_MSL_HELPER+EDGE_RADIANCE_MSL_HELPER
     source='#define LG_BUTTON_OPTICS_COMPILED 1\n'+base.replace(MARKER,formula)
     definition='LGButtonOpticsResult LGButtonOpticsEvaluateWithContact('
     actual_call='LGButtonOpticsResult optics = LGButtonOpticsEvaluateWithContact('
@@ -243,10 +281,21 @@ def main():
         raise SystemExit('generated MSL finite-difference footprint count drift')
     if source.index('LGMinificationFootprint opticalFootprint=') > source.index('float4 opticalSample;'):
         raise SystemExit('optical sample appears before its bounded footprint')
-    if 'opticalSample=src.sample(s,localButtonSourceUV(src,u,opticalUV));' not in source or 'environmentSample=src.sample(s,localButtonSourceUV(src,u,environmentUV));' not in source:
-        raise SystemExit('uncompressed direct sampler path drift')
+    if 'opticalSample=src.sample(s,localButtonSourceUV(src,u,opticalUV));' not in source:
+        raise SystemExit('primary direct sampler path drift')
+    if 'environmentSample=localButtonEdgeRadianceSample(' not in source:
+        raise SystemExit('edge-radiance integrator was not emitted')
+    if 'u.buttonSourceOverscanEnabled > 0.5f && optics.environmentWeight > 0.0f' not in source:
+        raise SystemExit('edge-radiance lease/zero-weight gate missing')
+    edge_helper=source.split('float4 localButtonEdgeRadianceSample(',1)[1].split('\n}',1)[0]
+    if edge_helper.count('src.sample(s,')!=4:
+        raise SystemExit('edge-radiance tap budget must be exactly four')
+    if 'LGBOAverageFourRadianceSamples(a.r,b.r,c.r,d.r)' not in edge_helper:
+        raise SystemExit('shared convex quadrature formula missing')
+    if 'LGBOImageEdgeRadianceWeight(' not in source or 'LGBOImageEdgeRadianceRadius(' not in edge_helper:
+        raise SystemExit('shared edge weight/radius math missing')
     if 'source.sample(s,a,level(0.0f))' not in source or 'source.sample(s,e,level(0.0f))' not in source:
-        raise SystemExit('bounded explicit level-zero taps missing')
+        raise SystemExit('bounded primary level-zero taps missing')
     if re.search(r'\b(?:ddx|ddy)\s*\(',source):
         raise SystemExit('fragment derivatives must not enter shared shader call chain')
     if ')LGLOCALMSL"' in source: raise SystemExit('raw string delimiter collision')
