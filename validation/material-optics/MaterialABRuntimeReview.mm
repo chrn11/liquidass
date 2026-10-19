@@ -132,7 +132,7 @@ static bool EdgeSourceGuards(id<MTLDevice> device,id<MTLCommandQueue> queue,
  auto contract=[&](NSUInteger n,BOOL pad)->LGLocalButtonSourceContract{
   LGLocalButtonSourceContract c={};c.pointScale=3;c.textureWidth=c.textureHeight=(uint32_t)n;c.pixelFormat=81;c.targetGeometryGeneration=1;
   c.targetRectInOwnerPoints=CGRectMake(0,0,44,44);CGFloat p=(n-T)/6.0;c.sourceRectInOwnerPoints=CGRectMake(-p,-p,n/3.0,n/3.0);c.sourceOverscanEnabled=pad;
-  c.ownerInstanceToken=71;c.ownerGeneration=c.frameGeneration=1;c.frameTimestampMonotonic=1;c.sourceKind=LGLocalSourceStaticOwnedAsset;
+  c.ownerInstanceToken=71;c.ownerGeneration=c.frameGeneration=1;c.frameTimestampMonotonic=1;c.sourceKind=LGLocalSourceStaticAsset;
   c.alphaMode=LGLocalAlphaPremultiplied;c.maskKind=LGLocalMaskRounded44;c.backgroundOnly=c.targetForegroundExcluded=c.immutableUntilFrameReleased=c.sampledRGBIsLinear=c.sampledRGBIsPremultiplied=true;return c;};
  LGButtonOpticalState state={};state.eligible=true;state.geometryGeneration=1;
  auto c=contract(S,YES);LGLocalButtonUniforms u={};if(!LGLocalButtonBuildUniforms(&c,&state,T,T,3,true,&u))return false;
