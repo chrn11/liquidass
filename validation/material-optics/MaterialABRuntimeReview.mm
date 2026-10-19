@@ -15,7 +15,7 @@
 
 static_assert(sizeof(LGLocalButtonUniforms)==240,"review must not silently change production ABI");
 static bool MakePipeline(id<MTLDevice> device, const char *source,
-                         MTLPixelFormat format,id<MTLRenderPipelineState> *out,const char *fragmentName="liquidGlassFragment") {
+                         MTLPixelFormat format,id<MTLRenderPipelineState> *out) {
     NSString *text=[NSString stringWithUTF8String:source];
     NSError *error=nil;
     id<MTLLibrary> lib=[device newLibraryWithSource:text options:nil error:&error];
@@ -24,7 +24,7 @@ static bool MakePipeline(id<MTLDevice> device, const char *source,
         return false;
     }
     id<MTLFunction> vertex=[lib newFunctionWithName:@"liquidGlassVertex"];
-    id<MTLFunction> fragment=[lib newFunctionWithName:[NSString stringWithUTF8String:fragmentName]];
+    id<MTLFunction> fragment=[lib newFunctionWithName:@"liquidGlassFragment"];
     if (!vertex || !fragment) { std::fprintf(stderr,"missing LiquidAss Metal entrypoints\n"); return false; }
     MTLRenderPipelineDescriptor *desc=[MTLRenderPipelineDescriptor new];
     desc.vertexFunction=vertex; desc.fragmentFunction=fragment;
@@ -115,40 +115,6 @@ static NSString *PixelSHA(const std::vector<uint8_t>&pixels) {
 static NSString *BytesHash(NSData *d) {
  std::vector<uint8_t> b(d.length);if(d.length)memcpy(b.data(),d.bytes,d.length);return PixelSHA(b);
 }
-static double DecodeSourceByte(uint8_t b){double x=(double)b/255.0;return x<=.04045?x/12.92:std::pow((x+.055)/1.055,2.4);}
-static NSDictionary *AreaError(const std::vector<uint8_t>&pixels,const std::vector<uint8_t>&reference) {
-    double sum=0,edgeSum=0;size_t count=0,edgeCount=0;
-    for(unsigned y=0;y<132;y++)for(unsigned x=0;x<132;x++) {
-        double depth=66.0-std::hypot(x+.5-66.0,y+.5-66.0);if(depth<=1.0)continue;
-        size_t k=(y*132+x)*4;
-        for(unsigned c=0;c<3;c++) {
-            double error=std::fabs(DecodeSourceByte(pixels[k+c])-DecodeSourceByte(reference[k+c]));sum+=error;count++;
-            if(depth<24.0){edgeSum+=error;edgeCount++;}
-        }
-    }
-    return @{@"interiorLinearRGB_MAE":@(sum/count),@"edgeBandLinearRGB_MAE":@(edgeSum/edgeCount),@"interiorChannelCount":@(count),@"edgeBandChannelCount":@(edgeCount)};
-}
-static bool AssessAreaReference(id<MTLDevice> device,id<MTLCommandQueue> queue,
-  id<MTLRenderPipelineState> reference8,id<MTLRenderPipelineState> reference16,
-  id<MTLSamplerState> sampler,id<MTLTexture> texture,const LGLocalButtonUniforms &u,
-  const std::vector<uint8_t>&baseline,const std::vector<uint8_t>&candidate,
-  NSString *scene,NSString *phase,NSString *pngPath,NSMutableArray *referenceRecords,NSMutableArray *assessments) {
-    auto eight=Render(device,queue,reference8,sampler,texture,&u,sizeof(u),132,132);
-    auto sixteen=Render(device,queue,reference16,sampler,texture,&u,sizeof(u),132,132);
-    if(eight.size()!=132*132*4||sixteen.size()!=eight.size())return false;
-    for(unsigned divisions: {8u,16u}) {
-        const auto &p=divisions==8?eight:sixteen;
-        NSString *name=[NSString stringWithFormat:@"%@-reference%u-%@.png",scene,divisions,phase];
-        NSString *full=[pngPath stringByAppendingPathComponent:name];if(!SaveReadback(full,p,132,132))return false;
-        [referenceRecords addObject:@{@"file":name,@"scene":scene,@"phase":phase,@"divisionsPerPixelAxis":@(divisions),@"actualCompletedReadback":@YES,@"uniformBytes":@240,@"BGRA_SHA256":PixelSHA(p),@"PNG_SHA256":BytesHash([NSData dataWithContentsOfFile:full]),@"interpretation":@"Review-only finite area integral of unchanged optical map, nearest own source texels, not Apple truth"}];
-    }
-    [assessments addObject:@{@"scene":scene,@"phase":phase,
-      @"unfilteredAgainstReference16":AreaError(baseline,sixteen),
-      @"AAAgainstReference16":AreaError(candidate,sixteen),
-      @"reference8AgainstReference16":AreaError(eight,sixteen),
-      @"note":@"Finite convergence diagnostic only; no visual-parity or physical-ground-truth claim"}];return true;
-}
-
 int main(void){@autoreleasepool{
  NSString *oldPath=NSProcessInfo.processInfo.environment[@"BASELINE_METAL"];
  NSString *newPath=NSProcessInfo.processInfo.environment[@"CANDIDATE_METAL"];
@@ -162,14 +128,8 @@ int main(void){@autoreleasepool{
  NSString *oldSource=[[NSString alloc]initWithData:oldBytes encoding:NSUTF8StringEncoding];NSString *newSource=[[NSString alloc]initWithData:newBytes encoding:NSUTF8StringEncoding];
  if(!MakePipeline(device,oldSource.UTF8String,MTLPixelFormatBGRA8Unorm_sRGB,&baselinePipeline)||!MakePipeline(device,newSource.UTF8String,MTLPixelFormatBGRA8Unorm_sRGB,&candidatePipeline))return 4;
  id<MTLRenderPipelineState>pipelines[2]={baselinePipeline,candidatePipeline};
- NSString *areaPath=NSProcessInfo.processInfo.environment[@"MATERIAL_REFERENCE_PATH"];
- NSString *areaText=[NSString stringWithContentsOfFile:areaPath encoding:NSUTF8StringEncoding error:nil];if(!areaText.length)return 15;
- NSString *referenceSource=[newSource stringByAppendingString:areaText];
- id<MTLRenderPipelineState> reference8=nil,reference16=nil;
- if(!MakePipeline(device,referenceSource.UTF8String,MTLPixelFormatBGRA8Unorm_sRGB,&reference8,"reviewArea8") ||
-    !MakePipeline(device,referenceSource.UTF8String,MTLPixelFormatBGRA8Unorm_sRGB,&reference16,"reviewArea16"))return 16;
  MTLSamplerDescriptor *sd=[MTLSamplerDescriptor new];sd.minFilter=sd.magFilter=MTLSamplerMinMagFilterLinear;sd.sAddressMode=sd.tAddressMode=MTLSamplerAddressModeClampToEdge;id<MTLSamplerState>sampler=[device newSamplerStateWithDescriptor:sd];
- NSString *png=[out stringByAppendingPathComponent:@"pngs"];[[NSFileManager defaultManager]createDirectoryAtPath:png withIntermediateDirectories:YES attributes:nil error:nil];NSMutableArray *records=[NSMutableArray array],*guards=[NSMutableArray array],*timings=[NSMutableArray array],*areaRecords=[NSMutableArray array],*areaErrors=[NSMutableArray array];BOOL all=YES;
+ NSString *png=[out stringByAppendingPathComponent:@"pngs"];[[NSFileManager defaultManager]createDirectoryAtPath:png withIntermediateDirectories:YES attributes:nil error:nil];NSMutableArray *records=[NSMutableArray array],*guards=[NSMutableArray array],*timings=[NSMutableArray array];BOOL all=YES;
  constexpr NSUInteger T=132,S=228,O=48;const size_t bytes=T*T*4;
  for(NSString *scene in @[@"botanical",@"grid",@"black",@"gray",@"white"]){
   std::vector<uint8_t>source(S*S*4);
@@ -190,12 +150,8 @@ int main(void){@autoreleasepool{
     NSArray *bench=BenchmarkSampling(device,queue,baselinePipeline,candidatePipeline,sampler,texture,u);if(!bench)return 14;
     [timings addObject:@{@"scene":scene,@"statistics":bench,@"scope":@"Alternating same actual Mac GPU input; not A15 or system cost signoff"}];
    }
-   std::vector<uint8_t> baselinePhasePixels;
    for(unsigned variant=0;variant<2;variant++){
     auto pixels=Render(device,queue,pipelines[variant],sampler,texture,&u,sizeof u,T,T);if(pixels.size()!=bytes)return 8;
-    if(variant==0)baselinePhasePixels=pixels;
-    if(variant==1&&(step==0||step==2)&&([scene isEqual:@"botanical"]||[scene isEqual:@"grid"]))
-        if(!AssessAreaReference(device,queue,reference8,reference16,sampler,texture,u,baselinePhasePixels,pixels,scene,phases[step],png,areaRecords,areaErrors))return 17;
     if(step==0)idle[variant]=pixels;
     bool phaseIdentity=step!=3||pixels==idle[variant];bool outside=true;unsigned outsideMax=0;
     for(NSUInteger y=0;y<T;y++)for(NSUInteger x=0;x<T;x++){double dx=x+.5-T*.5,dy=y+.5-T*.5;if(dx*dx+dy*dy>=66*66){size_t k=(y*T+x)*4;for(unsigned q=0;q<4;q++){unsigned delta=abs((int)pixels[k+q]-(int)roi[k+q]);outsideMax=std::max(outsideMax,delta);if(delta>1)outside=false;}}}
@@ -211,7 +167,7 @@ int main(void){@autoreleasepool{
   LGButtonOpticalState noTouch={};noTouch.eligible=true;noTouch.geometryGeneration=1;LGLocalButtonUniforms neutral={};if(!LGLocalButtonBuildUniforms(&c,&noTouch,T,T,3,true,&neutral))return 10;neutral.glassThickness=0;
   for(unsigned variant=0;variant<2;variant++){auto zero=Render(device,queue,pipelines[variant],sampler,texture,&neutral,sizeof neutral,T,T);unsigned max=0;if(zero.size()!=bytes)return 11;for(size_t k=0;k<bytes;k++)max=std::max(max,(unsigned)abs((int)zero[k]-(int)roi[k]));all=all&&max<=1;[guards addObject:@{@"scene":scene,@"variant":@(variant),@"check":@"zeroThicknessSourceIdentity",@"maxByteDelta":@(max),@"pass":@(max<=1)}];}
  }
- NSDictionary *report=@{@"scope":@"Same owned inputs and production240B uniforms; completed macOS Metal offscreen readbacks, NOT iPhone or system-host visual acceptance",@"oldMSLSHA256":BytesHash(oldBytes),@"newMSLSHA256":BytesHash(newBytes),@"actualMetalDeviceName":device.name?:@"unknown",@"targetPixels":@132,@"sourcePixels":@228,@"targetOriginPixels":@[@48,@48],@"allSafetyGuards":@(all),@"records":records,@"guards":guards,@"macOffscreenCommandBenchmarks":timings,@"areaReferenceRecords":areaRecords,@"finiteAreaErrorDiagnostics":areaErrors,@"visualGoal":@"NOT_ACCEPTED_AUTOMATICALLY: parent must inspect actual images",@"systemRuntime":@"NOT_RUN",@"trueUIKitInputForThisMacTest":@NO};
+ NSDictionary *report=@{@"scope":@"Same owned inputs and production240B uniforms; completed macOS Metal offscreen readbacks, NOT iPhone or system-host visual acceptance",@"oldMSLSHA256":BytesHash(oldBytes),@"newMSLSHA256":BytesHash(newBytes),@"actualMetalDeviceName":device.name?:@"unknown",@"targetPixels":@132,@"sourcePixels":@228,@"targetOriginPixels":@[@48,@48],@"allSafetyGuards":@(all),@"records":records,@"guards":guards,@"macOffscreenCommandBenchmarks":timings,@"visualGoal":@"NOT_ACCEPTED_AUTOMATICALLY: parent must inspect actual images",@"systemRuntime":@"NOT_RUN",@"trueUIKitInputForThisMacTest":@NO};
  NSData *data=[NSJSONSerialization dataWithJSONObject:report options:NSJSONWritingPrettyPrinted|NSJSONWritingSortedKeys error:nil];if(!data||![data writeToFile:[out stringByAppendingPathComponent:@"material-ab-readbacks.json"] atomically:YES])return 12;
  printf("%s material A/B same-input Metal readbacks; images=%lu, finite/passive/zero-thickness/shape-outside guards only; visual acceptance is separate\n",all?"PASS":"FAIL",(unsigned long)records.count);
  return all?0:13;

@@ -170,7 +170,10 @@ LGBO_STMT(float rayFactor = eta * normalZ - rootK;)
 LGBO_STMT(float rayX = rayFactor * normalX;)
 LGBO_STMT(float rayY = rayFactor * normalY;)
 LGBO_STMT(float rayZ = -eta + eta * normalZ * normalZ - rootK * normalZ;)
-LGBO_STMT(float pathLength = LGBOMin(displacementCap, heightAmplitude);)
+/* A ray at this surface point crosses this local height, not the maximum
+ * dome height everywhere. Use the existing C1 finite path budget, then the
+ * unchanged displacement budget; contact changes the very same local height. */
+LGBO_STMT(float pathLength = LGBOSmoothCappedLength(LGBOMax(out.height, 0.0f), displacementCap);)
 /* On the exact44pt button, the inherited16pt bezel suppressed refraction
  * through most of the22pt radius. Keep bezel as a maximum budget, but make the
  * actual optical shoulder proportional to radius, never a painted rim/light. */
@@ -189,29 +192,16 @@ LGBO_STMT(out.offsetX = offsetX;)
 LGBO_STMT(out.offsetY = offsetY;)
 LGBO_STMT(out.sampleU = LGBOClamp(x + offsetX, 0.5f, width - 0.5f) / width;)
 LGBO_STMT(out.sampleV = LGBOClamp(y + offsetY, 0.5f, height - 0.5f) / height;)
-LGBO_STMT(float normalCosine = LGBOClamp(normalZ, 0.0f, 1.0f);)
-LGBO_STMT(float fresnelBaseRatio = (refractiveIndex - 1.0f) / (refractiveIndex + 1.0f);)
-LGBO_STMT(float fresnelBase = fresnelBaseRatio * fresnelBaseRatio;)
-LGBO_STMT(float fresnelEdge = fresnelBase + (1.0f - fresnelBase) * pow(1.0f - normalCosine, 5.0f);)
-LGBO_STMT(float thicknessCoverage = LGBOClamp(glassThickness / LGBOMax(bezel, 1.0f), 0.0f, 1.0f);)
-/* This is a same-live-source thickness path, not a reflected environment ray.
- * Fresnel only bounds its radiance contribution; edgeFade spreads that path
- * continuously across the existing bezel-depth domain. */
-LGBO_STMT(float environmentEdgeCoverage = edgeFade;)
-LGBO_STMT(out.environmentWeight = LGBOMin(fresnelEdge * environmentEdgeCoverage * thicknessCoverage, 0.28f);)
-LGBO_STMT(float thicknessPathFraction = 0.35f + 0.65f * edgeFade;)
-LGBO_STMT(float environmentPath = LGBOMin(glassThickness, LGBOMax(bezel, 1.0f)) * 0.38f * refractionScale * thicknessPathFraction;)
-LGBO_STMT(float environmentOffsetX = rayX / denominator * environmentPath;)
-LGBO_STMT(float environmentOffsetY = rayY / denominator * environmentPath;)
-LGBO_STMT(float environmentLength = LGBOHypot(environmentOffsetX, environmentOffsetY);)
-LGBO_STMT(float environmentCap = LGBOMin(displacementCap * 0.45f, LGBOMin(glassThickness, LGBOMax(bezel, 1.0f)) * 0.38f);)
-LGBO_STMT(if (!isfinite(environmentLength) || !isfinite(out.environmentWeight)) { out.valid = false; return out; })
-LGBO_STMT(float limitedEnvironmentLength = LGBOSmoothCappedLength(environmentLength, environmentCap);)
-LGBO_STMT(if (environmentLength > 0.0f) { float factor = limitedEnvironmentLength / environmentLength; environmentOffsetX *= factor; environmentOffsetY *= factor; })
-LGBO_STMT(out.environmentOffsetX = environmentOffsetX;)
-LGBO_STMT(out.environmentOffsetY = environmentOffsetY;)
-LGBO_STMT(out.environmentU = LGBOClamp(x + environmentOffsetX, 0.5f, width - 0.5f) / width;)
-LGBO_STMT(out.environmentV = LGBOClamp(y + environmentOffsetY, 0.5f, height - 0.5f) / height;)
+/* This owned source describes one plane. Without a separately measured
+ * reflected environment or a traced second interface, compositing a second
+ * differently displaced copy creates an ungrounded double image. Retain all
+ * legacy result fields/ABI but make them coincide with the sole transmitted
+ * ray and give the absent secondary path exactly zero energy. */
+LGBO_STMT(out.environmentWeight = 0.0f;)
+LGBO_STMT(out.environmentOffsetX = out.offsetX;)
+LGBO_STMT(out.environmentOffsetY = out.offsetY;)
+LGBO_STMT(out.environmentU = out.sampleU;)
+LGBO_STMT(out.environmentV = out.sampleV;)
 LGBO_STMT(return out;)
 LGBO_FUNCTION_END
 

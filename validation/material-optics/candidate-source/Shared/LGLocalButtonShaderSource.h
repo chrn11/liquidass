@@ -203,7 +203,7 @@ float rayFactor = eta * normalZ - rootK;
 float rayX = rayFactor * normalX;
 float rayY = rayFactor * normalY;
 float rayZ = -eta + eta * normalZ * normalZ - rootK * normalZ;
-float pathLength = LGBOMin(displacementCap, heightAmplitude);
+float pathLength = LGBOSmoothCappedLength(LGBOMax(out.height, 0.0f), displacementCap);
 float radialEdgeDepth = LGBOMax(pointScale * 1.5f, depthRadius * 0.3f);
 float effectiveEdgeDepth = LGBOMin(LGBOMax(bezel, 1.0f), radialEdgeDepth);
 float edgeT = LGBOClamp(depth / effectiveEdgeDepth, 0.0f, 1.0f);
@@ -219,26 +219,11 @@ out.offsetX = offsetX;
 out.offsetY = offsetY;
 out.sampleU = LGBOClamp(x + offsetX, 0.5f, width - 0.5f) / width;
 out.sampleV = LGBOClamp(y + offsetY, 0.5f, height - 0.5f) / height;
-float normalCosine = LGBOClamp(normalZ, 0.0f, 1.0f);
-float fresnelBaseRatio = (refractiveIndex - 1.0f) / (refractiveIndex + 1.0f);
-float fresnelBase = fresnelBaseRatio * fresnelBaseRatio;
-float fresnelEdge = fresnelBase + (1.0f - fresnelBase) * pow(1.0f - normalCosine, 5.0f);
-float thicknessCoverage = LGBOClamp(glassThickness / LGBOMax(bezel, 1.0f), 0.0f, 1.0f);
-float environmentEdgeCoverage = edgeFade;
-out.environmentWeight = LGBOMin(fresnelEdge * environmentEdgeCoverage * thicknessCoverage, 0.28f);
-float thicknessPathFraction = 0.35f + 0.65f * edgeFade;
-float environmentPath = LGBOMin(glassThickness, LGBOMax(bezel, 1.0f)) * 0.38f * refractionScale * thicknessPathFraction;
-float environmentOffsetX = rayX / denominator * environmentPath;
-float environmentOffsetY = rayY / denominator * environmentPath;
-float environmentLength = LGBOHypot(environmentOffsetX, environmentOffsetY);
-float environmentCap = LGBOMin(displacementCap * 0.45f, LGBOMin(glassThickness, LGBOMax(bezel, 1.0f)) * 0.38f);
-if (!isfinite(environmentLength) || !isfinite(out.environmentWeight)) { out.valid = false; return out; }
-float limitedEnvironmentLength = LGBOSmoothCappedLength(environmentLength, environmentCap);
-if (environmentLength > 0.0f) { float factor = limitedEnvironmentLength / environmentLength; environmentOffsetX *= factor; environmentOffsetY *= factor; }
-out.environmentOffsetX = environmentOffsetX;
-out.environmentOffsetY = environmentOffsetY;
-out.environmentU = LGBOClamp(x + environmentOffsetX, 0.5f, width - 0.5f) / width;
-out.environmentV = LGBOClamp(y + environmentOffsetY, 0.5f, height - 0.5f) / height;
+out.environmentWeight = 0.0f;
+out.environmentOffsetX = out.offsetX;
+out.environmentOffsetY = out.offsetY;
+out.environmentU = out.sampleU;
+out.environmentV = out.sampleV;
 return out;
 }
 LGButtonOpticsResult LGButtonOpticsEvaluate(float x, float y, float width, float height, float centerX, float centerY, float radius, float bezel, float glassThickness, float refractiveIndex, float refractionScale, float displacementCap, float pointScale, float rendererScale, bool enabled) {
@@ -895,4 +880,4 @@ fragment float4 liquidGlassFragment(
 }
 
 )LGLOCALMSL";
-static const char kLGLocalButtonCandidateMSLSHA256[] = "47236872a6f737027979c6b5b4a678a373501e5dd53d01b263276087d1bb39a9";
+static const char kLGLocalButtonCandidateMSLSHA256[] = "695c4c8791d62f609c72f949654eac5fca597bdf90c135355924ad5561db490a";

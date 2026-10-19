@@ -1,0 +1,1 @@
+Single optical ray uses local height; secondary weight exactly zero. Footprint sampler, alpha, zero/shape, source and contact unchanged. Numeric safety is not visual acceptance. No physical environment information is claimed.

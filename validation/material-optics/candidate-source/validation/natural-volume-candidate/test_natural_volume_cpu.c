@@ -101,8 +101,9 @@ static void testNaturalGeometrySweeps(void) {
             assert(isfinite(q.sampleU) && isfinite(q.sampleV) && isfinite(q.environmentU) && isfinite(q.environmentV));
             assert(isfinite(q.environmentWeight) && q.environmentWeight>=0 && q.environmentWeight<=.28f);
             assert(len2(q.offsetX,q.offsetY)<=cap+1e-5f);
-            float envCap=fminf(cap*.45f,fminf(108.0f,fmaxf(16.0f,1.0f))*.38f);
-            assert(len2(q.environmentOffsetX,q.environmentOffsetY)<=envCap+1e-5f);
+            assert(q.environmentWeight==0.0f);
+            assert(q.environmentOffsetX==q.offsetX && q.environmentOffsetY==q.offsetY);
+            assert(q.environmentU==q.sampleU && q.environmentV==q.sampleV);
         }
     }
 }
