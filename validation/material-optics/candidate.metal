@@ -256,6 +256,51 @@ float sourcePixel = originPixels + targetUV * targetPixels;
 if (!isfinite(sourcePixel)) return 0.0f;
 return LGBOClamp(sourcePixel, 0.5f, sourcePixels - 0.5f) / sourcePixels;
 }
+struct LGMinificationFootprint {
+float axisX;
+float axisY;
+float major;
+float minor;
+float filterWidth;
+int tapCount;
+bool valid;
+};
+LGMinificationFootprint LGBOAnalyzeMinificationFootprint(float dxX, float dxY, float dyX, float dyY) {
+LGMinificationFootprint out;
+out.axisX = 1.0f;
+out.axisY = 0.0f;
+out.major = 1.0f;
+out.minor = 1.0f;
+out.filterWidth = 1.0f;
+out.tapCount = 1;
+out.valid = false;
+if (!isfinite(dxX) || !isfinite(dxY) || !isfinite(dyX) || !isfinite(dyY)) return out;
+float c00 = dxX * dxX + dyX * dyX;
+float c01 = dxX * dxY + dyX * dyY;
+float c11 = dxY * dxY + dyY * dyY;
+float trace = c00 + c11;
+float discriminant = sqrt(LGBOClamp((c00 - c11) * (c00 - c11) + 4.0f * c01 * c01, 0.0f, 3.0e38f));
+float lambdaMajor = LGBOClamp(0.5f * (trace + discriminant), 0.0f, 3.0e38f);
+float lambdaMinor = LGBOClamp(0.5f * (trace - discriminant), 0.0f, lambdaMajor);
+float major = sqrt(lambdaMajor);
+float minor = sqrt(lambdaMinor);
+if (!isfinite(major) || !isfinite(minor)) return out;
+out.major = major;
+out.minor = minor;
+out.valid = true;
+if (major <= 1.001f) return out;
+float axisX = 1.0f;
+float axisY = 0.0f;
+if (c00 >= c11 && fabs(c01) <= 0.000001f) { axisX = 1.0f; axisY = 0.0f; }
+else if (fabs(c01) <= 0.000001f) { axisX = 0.0f; axisY = 1.0f; }
+else { axisX = lambdaMajor - c11; axisY = c01; if (axisX * axisX + axisY * axisY <= 0.000000000001f) { axisX = c01; axisY = lambdaMajor - c00; } }
+float axisLength = sqrt(axisX * axisX + axisY * axisY);
+if (!isfinite(axisLength) || axisLength <= 0.000001f) return out;
+out.axisX = axisX / axisLength;
+out.axisY = axisY / axisLength;
+out.filterWidth = LGBOClamp(major, 1.0f, 4.0f);
+out.tapCount = major <= 2.5f ? 2 : 4;
+}
 
 float2 localButtonSourceUV(texture2d<float, access::sample> src,
                            constant Uniforms &u, float2 targetUV) {
@@ -263,6 +308,67 @@ float2 localButtonSourceUV(texture2d<float, access::sample> src,
     return float2(
         LGBOMapTargetUVToSource(targetUV.x,u.resolution.x,(float)src.get_width(),u.buttonSourceTargetOriginPixels.x,true),
         LGBOMapTargetUVToSource(targetUV.y,u.resolution.y,(float)src.get_height(),u.buttonSourceTargetOriginPixels.y,true));
+}
+
+float2 localButtonCandidateTargetUV(LGButtonOpticsResult q, float2 point,
+                                    bool environmentPath, constant Uniforms &u) {
+    if (u.buttonSourceOverscanEnabled > 0.5f) {
+        float2 offset = environmentPath
+            ? float2(q.environmentOffsetX,q.environmentOffsetY)
+            : float2(q.offsetX,q.offsetY);
+        return (point + offset) / u.resolution;
+    }
+    return environmentPath ? float2(q.environmentU,q.environmentV)
+                           : float2(q.sampleU,q.sampleV);
+}
+
+LGButtonOpticsResult localButtonEvaluateAt(float2 point, float width, float height,
+                                           float bezel, constant Uniforms &u) {
+    return LGButtonOpticsEvaluateWithContact(
+        point.x,point.y,width,height,u.buttonCandidateCenter.x,
+        u.buttonCandidateCenter.y,u.buttonCandidateCornerRadius,bezel,
+        u.glassThickness,u.refractiveIndex,u.refractionScale,
+        u.buttonCandidateMaxOffset,u.buttonCandidatePointScale,
+        u.buttonCandidateRendererScale,true,u.buttonContactEnabled > 0.5f,
+        u.buttonContactCenter.x,u.buttonContactCenter.y,
+        u.buttonContactPressure);
+}
+
+float2 localButtonSourceTexels(texture2d<float, access::sample> src,
+                               constant Uniforms &u, LGButtonOpticsResult q,
+                               float2 point, bool environmentPath) {
+    float2 targetUV=localButtonCandidateTargetUV(q,point,environmentPath,u);
+    return localButtonSourceUV(src,u,targetUV) *
+           float2((float)src.get_width(),(float)src.get_height());
+}
+
+float4 localButtonMinifiedSample(texture2d<float, access::sample> source,
+                                 sampler s, float2 sourceUV,
+                                 LGMinificationFootprint footprint) {
+    float2 dimensions=float2((float)source.get_width(),(float)source.get_height());
+    float2 halfTexel=0.5f/dimensions;
+    float2 highUV=1.0f-halfTexel;
+    if (footprint.tapCount!=2 && footprint.tapCount!=4)
+        return source.sample(s,sourceUV,level(0.0f));
+    if (footprint.tapCount==2) {
+        float2 delta=float2(footprint.axisX,footprint.axisY);
+        delta*=0.25f*footprint.filterWidth;
+        delta/=dimensions;
+        float2 uv0=clamp(sourceUV-delta,halfTexel,highUV);
+        float2 uv1=clamp(sourceUV+delta,halfTexel,highUV);
+        return 0.5f*(source.sample(s,uv0,level(0.0f))+
+                     source.sample(s,uv1,level(0.0f)));
+    }
+    float2 axis= float2(footprint.axisX,footprint.axisY);
+    float2 d=axis*(0.125f*footprint.filterWidth)/dimensions;
+    float2 a=clamp(sourceUV-axis*(0.375f*footprint.filterWidth)/dimensions,halfTexel,highUV);
+    float2 b=clamp(sourceUV-d,halfTexel,highUV);
+    float2 c=clamp(sourceUV+d,halfTexel,highUV);
+    float2 e=clamp(sourceUV+axis*(0.375f*footprint.filterWidth)/dimensions,halfTexel,highUV);
+    return 0.25f*(source.sample(s,a,level(0.0f))+
+                  source.sample(s,b,level(0.0f))+
+                  source.sample(s,c,level(0.0f))+
+                  source.sample(s,e,level(0.0f)));
 }
 
 #endif
@@ -589,14 +695,42 @@ float4 liquidGlassPixel(texture2d<float, access::sample> src,
         float2 opticalUV = float2(optics.sampleU, optics.sampleV);
         if (u.buttonSourceOverscanEnabled > 0.5f)
             opticalUV=(capturePx+float2(optics.offsetX,optics.offsetY))/u.resolution;
-        float4 opticalSample = src.sample(s, localButtonSourceUV(src, u,  opticalUV));
+
+        LGButtonOpticsResult localButtonMinusX = localButtonEvaluateAt(float2(px.x-0.5f,px.y),fw,fh,bezel,u);
+        LGButtonOpticsResult localButtonPlusX  = localButtonEvaluateAt(float2(px.x+0.5f,px.y),fw,fh,bezel,u);
+        LGButtonOpticsResult localButtonMinusY = localButtonEvaluateAt(float2(px.x,px.y-0.5f),fw,fh,bezel,u);
+        LGButtonOpticsResult localButtonPlusY  = localButtonEvaluateAt(float2(px.x,px.y+0.5f),fw,fh,bezel,u);
+        float2 localOpticalMinusX=localButtonSourceTexels(src,u,localButtonMinusX,float2(px.x-0.5f,px.y),false);
+        float2 localOpticalPlusX =localButtonSourceTexels(src,u,localButtonPlusX, float2(px.x+0.5f,px.y),false);
+        float2 localOpticalMinusY=localButtonSourceTexels(src,u,localButtonMinusY,float2(px.x,px.y-0.5f),false);
+        float2 localOpticalPlusY =localButtonSourceTexels(src,u,localButtonPlusY, float2(px.x,px.y+0.5f),false);
+        float2 localEnvironmentMinusX=localButtonSourceTexels(src,u,localButtonMinusX,float2(px.x-0.5f,px.y),true);
+        float2 localEnvironmentPlusX =localButtonSourceTexels(src,u,localButtonPlusX, float2(px.x+0.5f,px.y),true);
+        float2 localEnvironmentMinusY=localButtonSourceTexels(src,u,localButtonMinusY,float2(px.x,px.y-0.5f),true);
+        float2 localEnvironmentPlusY =localButtonSourceTexels(src,u,localButtonPlusY, float2(px.x,px.y+0.5f),true);
+        LGMinificationFootprint opticalFootprint=LGBOAnalyzeMinificationFootprint(
+            localOpticalPlusX.x-localOpticalMinusX.x,localOpticalPlusX.y-localOpticalMinusX.y,
+            localOpticalPlusY.x-localOpticalMinusY.x,localOpticalPlusY.y-localOpticalMinusY.y);
+        LGMinificationFootprint environmentFootprint=LGBOAnalyzeMinificationFootprint(
+            localEnvironmentPlusX.x-localEnvironmentMinusX.x,localEnvironmentPlusX.y-localEnvironmentMinusX.y,
+            localEnvironmentPlusY.x-localEnvironmentMinusY.x,localEnvironmentPlusY.y-localEnvironmentMinusY.y);
+
+        float4 opticalSample;
+        if (opticalFootprint.tapCount > 1)
+            opticalSample=localButtonMinifiedSample(src,s,localButtonSourceUV(src,u,opticalUV),opticalFootprint);
+        else
+            opticalSample=src.sample(s,localButtonSourceUV(src,u,opticalUV));
         if (opticalSample.a < 0.01f) opticalSample = src.sample(s, localButtonSourceUV(src, u,  captureUV));
         /* Source-plane radiance approximation: a second low-cost sample from
          * the same live CA origTex. This is not an external environment map. */
         float2 environmentUV = float2(optics.environmentU, optics.environmentV);
         if (u.buttonSourceOverscanEnabled > 0.5f)
             environmentUV=(capturePx+float2(optics.environmentOffsetX,optics.environmentOffsetY))/u.resolution;
-        float4 environmentSample = src.sample(s, localButtonSourceUV(src, u,  environmentUV));
+        float4 environmentSample;
+        if (environmentFootprint.tapCount > 1)
+            environmentSample=localButtonMinifiedSample(src,s,localButtonSourceUV(src,u,environmentUV),environmentFootprint);
+        else
+            environmentSample=src.sample(s,localButtonSourceUV(src,u,environmentUV));
         if (environmentSample.a < 0.01f) environmentSample = opticalSample;
         float environmentWeight = clamp(optics.environmentWeight, 0.0f, 0.28f);
         float3 mixedPremul = float3(

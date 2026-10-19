@@ -21,6 +21,18 @@ xcrun --sdk macosx clang -std=c11 -Wall -Wextra -Werror \
   "$V/candidate-source/validation/natural-volume-candidate/test_natural_volume_cpu.c" \
   -lm -o "$OUT/natural-volume-cpu"
 "$OUT/natural-volume-cpu"
+if [[ -f "$V/candidate-source/Shared/LGLocalMinification.inc" ]]; then
+  python3 "$V/candidate-source/scripts/test_button_minification_source.py" "$V/candidate.metal"
+  xcrun --sdk macosx clang++ -std=c++17 -fobjc-arc -fblocks \
+    "$V/candidate-source/scripts/test_button_minification_metal.mm" \
+    -framework Foundation -framework Metal -framework CoreGraphics -o "$OUT/minification-probe"
+  set +e
+  "$OUT/minification-probe" "$V/candidate.metal" > "$OUT/minification-probe.log" 2>&1
+  PROBE_RC=$?
+  set -e
+  cat "$OUT/minification-probe.log"
+  if [[ "$PROBE_RC" != 0 && "$PROBE_RC" != 77 ]]; then exit "$PROBE_RC"; fi
+fi
 for SHADER in baseline candidate; do
   xcrun --sdk macosx metal -c "$V/$SHADER.metal" -o "$OUT/$SHADER.air"
   xcrun --sdk macosx metallib "$OUT/$SHADER.air" -o "$OUT/$SHADER.metallib"

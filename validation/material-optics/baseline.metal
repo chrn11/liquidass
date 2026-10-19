@@ -74,6 +74,14 @@ return LGBOMin(LGBOMax(x, lo), hi);
 float LGBOHypot(float x, float y) {
 return sqrt(x * x + y * y);
 }
+float LGBOSmoothCappedLength(float rawLength, float cap) {
+if (!isfinite(rawLength) || !isfinite(cap) || rawLength <= 0.0f || cap <= 0.0f) return 0.0f;
+float shoulder = cap * 0.25f;
+float start = cap - shoulder;
+if (rawLength <= start) return rawLength;
+float excess = rawLength - start;
+return start + shoulder * excess / (shoulder + excess);
+}
 float LGBOButtonRoundedBoxSDF(float x, float y, float width, float height, float radius) {
 float halfWidth = width * 0.5f;
 float halfHeight = height * 0.5f;
@@ -191,14 +199,17 @@ float rayX = rayFactor * normalX;
 float rayY = rayFactor * normalY;
 float rayZ = -eta + eta * normalZ * normalZ - rootK * normalZ;
 float pathLength = LGBOMin(displacementCap, heightAmplitude);
-float edgeT = LGBOClamp(depth / LGBOMax(bezel, 1.0f), 0.0f, 1.0f);
+float radialEdgeDepth = LGBOMax(pointScale * 1.5f, depthRadius * 0.3f);
+float effectiveEdgeDepth = LGBOMin(LGBOMax(bezel, 1.0f), radialEdgeDepth);
+float edgeT = LGBOClamp(depth / effectiveEdgeDepth, 0.0f, 1.0f);
 float edgeFade = edgeT * edgeT * (3.0f - 2.0f * edgeT);
 float denominator = LGBOMax(-rayZ, 0.25f);
 float offsetX = rayX / denominator * pathLength * refractionScale * edgeFade;
 float offsetY = rayY / denominator * pathLength * refractionScale * edgeFade;
 float offsetLength = LGBOHypot(offsetX, offsetY);
 if (!isfinite(offsetLength)) { out.valid = false; return out; }
-if (offsetLength > displacementCap && offsetLength > 0.0f) { float factor = displacementCap / offsetLength; offsetX *= factor; offsetY *= factor; }
+float limitedOffsetLength = LGBOSmoothCappedLength(offsetLength, displacementCap);
+if (offsetLength > 0.0f) { float factor = limitedOffsetLength / offsetLength; offsetX *= factor; offsetY *= factor; }
 out.offsetX = offsetX;
 out.offsetY = offsetY;
 out.sampleU = LGBOClamp(x + offsetX, 0.5f, width - 0.5f) / width;
@@ -208,20 +219,17 @@ float fresnelBaseRatio = (refractiveIndex - 1.0f) / (refractiveIndex + 1.0f);
 float fresnelBase = fresnelBaseRatio * fresnelBaseRatio;
 float fresnelEdge = fresnelBase + (1.0f - fresnelBase) * pow(1.0f - normalCosine, 5.0f);
 float thicknessCoverage = LGBOClamp(glassThickness / LGBOMax(bezel, 1.0f), 0.0f, 1.0f);
-float environmentEdgeCoverage = LGBOClamp(depth / LGBOMax(pointScale * 0.75f, 1.0f), 0.0f, 1.0f);
+float environmentEdgeCoverage = edgeFade;
 out.environmentWeight = LGBOMin(fresnelEdge * environmentEdgeCoverage * thicknessCoverage, 0.28f);
-float reflectedZ = 2.0f * normalZ * normalZ - 1.0f;
-float reflectedDenominator = LGBOMax(LGBOAbs(reflectedZ), 0.65f);
-float reflectedX = 2.0f * normalZ * normalX / reflectedDenominator;
-float reflectedY = 2.0f * normalZ * normalY / reflectedDenominator;
-float thicknessPathFraction = 0.35f + 0.65f * edgeT;
+float thicknessPathFraction = 0.35f + 0.65f * edgeFade;
 float environmentPath = LGBOMin(glassThickness, LGBOMax(bezel, 1.0f)) * 0.38f * refractionScale * thicknessPathFraction;
-float environmentOffsetX = reflectedX * environmentPath;
-float environmentOffsetY = reflectedY * environmentPath;
+float environmentOffsetX = rayX / denominator * environmentPath;
+float environmentOffsetY = rayY / denominator * environmentPath;
 float environmentLength = LGBOHypot(environmentOffsetX, environmentOffsetY);
 float environmentCap = LGBOMin(displacementCap * 0.45f, LGBOMin(glassThickness, LGBOMax(bezel, 1.0f)) * 0.38f);
 if (!isfinite(environmentLength) || !isfinite(out.environmentWeight)) { out.valid = false; return out; }
-if (environmentLength > environmentCap && environmentLength > 0.0f) { float factor = environmentCap / environmentLength; environmentOffsetX *= factor; environmentOffsetY *= factor; }
+float limitedEnvironmentLength = LGBOSmoothCappedLength(environmentLength, environmentCap);
+if (environmentLength > 0.0f) { float factor = limitedEnvironmentLength / environmentLength; environmentOffsetX *= factor; environmentOffsetY *= factor; }
 out.environmentOffsetX = environmentOffsetX;
 out.environmentOffsetY = environmentOffsetY;
 out.environmentU = LGBOClamp(x + environmentOffsetX, 0.5f, width - 0.5f) / width;
@@ -235,10 +243,10 @@ float LGBOEnvironmentMixPremultipliedChannel(float transmittedPremul, float tran
 float alpha = LGBOClamp(transmittedAlpha, 0.0f, 1.0f);
 if (alpha <= 0.00001f) return 0.0f;
 float transmittedStraight = LGBOClamp(transmittedPremul / alpha, 0.0f, 1.0f);
-float reflectedAlpha = LGBOClamp(environmentAlpha, 0.0f, 1.0f);
-float reflectedStraight = reflectedAlpha > 0.00001f ? LGBOClamp(environmentPremul / reflectedAlpha, 0.0f, 1.0f) : transmittedStraight;
+float pathAlpha = LGBOClamp(environmentAlpha, 0.0f, 1.0f);
+float pathStraight = pathAlpha > 0.00001f ? LGBOClamp(environmentPremul / pathAlpha, 0.0f, 1.0f) : transmittedStraight;
 float boundedWeight = LGBOClamp(weight, 0.0f, 0.28f);
-float straightResult = transmittedStraight + (reflectedStraight - transmittedStraight) * boundedWeight;
+float straightResult = transmittedStraight + (pathStraight - transmittedStraight) * boundedWeight;
 return LGBOClamp(straightResult, 0.0f, 1.0f) * alpha;
 }
 float LGBOMapTargetUVToSource(float targetUV, float targetPixels, float sourcePixels, float originPixels, bool overscanEnabled) {

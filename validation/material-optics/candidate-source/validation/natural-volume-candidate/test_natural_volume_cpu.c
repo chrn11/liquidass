@@ -106,11 +106,36 @@ static void testNaturalGeometrySweeps(void) {
         }
     }
 }
+static void testLocalMinificationFootprint(void) {
+    LGMinificationFootprint identity=LGBOAnalyzeMinificationFootprint(1,0,0,1);
+    assert(identity.valid && identity.tapCount==1 && identity.major==1.0f);
+    LGMinificationFootprint magnified=LGBOAnalyzeMinificationFootprint(.75f,0,0,.5f);
+    assert(magnified.valid && magnified.tapCount==1);
+
+    LGMinificationFootprint compressed=LGBOAnalyzeMinificationFootprint(2,0,0,1);
+    assert(compressed.valid && compressed.tapCount==2);
+    assert(fabsf(compressed.major-2.0f)<1e-5f && fabsf(compressed.minor-1.0f)<1e-5f);
+    assert(fabsf(fabsf(compressed.axisX)-1.0f)<1e-5f && fabsf(compressed.axisY)<1e-5f);
+    assert(compressed.filterWidth<=4.0f);
+
+    LGMinificationFootprint diagonal=LGBOAnalyzeMinificationFootprint(2,2,-2,2);
+    assert(diagonal.valid && diagonal.tapCount==2);
+    assert(fabsf(diagonal.major-sqrtf(8.0f))<1e-4f);
+    assert(fabsf(diagonal.minor-sqrtf(8.0f))<1e-4f);
+
+    LGMinificationFootprint four=LGBOAnalyzeMinificationFootprint(8,0,0,1);
+    assert(four.valid && four.tapCount==4 && four.major==8.0f);
+    assert(four.filterWidth==4.0f); /* explicit bounded support */
+    LGMinificationFootprint invalid=LGBOAnalyzeMinificationFootprint(NAN,0,0,1);
+    assert(!invalid.valid && invalid.tapCount==1);
+}
+
 int main(void) {
     testSmoothLimiter();
     testIdentityAndContactIsolation();
     testOpticalEdgeContinuity();
     testNaturalGeometrySweeps();
-    puts("PASS natural-volume CPU numerics; compile/run on macOS only");
+    testLocalMinificationFootprint();
+    puts("PASS natural-volume and bounded minification numerics; compile/run on macOS only");
     return 0;
 }
