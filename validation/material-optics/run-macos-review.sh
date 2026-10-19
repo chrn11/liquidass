@@ -45,6 +45,7 @@ xcrun --sdk macosx clang++ -std=c++17 -fobjc-arc -fblocks -I"$ROOT/Shared" \
   -framework CoreGraphics -framework ImageIO -o "$OUT/MaterialABRuntimeReview"
 export BASELINE_METAL="$V/baseline.metal" CANDIDATE_METAL="$V/candidate.metal"
 export MATERIAL_INPUTS="$V/inputs" MATERIAL_RESULTS="$OUT"
+export MATERIAL_REFERENCE_PATH="$V/area-reference.metal"
 set +e
 "$OUT/MaterialABRuntimeReview"
 RC=$?
