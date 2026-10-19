@@ -340,11 +340,15 @@ out.boundaryX=0.0f; out.boundaryY=0.0f; out.outwardX=0.0f; out.outwardY=0.0f; ou
 if (!isfinite(x) || !isfinite(y) || !isfinite(width) || !isfinite(height) || !isfinite(centerX) || !isfinite(centerY) || !isfinite(radius) || !isfinite(bezel) || !isfinite(pointScale) || width<1.0f || height<1.0f || width>16384.0f || height>16384.0f || radius<0.0f || bezel<=0.0f || pointScale<0.5f || pointScale>4.0f) return out;
 float shortest=LGBOMin(width,height);
 float r=LGBOClamp(radius,0.0f,shortest*0.5f);
-float localX=x-centerX, localY=y-centerY;
-float dx=LGBOAbs(localX)-(width*0.5f-r), dy=LGBOAbs(localY)-(height*0.5f-r);
-float qx=LGBOMax(dx,0.0f), qy=LGBOMax(dy,0.0f);
+float localX=x-centerX;
+float localY=y-centerY;
+float dx=LGBOAbs(localX)-(width*0.5f-r);
+float dy=LGBOAbs(localY)-(height*0.5f-r);
+float qx=LGBOMax(dx,0.0f);
+float qy=LGBOMax(dy,0.0f);
 float length=LGBOHypot(qx,qy);
-float sx=localX<0.0f?-1.0f:1.0f, sy=localY<0.0f?-1.0f:1.0f;
+float sx=localX<0.0f?-1.0f:1.0f;
+float sy=localY<0.0f?-1.0f:1.0f;
 if (length>0.000001f) { out.outwardX=sx*qx/length; out.outwardY=sy*qy/length; } else if (dx>dy) { out.outwardX=sx; } else { out.outwardY=sy; }
 float d=length+LGBOMin(LGBOMax(dx,dy),0.0f)-r;
 if (!isfinite(d) || d>=0.0f) return out;
@@ -981,4 +985,4 @@ fragment float4 liquidGlassFragment(
 }
 
 )LGLOCALMSL";
-static const char kLGLocalButtonCandidateMSLSHA256[] = "fc428cf7117440ddb5b78f172e31376f48060e587ddb52e7d03d12c51196a934";
+static const char kLGLocalButtonCandidateMSLSHA256[] = "57ab8fa399aef5cf704c3623c06a1869a402b920216dafa05367d4d013897e10";

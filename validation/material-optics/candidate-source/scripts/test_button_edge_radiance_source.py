@@ -22,6 +22,16 @@ assert s.count('localButtonEvaluateAt(float2(px.x')==4
 assert 'kernelXX' in s and 'support*support-1.0f' in s
 assert 'opticalSample=localButtonMinifiedSample(src,s,localButtonSourceUV(src,u,opticalUV),opticalFootprint)' in s
 assert all(x not in g for x in ['drawViewHierarchy','write('+'texture','MIPFilterLinear'])
+# A comma at the top level is another preprocessor macro argument, even
+# though the generated C-like MSL string could happen to accept it.
+for n in ['LGButtonOpticsFormula.inc','LGEdgeExteriorPatch.inc','LGLocalMinification.inc']:
+ for number,line in enumerate((R/'Shared'/n).read_text().splitlines(),1):
+  if not line.strip().startswith('LGBO_STMT('):continue
+  args=line.strip()[len('LGBO_STMT('):-1];depth=0
+  for ch in args:
+   if ch=='(':depth+=1
+   elif ch==')':depth-=1
+   elif ch==',' and depth==0:raise AssertionError((n,number,'Extra macro argument; split declaration'))
 # Re-generation must reproduce exactly the submitted raw MSL, no compiler used.
 with tempfile.TemporaryDirectory(prefix='edge-source-') as t:
  out=Path(t)/'candidate.metal';subprocess.run([sys.executable,str(R/'scripts/generate_local_button_shader.py'),'--msl-out',str(out)],check=True,stdout=subprocess.PIPE,text=True)
