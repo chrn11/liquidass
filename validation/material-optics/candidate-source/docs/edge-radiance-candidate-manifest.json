@@ -1,0 +1,82 @@
+{
+  "schema": "liquidass.edge-radiance-candidate.v1",
+  "status": "Exterior-neighborhood candidate; no runtime/product/visual acceptance before actual Mac review",
+  "baselineRoot": "/var/minis/shared/liquidass-finite-cap-single-path-0f422a0b-34b6-45ca-bbb8-48b7ac68ee70",
+  "sourceRoot": "/var/minis/shared/liquidass-edge-exterior-1dd655fc-b6cf-44c1-9b9d-d311e2f42199",
+  "declaredParentCommit": "e54e212199ecedccd72ff2fd3d290bb29eefb501",
+  "declaredParentMacCI": "GH macOS CI 39216943890",
+  "gitVerification": "not independently verifiable: supplied baseline directory has no .git metadata",
+  "baselineFingerprints": {
+    "Shared/LGButtonOpticsFormula.inc": "3d6c8499a2f235246db942b86366f3e330aaea7eeef7c741e589c914528175b9",
+    "scripts/generate_local_button_shader.py": "5aae514c0e0fe56199f022330c77a0a5750385d1d9c48ed49ec0834d1520b6d8",
+    "Shared/LGLocalButtonShaderSource.h": "373ade9179ce9bb7807e2dc499b1dfeb4fa822e0689237607ee50e65e7ad1016",
+    "reproducedCandidateMSLSHA256": "a0910f9e9450ead5dbc265493fd67256efccbd75111cc6c61e9890eef508b727",
+    "note": "The existing natural-volume manifest lists a stale formula digest 1738e779…; the actual supplied folder hashes to 3d6c8499…. Generator reproduction matches the delegated a0910f9e… shader pin."
+  },
+  "candidateFingerprints": {
+    "Shared/LGButtonMaterialCandidate.h": "0da94a150a90ab3122933368b60f169044155d700acc0f31225863e93dddb8e3",
+    "Shared/LGButtonOpticsFormula.inc": "4f38c335f968a89a50a8b500e393ace736c4f285380dd64c8a8f78ca8d2f35c0",
+    "Shared/LGEdgeExteriorPatch.inc": "55462a9ed9dc2db092cc47a0acdf92fbc596883768898882d68bb696e85e4e3f",
+    "scripts/generate_local_button_shader.py": "d6a0b69803440bf54b64b93b7862fa0a9a5052a9314838c76283acbfaae241f9",
+    "Shared/LGLocalButtonShaderSource.h": "0ba000698163f12993ac419059eb98868807b07c5e162de137937ad63591149f",
+    "scripts/test_button_edge_radiance_source.py": "13f04c3b9afed40fb006d707f0fce011645228debf20ed67aa0c21f9788345d9",
+    "validation/edge-radiance-candidate/test_edge_radiance_cpu.c": "b68ff824458c53552995e88ec5e103997b41ab5a69cffb638b46ee241f91f949",
+    "validation/edge-radiance-candidate/test_edge_exterior_cpu.c": "3d7cf90415ccf396bc06532069eee532bd4c0212ba5a29b9388c657dfd893973",
+    "generatedCandidateMSLSHA256": "57ab8fa399aef5cf704c3623c06a1869a402b920216dafa05367d4d013897e10"
+  },
+  "patch": {
+    "path": "docs/edge-radiance-candidate.patch",
+    "format": "unified diff against baselineRoot",
+    "covers": [
+      "Shared/LGButtonOpticsFormula.inc",
+      "scripts/generate_local_button_shader.py",
+      "Shared/LGLocalButtonShaderSource.h",
+      "docs/edge-radiance-candidate.md",
+      "scripts/test_button_edge_radiance_source.py",
+      "scripts/test_button_edge_radiance_macos.sh",
+      "validation/edge-radiance-candidate/test_edge_radiance_cpu.c"
+    ],
+    "omits": [
+      "this manifest",
+      "the patch itself"
+    ]
+  },
+  "design": {
+    "kind": "bounded image-driven low-frequency edge-radiance approximation",
+    "source": "same explicitly leased local background texture only",
+    "support": "four equal-weight quadrature taps at +/- projected normal and tangent around the primary refracted source point",
+    "imageSpaceConeHalfAngleDegrees": 12,
+    "coneRadiusTexels": "smoothCapped(max(localHeight,0)*tan(12deg),16*pointScale)",
+    "samplingBounds": "target ROI +/- 16 points, additionally clamped to actual source texture bounds",
+    "weight": "edgeBand * SchlickFresnelProxy, clamped to [0,0.28]; assigned only by generated local candidate path when source overscan lease is enabled",
+    "passivity": "four weights are 1/4; final straight RGB is convex mix (1-w)*primary + w*average; alpha remains primary alpha",
+    "physicalLimit": "2-D captured plane has no external environment map, scene depth, light direction, or measured roughness; not a physical reflection claim",
+    "tapCost": "4 new source taps; primary remains 1 or 4; existing transparent fallback may add 1, so candidate source-read worst case is 9, not 8 total fragment taps"
+  },
+  "preserved": [
+    "240-byte uniforms and existing source contract/provider/lease/UI untouched",
+    "primary ray, spherical-cap height/normal/contact, minification/AA footprint and source sampler unchanged",
+    "shared/default LGButtonOpticsEvaluate keeps environmentWeight exactly zero",
+    "Backboard 208-byte/default compatibility paths are not given an edge-radiance call",
+    "no edits to the normal 149-root or phone build 28"
+  ],
+  "checks": {
+    "generatorAndHeaderPin": "PASS: Python generation only; candidate MSL SHA pinned above",
+    "sourceStructurePython": "PASS: exactly four edge sampler calls, explicit overscan/zero gate, primary AA path retained",
+    "independentAlgebraSpotCheck": "PASS: baseline edge sample h=7.317 px, weight=0.04411, radius=1.555 px; constant identity and convex source bounds hold",
+    "MacCRegression": "NOT_RUN here; test source and Darwin-guarded runner provided",
+    "CObjCppMetalSDKLink": "NOT_RUN; forbidden in this environment",
+    "runtimeGPU": "NOT_RUN",
+    "sameSourceVisualComparison": "NOT_RUN; parent MacActions next step"
+  },
+  "originalUnacceptedDelivery": "/var/minis/shared/liquidass-edge-radiance-candidate-b8b88573-8806-49b4-8ae3-cb8d5a44b1b7",
+  "primaryPin intentionallyNotUpdated": "Normal149 and local runtime class untouched; raw-MSL comparison only",
+  "parentReviewFixes": [
+    "The original small cone stayed within the glass and did not supply exterior context",
+    "Closest geometric boundary plus bounded rectangular exterior patch, four equal positive Gauss nodes; never a traced physical reflection",
+    "Actual missing captured support rejects per-pixel edge cue without edge-repeat samples",
+    "Thickness coverage tends to zero at the lip, so a finite exterior patch cannot paint a contour discontinuity",
+    "No-edge or insufficient-source branch returns exact transmitted sample; no ABI/source/domain widening"
+  ],
+  "validation": "NOT_RUN for this exterior revision before own Mac CI"
+}
