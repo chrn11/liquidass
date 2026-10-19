@@ -23,6 +23,7 @@
 #include "LGButtonOpticsFormula.inc"
 #include "LGLocalSourceMapping.inc"
 #include "LGLocalMinification.inc"
+#include "LGEdgeExteriorPatch.inc"
 #undef LGBO_FUNCTION_END
 #undef LGBO_STMT
 #undef LGBO_FUNCTION_BEGIN

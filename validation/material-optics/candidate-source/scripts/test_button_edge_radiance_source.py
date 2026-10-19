@@ -1,47 +1,29 @@
 #!/usr/bin/env python3
-"""Mechanical source checks only; does not compile C, ObjC++, or Metal."""
+"""Source structure only. Mac C/Metal/real pixel gates are required separately."""
 from pathlib import Path
-import hashlib
-import re
-
-ROOT=Path(__file__).resolve().parents[1]
-formula=(ROOT/'Shared/LGButtonOpticsFormula.inc').read_text()
-generator=(ROOT/'scripts/generate_local_button_shader.py').read_text()
-header=(ROOT/'Shared/LGLocalButtonShaderSource.h').read_text()
-
-m=re.search(r'kLGLocalButtonCandidateMSL\[\]\s*=\s*R"LGLOCALMSL\((.*?)\)LGLOCALMSL";',header,re.S)
-assert m, 'generated candidate MSL raw string missing'
-msl=m.group(1)
-actual=hashlib.sha256(msl.encode()).hexdigest()
-pin=re.search(r'kLGLocalButtonCandidateMSLSHA256\[\]\s*=\s*"([0-9a-f]{64})"',header)
-assert pin and pin.group(1)==actual, 'generated header pin does not match MSL bytes'
-
-assert formula.count('out.environmentWeight = 0.0f;')==2, 'shared/default API must retain zero secondary weight'
-legacy= formula.split('LGBO_FUNCTION_BEGIN(LGButtonOpticsResult, LGButtonOpticsEvaluate,',1)[1].split('LGBO_FUNCTION_END',1)[0]
-assert 'LGBOImageEdgeRadianceWeight(' not in legacy, 'legacy wrapper must not opt in'
-assert 'optics.environmentWeight=LGBOImageEdgeRadianceWeight(' in generator
-assert 'optics.environmentWeight=LGBOImageEdgeRadianceWeight(' in msl
-assert 'u.buttonSourceOverscanEnabled > 0.5f && optics.environmentWeight > 0.0f' in msl
-assert 'environmentSample=opticalSample;' in msl, 'zero/off path must reuse primary sample'
-assert 'environmentSample=src.sample' not in msl, 'no second clear image sample'
-
-start=msl.index('float4 localButtonEdgeRadianceSample(')
-end=msl.index('\n}',start)+2
-edge=msl[start:end]
-assert edge.count('src.sample(s,')==4, 'radiance integral must use exactly four extra taps'
-assert 'LGBOAverageFourRadianceSamples(a.r,b.r,c.r,d.r)' in edge
-assert 'legalPad=float2(16.0f*u.buttonCandidatePointScale)/dimensions' in edge
-assert 'lowUV=max(halfTexel,roiMin-legalPad)' in edge
-assert 'legalHighUV=min(highUV,roiMax+legalPad)' in edge
-assert 'clamp((center+radial)/dimensions,lowUV,legalHighUV)' in edge
-assert 'clamp((center-radial)/dimensions,lowUV,legalHighUV)' in edge
-assert 'clamp((center+lateral)/dimensions,lowUV,legalHighUV)' in edge
-assert 'clamp((center-lateral)/dimensions,lowUV,legalHighUV)' in edge
-assert 'float screenConeTangent = 0.21255656f;' in formula
-assert 'float legalRadius = 16.0f * pointScale;' in formula
-assert 'return 0.25f * (a + b + c + d);' in formula
-assert 'LGMinificationFootprint opticalFootprint=' in msl
-assert 'opticalSample=localButtonMinifiedSample' in msl, 'existing primary AA path must remain'
-assert 'LGMinificationFootprint environmentFootprint=' not in msl
-assert generator.count('localButtonEdgeRadianceSample(')>=2
-print(f'PASS: source-only checks; MSL SHA256={actual}; edge taps=4; primary AA retained')
+import json,re,hashlib,subprocess,tempfile,sys
+R=Path(__file__).resolve().parents[1]
+def msl(root):return re.search(r'R"LGLOCALMSL\((.*?)\)LGLOCALMSL";', (root/'Shared/LGLocalButtonShaderSource.h').read_text(),re.S).group(1)
+s=msl(R);pin=json.loads((R/'docs/edge-radiance-candidate-manifest.json').read_text());assert hashlib.sha256(s.encode()).hexdigest()==pin['candidateFingerprints']['generatedCandidateMSLSHA256']
+f=(R/'Shared/LGButtonOpticsFormula.inc').read_text();g=(R/'scripts/generate_local_button_shader.py').read_text()
+assert 'struct LGBOEdgeExteriorPatch' in s and 'LGBOBuildEdgeExteriorPatch(targetPoint.x,targetPoint.y' in s
+helper=s.split('float4 localButtonEdgeRadianceSample(',1)[1].split('\n}',1)[0]
+assert helper.count('src.sample(s,')==4
+assert 'LGBOAverageFourRadianceSamples(a.r,b.r,c.r,d.r)' in helper
+assert 'if (any(p0<lowUV)' in helper and 'thread bool &sourceValid' in helper
+assert 'clamp((origin+' not in helper and 'sourceValid=false;' in helper
+assert 'sourceValid=true;' in helper
+assert 'if (!edgeSourceValid) optics.environmentWeight=0.0f;' in s
+assert 'if (environmentWeight <= 0.0f) return opticalSample;' in s
+assert 'u.buttonSourceOverscanEnabled > 0.5f && optics.environmentWeight > 0.0f' in s
+assert 'float weight = edgeBand * schlick * thicknessCoverage;' in s
+assert 'LGBOClamp(q.height / (pointScale * 1.5f)' in f
+assert s.count('localButtonEvaluateAt(float2(px.x')==4
+assert 'kernelXX' in s and 'support*support-1.0f' in s
+assert 'opticalSample=localButtonMinifiedSample(src,s,localButtonSourceUV(src,u,opticalUV),opticalFootprint)' in s
+assert all(x not in g for x in ['drawViewHierarchy','write('+'texture','MIPFilterLinear'])
+# Re-generation must reproduce exactly the submitted raw MSL, no compiler used.
+with tempfile.TemporaryDirectory(prefix='edge-source-') as t:
+ out=Path(t)/'candidate.metal';subprocess.run([sys.executable,str(R/'scripts/generate_local_button_shader.py'),'--msl-out',str(out)],check=True,stdout=subprocess.PIPE,text=True)
+ assert out.read_text()==s
+print('PASS exterior shared geometry/actual capture bounds/zero branch/contour continuity source contract; not C/MSL or GPU runtime evidence')

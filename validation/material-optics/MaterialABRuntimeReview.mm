@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <climits>
 #include <cstdio>
 #include <cstring>
 #include <vector>
@@ -115,6 +116,77 @@ static NSString *PixelSHA(const std::vector<uint8_t>&pixels) {
 static NSString *BytesHash(NSData *d) {
  std::vector<uint8_t> b(d.length);if(d.length)memcpy(b.data(),d.bytes,d.length);return PixelSHA(b);
 }
+static bool EdgeSourceGuards(id<MTLDevice> device,id<MTLCommandQueue> queue,
+ id<MTLRenderPipelineState> parent,id<MTLRenderPipelineState> candidate,
+ id<MTLSamplerState> sampler,NSString *candidateSource,NSString *inputs,NSString *out,
+ NSMutableArray *guards) {
+ constexpr NSUInteger T=132,S=228,O=48;const size_t size=T*T*4;
+ NSString *zeroSource=[candidateSource stringByReplacingOccurrencesOfString:@"optics.environmentWeight=LGBOImageEdgeRadianceWeight("
+  withString:@"optics.environmentWeight=0.0f*LGBOImageEdgeRadianceWeight("];
+ if([zeroSource isEqual:candidateSource])return false;
+ id<MTLRenderPipelineState> zero=nil;if(!MakePipeline(device,zeroSource.UTF8String,MTLPixelFormatBGRA8Unorm_sRGB,&zero))return false;
+ auto textureFor=[&](const std::vector<uint8_t>&src,NSUInteger n)->id<MTLTexture>{
+  auto d=[MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatBGRA8Unorm_sRGB width:n height:n mipmapped:NO];
+  d.usage=MTLTextureUsageShaderRead;d.storageMode=MTLStorageModeShared;id<MTLTexture> x=[device newTextureWithDescriptor:d];
+  if(x)[x replaceRegion:MTLRegionMake2D(0,0,n,n) mipmapLevel:0 withBytes:src.data() bytesPerRow:n*4];return x;};
+ auto contract=[&](NSUInteger n,BOOL pad)->LGLocalButtonSourceContract{
+  LGLocalButtonSourceContract c={};c.pointScale=3;c.textureWidth=c.textureHeight=(uint32_t)n;c.pixelFormat=81;c.targetGeometryGeneration=1;
+  c.targetRectInOwnerPoints=CGRectMake(0,0,44,44);CGFloat p=(n-T)/6.0;c.sourceRectInOwnerPoints=CGRectMake(-p,-p,n/3.0,n/3.0);c.sourceOverscanEnabled=pad;
+  c.ownerInstanceToken=71;c.ownerGeneration=c.frameGeneration=1;c.frameTimestampMonotonic=1;c.sourceKind=LGLocalSourceStaticOwnedAsset;
+  c.alphaMode=LGLocalAlphaPremultiplied;c.maskKind=LGLocalMaskRounded44;c.backgroundOnly=c.targetForegroundExcluded=c.immutableUntilFrameReleased=c.sampledRGBIsLinear=c.sampledRGBIsPremultiplied=true;return c;};
+ LGButtonOpticalState state={};state.eligible=true;state.geometryGeneration=1;
+ auto c=contract(S,YES);LGLocalButtonUniforms u={};if(!LGLocalButtonBuildUniforms(&c,&state,T,T,3,true,&u))return false;
+ auto maximum=[&](const std::vector<uint8_t>&a,const std::vector<uint8_t>&b)->unsigned{if(a.size()!=b.size())return UINT_MAX;unsigned m=0;for(size_t i=0;i<a.size();i++)m=std::max(m,(unsigned)abs((int)a[i]-(int)b[i]));return m;};
+ NSMutableArray *records=[NSMutableArray array];NSString *png=[out stringByAppendingPathComponent:@"pngs"];
+ auto save=[&](NSString *name,const std::vector<uint8_t>&v)->bool{NSString *p=[png stringByAppendingPathComponent:name];if(!SaveReadback(p,v,T,T))return false;NSData *d=[NSData dataWithContentsOfFile:p];[records addObject:@{@"file":name,@"BGRA_SHA256":PixelSHA(v),@"PNG_SHA256":BytesHash(d),@"actualCompletedReadback":@YES}];return true;};
+ std::vector<uint8_t> a(S*S*4),b(S*S*4);
+ for(NSUInteger y=0;y<S;y++)for(NSUInteger x=0;x<S;x++){
+  bool roi=x>=O&&x<O+T&&y>=O&&y<O+T;size_t k=(y*S+x)*4;
+  a[k]=roi?128:0;a[k+1]=roi?128:0;a[k+2]=roi?128:255;a[k+3]=255;
+  b[k]=roi?128:255;b[k+1]=roi?128:0;b[k+2]=roi?128:0;b[k+3]=255;
+ }
+ auto ta=textureFor(a,S),tb=textureFor(b,S);if(!ta||!tb)return false;
+ auto pa=Render(device,queue,parent,sampler,ta,&u,sizeof u,T,T),pb=Render(device,queue,parent,sampler,tb,&u,sizeof u,T,T);
+ auto ea=Render(device,queue,candidate,sampler,ta,&u,sizeof u,T,T),eb=Render(device,queue,candidate,sampler,tb,&u,sizeof u,T,T);
+ auto za=Render(device,queue,zero,sampler,ta,&u,sizeof u,T,T);
+ if(pa.size()!=size||pb.size()!=size||ea.size()!=size||eb.size()!=size||za.size()!=size)return false;
+ unsigned interior=0,edgeOnly=0,outside=0,maxD=0;
+ for(NSUInteger y=0;y<T;y++)for(NSUInteger x=0;x<T;x++){
+  size_t k=(y*T+x)*4;unsigned d=0,pd=0;for(unsigned j=0;j<3;j++){d=std::max(d,(unsigned)abs((int)ea[k+j]-(int)eb[k+j]));pd=std::max(pd,(unsigned)abs((int)pa[k+j]-(int)pb[k+j]));}
+  float dx=x+.5f-66,dy=y+.5f-66;if(dx*dx+dy*dy<66*66){if(d>1)interior++;if(d>1&&pd==0)edgeOnly++;maxD=std::max(maxD,d);}else outside=std::max(outside,d);
+ }
+ bool causal=edgeOnly>100&&outside==0;[guards addObject:@{@"check":@"exteriorOnlyMutationAffectsGlassWithSameROIPixels",@"pass":@(causal),@"interiorChangedOver1":@(interior),@"changedPixelsWhereParentHasNoExteriorResponse":@(edgeOnly),@"outsideShapeMaxByteDelta":@(outside),@"maxInteriorByteDelta":@(maxD)}];
+ bool zeroPass=maximum(za,pa)<=1;[guards addObject:@{@"check":@"sameLeaseForceZeroEdgeWeightReturnsParent",@"pass":@(zeroPass),@"maxByteDelta":@(maximum(za,pa)),@"noEdgeTapsExecutedByZeroWeightBranch":@YES}];
+ if(!save(@"causal-parent-red-exterior.png",pa)||!save(@"causal-parent-blue-exterior.png",pb)||!save(@"causal-edge-red-exterior.png",ea)||!save(@"causal-edge-blue-exterior.png",eb))return false;
+ bool all=causal&&zeroPass;
+ // The actual zero-pad contract disables the new path on a detailed source.
+ NSData *source=[NSData dataWithContentsOfFile:[inputs stringByAppendingPathComponent:@"botanical-228.bgra"]];if(source.length!=S*S*4)return false;
+ std::vector<uint8_t> crop(size);const uint8_t *raw=(const uint8_t *)source.bytes;for(NSUInteger y=0;y<T;y++)memcpy(crop.data()+y*T*4,raw+((y+O)*S+O)*4,T*4);
+ auto tc=textureFor(crop,T);auto cc=contract(T,NO);LGLocalButtonUniforms uc={};if(!tc||!LGLocalButtonBuildUniforms(&cc,&state,T,T,3,true,&uc)||uc.buttonSourceOverscanEnabled!=0)return false;
+ auto cp=Render(device,queue,parent,sampler,tc,&uc,sizeof uc,T,T),ce=Render(device,queue,candidate,sampler,tc,&uc,sizeof uc,T,T);bool noPad=maximum(cp,ce)==0;
+ [guards addObject:@{@"check":@"actualNoOverscanSourceDetailedByteIdentity",@"pass":@(noPad),@"maxByteDelta":@(maximum(cp,ce)),@"realContractPaddingPoints":@0}];all=all&&noPad;
+ // A valid1pt captured margin is insufficient at a named right-edge pixel.
+ const NSUInteger N=138;std::vector<uint8_t> limited(N*N*4);for(NSUInteger y=0;y<N;y++)for(NSUInteger x=0;x<N;x++){size_t k=(y*N+x)*4;limited[k]=(uint8_t)(x*255/(N-1));limited[k+1]=(uint8_t)(y*255/(N-1));limited[k+2]=70;limited[k+3]=255;}
+ auto tl=textureFor(limited,N);auto cl=contract(N,YES);LGLocalButtonUniforms ul={};if(!tl||!LGLocalButtonBuildUniforms(&cl,&state,T,T,3,true,&ul))return false;
+ auto lp=Render(device,queue,parent,sampler,tl,&ul,sizeof ul,T,T),le=Render(device,queue,candidate,sampler,tl,&ul,sizeof ul,T,T);if(lp.size()!=size||le.size()!=size)return false;
+ size_t named=(66*T+130)*4;unsigned namedDelta=0;for(unsigned k=0;k<4;k++)namedDelta=std::max(namedDelta,(unsigned)abs((int)lp[named+k]-(int)le[named+k]));bool missing=namedDelta<=1;
+ [guards addObject:@{@"check":@"insufficientRealCapturedMarginExactPrimaryFallback",@"pass":@(missing),@"namedTargetPixel":@[@130,@66],@"actualCapturedMarginTexels":@3,@"maxByteDeltaAtRejectedStencil":@(namedDelta),@"noClampedReplacementPixels":@YES}];all=all&&missing;
+ // Full transparency, partial premultiplied constants and unmeasured neighbor
+ // alpha must preserve transmitted coverage. No opaque matte or alpha lift.
+ for(unsigned alpha:{0u,64u,128u,255u}){
+  std::vector<uint8_t> constant(S*S*4);for(NSUInteger i=0;i<S*S;i++){constant[i*4]=0;constant[i*4+1]=(uint8_t)(alpha/4);constant[i*4+2]=(uint8_t)(alpha/2);constant[i*4+3]=(uint8_t)alpha;}
+  auto t=textureFor(constant,S);auto p=Render(device,queue,parent,sampler,t,&u,sizeof u,T,T),e=Render(device,queue,candidate,sampler,t,&u,sizeof u,T,T);if(e.size()!=size||p.size()!=size)return false;
+  unsigned delta=maximum(p,e),alphaDelta=0;for(size_t k=3;k<size;k+=4)alphaDelta=std::max(alphaDelta,(unsigned)abs((int)e[k]-(int)alpha));bool ok=delta<=1&&alphaDelta==0;
+  [guards addObject:@{@"check":@"constantPremultipliedCaptureIdentity",@"inputAlphaByte":@(alpha),@"pass":@(ok),@"maxParentByteDelta":@(delta),@"maxTransmittedAlphaDelta":@(alphaDelta),@"notProviderOpaqueRuntimeAcceptance":@YES}];all=all&&ok;
+ }
+ std::vector<uint8_t> clearOutside=a;for(NSUInteger y=0;y<S;y++)for(NSUInteger x=0;x<S;x++)if(!(x>=O&&x<O+T&&y>=O&&y<O+T)){size_t k=(y*S+x)*4;for(unsigned j=0;j<4;j++)clearOutside[k+j]=0;}
+ auto tt=textureFor(clearOutside,S);auto tp=Render(device,queue,parent,sampler,tt,&u,sizeof u,T,T),te=Render(device,queue,candidate,sampler,tt,&u,sizeof u,T,T);if(tp.size()!=size||te.size()!=size)return false;
+ unsigned coverage=0;for(size_t k=3;k<size;k+=4)coverage=std::max(coverage,(unsigned)abs((int)te[k]-(int)tp[k]));bool transparentFallback=maximum(tp,te)<=1&&coverage==0;
+ [guards addObject:@{@"check":@"transparentExteriorFallsBackWithoutBlackHaloOrAlphaLift",@"pass":@(transparentFallback),@"maxParentByteDelta":@(maximum(tp,te)),@"transmittedAlphaMaxDelta":@(coverage)}];all=all&&transparentFallback;
+ NSDictionary *report=@{@"scope":@"Extra actual Mac GPU branch/alpha/source-causality controls; same primary optical map; not real environment or phone evidence",@"allGuardPass":@(all),@"zeroWeightControlShaderSHA256":BytesHash([zeroSource dataUsingEncoding:NSUTF8StringEncoding]),@"readbacks":records};
+ NSData *data=[NSJSONSerialization dataWithJSONObject:report options:NSJSONWritingPrettyPrinted|NSJSONWritingSortedKeys error:nil];return all&&data&&[data writeToFile:[out stringByAppendingPathComponent:@"exterior-source-gpu-controls.json"] atomically:YES];
+}
+
 int main(void){@autoreleasepool{
  NSString *oldPath=NSProcessInfo.processInfo.environment[@"BASELINE_METAL"];
  NSString *newPath=NSProcessInfo.processInfo.environment[@"CANDIDATE_METAL"];
@@ -167,6 +239,7 @@ int main(void){@autoreleasepool{
   LGButtonOpticalState noTouch={};noTouch.eligible=true;noTouch.geometryGeneration=1;LGLocalButtonUniforms neutral={};if(!LGLocalButtonBuildUniforms(&c,&noTouch,T,T,3,true,&neutral))return 10;neutral.glassThickness=0;
   for(unsigned variant=0;variant<2;variant++){auto zero=Render(device,queue,pipelines[variant],sampler,texture,&neutral,sizeof neutral,T,T);unsigned max=0;if(zero.size()!=bytes)return 11;for(size_t k=0;k<bytes;k++)max=std::max(max,(unsigned)abs((int)zero[k]-(int)roi[k]));all=all&&max<=1;[guards addObject:@{@"scene":scene,@"variant":@(variant),@"check":@"zeroThicknessSourceIdentity",@"maxByteDelta":@(max),@"pass":@(max<=1)}];}
  }
+ if(!EdgeSourceGuards(device,queue,baselinePipeline,candidatePipeline,sampler,newSource,inputs,out,guards))return 15;
  NSDictionary *report=@{@"scope":@"Same owned inputs and production240B uniforms; completed macOS Metal offscreen readbacks, NOT iPhone or system-host visual acceptance",@"oldMSLSHA256":BytesHash(oldBytes),@"newMSLSHA256":BytesHash(newBytes),@"actualMetalDeviceName":device.name?:@"unknown",@"targetPixels":@132,@"sourcePixels":@228,@"targetOriginPixels":@[@48,@48],@"allSafetyGuards":@(all),@"records":records,@"guards":guards,@"macOffscreenCommandBenchmarks":timings,@"visualGoal":@"NOT_ACCEPTED_AUTOMATICALLY: parent must inspect actual images",@"systemRuntime":@"NOT_RUN",@"trueUIKitInputForThisMacTest":@NO};
  NSData *data=[NSJSONSerialization dataWithJSONObject:report options:NSJSONWritingPrettyPrinted|NSJSONWritingSortedKeys error:nil];if(!data||![data writeToFile:[out stringByAppendingPathComponent:@"material-ab-readbacks.json"] atomically:YES])return 12;
  printf("%s material A/B same-input Metal readbacks; images=%lu, finite/passive/zero-thickness/shape-outside guards only; visual acceptance is separate\n",all?"PASS":"FAIL",(unsigned long)records.count);

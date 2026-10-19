@@ -241,7 +241,9 @@ float f0 = ratio * ratio;
 float oneMinusCosine = 1.0f - cosineIncident;
 float oneMinusCosine2 = oneMinusCosine * oneMinusCosine;
 float schlick = f0 + (1.0f - f0) * oneMinusCosine2 * oneMinusCosine2 * oneMinusCosine;
-float weight = edgeBand * schlick;
+float thicknessT = LGBOClamp(q.height / (pointScale * 1.5f), 0.0f, 1.0f);
+float thicknessCoverage = thicknessT * thicknessT * (3.0f - 2.0f * thicknessT);
+float weight = edgeBand * schlick * thicknessCoverage;
 if (!isfinite(weight)) return 0.0f;
 return LGBOClamp(weight, 0.0f, 0.28f);
 }
@@ -324,6 +326,45 @@ out.kernelYY=(e11+rootDet)*gain;
 out.tapCount=4;
 return out;
 }
+struct LGBOEdgeExteriorPatch {
+float boundaryX;
+float boundaryY;
+float outwardX;
+float outwardY;
+float support;
+bool valid;
+};
+LGBOEdgeExteriorPatch LGBOBuildEdgeExteriorPatch(float x, float y, float width, float height, float centerX, float centerY, float radius, float bezel, float pointScale) {
+LGBOEdgeExteriorPatch out;
+out.boundaryX=0.0f; out.boundaryY=0.0f; out.outwardX=0.0f; out.outwardY=0.0f; out.support=0.0f; out.valid=false;
+if (!isfinite(x) || !isfinite(y) || !isfinite(width) || !isfinite(height) || !isfinite(centerX) || !isfinite(centerY) || !isfinite(radius) || !isfinite(bezel) || !isfinite(pointScale) || width<1.0f || height<1.0f || width>16384.0f || height>16384.0f || radius<0.0f || bezel<=0.0f || pointScale<0.5f || pointScale>4.0f) return out;
+float shortest=LGBOMin(width,height);
+float r=LGBOClamp(radius,0.0f,shortest*0.5f);
+float localX=x-centerX, localY=y-centerY;
+float dx=LGBOAbs(localX)-(width*0.5f-r), dy=LGBOAbs(localY)-(height*0.5f-r);
+float qx=LGBOMax(dx,0.0f), qy=LGBOMax(dy,0.0f);
+float length=LGBOHypot(qx,qy);
+float sx=localX<0.0f?-1.0f:1.0f, sy=localY<0.0f?-1.0f:1.0f;
+if (length>0.000001f) { out.outwardX=sx*qx/length; out.outwardY=sy*qy/length; } else if (dx>dy) { out.outwardX=sx; } else { out.outwardY=sy; }
+float d=length+LGBOMin(LGBOMax(dx,dy),0.0f)-r;
+if (!isfinite(d) || d>=0.0f) return out;
+out.boundaryX=x-d*out.outwardX; out.boundaryY=y-d*out.outwardY;
+out.support=LGBOMin(16.0f*pointScale,LGBOMin(LGBOMax(bezel,1.0f),LGBOMax(1.5f*pointScale,shortest*0.15f)));
+out.valid=isfinite(out.boundaryX) && isfinite(out.boundaryY) && out.support>0.0f;
+return out;
+}
+float LGBOExteriorPatchRadialNode(int tap) {
+return tap<2?0.2113248654051871f:0.7886751345948129f;
+}
+float LGBOExteriorPatchTangentNode(int tap) {
+return (tap==0 || tap==2)?-0.5773502691896258f:0.5773502691896258f;
+}
+float LGBOExteriorPatchSampleX(LGBOEdgeExteriorPatch p, int tap) {
+return p.boundaryX+p.support*(LGBOExteriorPatchRadialNode(tap)*p.outwardX-LGBOExteriorPatchTangentNode(tap)*p.outwardY);
+}
+float LGBOExteriorPatchSampleY(LGBOEdgeExteriorPatch p, int tap) {
+return p.boundaryY+p.support*(LGBOExteriorPatchRadialNode(tap)*p.outwardY+LGBOExteriorPatchTangentNode(tap)*p.outwardX);
+}
 
 float2 localButtonSourceUV(texture2d<float, access::sample> src,
                            constant Uniforms &u, float2 targetUV) {
@@ -388,9 +429,9 @@ float4 localButtonMinifiedSample(texture2d<float, access::sample> source,
 }
 
 float4 localButtonEdgeRadianceSample(texture2d<float, access::sample> src,
-                                     sampler s, float2 centerUV,
-                                     LGButtonOpticsResult optics,
-                                     constant Uniforms &u) {
+                                     sampler s, float2 targetPoint,
+                                     constant Uniforms &u, thread bool &sourceValid) {
+    sourceValid=false;
     float2 dimensions=float2((float)src.get_width(),(float)src.get_height());
     float2 halfTexel=0.5f/dimensions;
     float2 highUV=1.0f-halfTexel;
@@ -399,18 +440,19 @@ float4 localButtonEdgeRadianceSample(texture2d<float, access::sample> src,
     float2 legalPad=float2(16.0f*u.buttonCandidatePointScale)/dimensions;
     float2 lowUV=max(halfTexel,roiMin-legalPad);
     float2 legalHighUV=min(highUV,roiMax+legalPad);
-    float2 center=clamp(centerUV,lowUV,legalHighUV)*dimensions;
-    float2 outward=float2(optics.normalX,optics.normalY);
-    float normalLength=length(outward);
-    outward=normalLength>0.0001f ? outward/normalLength : float2(1.0f,0.0f);
-    float2 tangent=float2(-outward.y,outward.x);
-    float radius=LGBOImageEdgeRadianceRadius(optics.height,u.buttonCandidatePointScale);
-    float2 radial=radius*outward;
-    float2 lateral=radius*tangent;
-    float2 p0=clamp((center+radial)/dimensions,lowUV,legalHighUV);
-    float2 p1=clamp((center-radial)/dimensions,lowUV,legalHighUV);
-    float2 p2=clamp((center+lateral)/dimensions,lowUV,legalHighUV);
-    float2 p3=clamp((center-lateral)/dimensions,lowUV,legalHighUV);
+    LGBOEdgeExteriorPatch patch=LGBOBuildEdgeExteriorPatch(targetPoint.x,targetPoint.y,
+        u.resolution.x,u.resolution.y,u.buttonCandidateCenter.x,u.buttonCandidateCenter.y,
+        u.buttonCandidateCornerRadius,u.bezelWidth,u.buttonCandidatePointScale);
+    if (!patch.valid) return float4(0.0f);
+    float2 origin=u.buttonSourceTargetOriginPixels;
+    float2 p0=(origin+float2(LGBOExteriorPatchSampleX(patch,0),LGBOExteriorPatchSampleY(patch,0)))/dimensions;
+    float2 p1=(origin+float2(LGBOExteriorPatchSampleX(patch,1),LGBOExteriorPatchSampleY(patch,1)))/dimensions;
+    float2 p2=(origin+float2(LGBOExteriorPatchSampleX(patch,2),LGBOExteriorPatchSampleY(patch,2)))/dimensions;
+    float2 p3=(origin+float2(LGBOExteriorPatchSampleX(patch,3),LGBOExteriorPatchSampleY(patch,3)))/dimensions;
+    // Missing captured pixels are not repaired by edge-repeat clamping.
+    if (any(p0<lowUV)||any(p0>legalHighUV)||any(p1<lowUV)||any(p1>legalHighUV)||
+        any(p2<lowUV)||any(p2>legalHighUV)||any(p3<lowUV)||any(p3>legalHighUV)) return float4(0.0f);
+    sourceValid=true;
     float4 a=src.sample(s,p0,level(0.0f));
     float4 b=src.sample(s,p1,level(0.0f));
     float4 c=src.sample(s,p2,level(0.0f));
@@ -774,11 +816,14 @@ float4 liquidGlassPixel(texture2d<float, access::sample> src,
         if (u.buttonSourceOverscanEnabled > 0.5f)
             environmentUV=(capturePx+float2(optics.environmentOffsetX,optics.environmentOffsetY))/u.resolution;
         float4 environmentSample=opticalSample;
-        if (u.buttonSourceOverscanEnabled > 0.5f && optics.environmentWeight > 0.0f)
-            environmentSample=localButtonEdgeRadianceSample(
-                src,s,localButtonSourceUV(src,u,environmentUV),optics,u);
+        if (u.buttonSourceOverscanEnabled > 0.5f && optics.environmentWeight > 0.0f) {
+            bool edgeSourceValid=false;
+            environmentSample=localButtonEdgeRadianceSample(src,s,px,u,edgeSourceValid);
+            if (!edgeSourceValid) optics.environmentWeight=0.0f;
+        }
         if (environmentSample.a < 0.01f) environmentSample = opticalSample;
         float environmentWeight = clamp(optics.environmentWeight, 0.0f, 0.28f);
+        if (environmentWeight <= 0.0f) return opticalSample;
         float3 mixedPremul = float3(
             LGBOEnvironmentMixPremultipliedChannel(opticalSample.r, opticalSample.a, environmentSample.r, environmentSample.a, environmentWeight),
             LGBOEnvironmentMixPremultipliedChannel(opticalSample.g, opticalSample.a, environmentSample.g, environmentSample.a, environmentWeight),
@@ -936,4 +981,4 @@ fragment float4 liquidGlassFragment(
 }
 
 )LGLOCALMSL";
-static const char kLGLocalButtonCandidateMSLSHA256[] = "1dcd38cdae2703e098f533e065dc834dfd38e42bc44b8f090ebe2630bbe3c4e3";
+static const char kLGLocalButtonCandidateMSLSHA256[] = "fc428cf7117440ddb5b78f172e31376f48060e587ddb52e7d03d12c51196a934";

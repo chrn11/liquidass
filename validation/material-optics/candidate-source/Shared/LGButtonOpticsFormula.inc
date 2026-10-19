@@ -235,7 +235,11 @@ LGBO_STMT(float f0 = ratio * ratio;)
 LGBO_STMT(float oneMinusCosine = 1.0f - cosineIncident;)
 LGBO_STMT(float oneMinusCosine2 = oneMinusCosine * oneMinusCosine;)
 LGBO_STMT(float schlick = f0 + (1.0f - f0) * oneMinusCosine2 * oneMinusCosine2 * oneMinusCosine;)
-LGBO_STMT(float weight = edgeBand * schlick;)
+/* A vanishingly thin lip must not paint a finite cue. The1.5pt scale is
+ * the existing geometric minimum, not a new light-strength parameter. */
+LGBO_STMT(float thicknessT = LGBOClamp(q.height / (pointScale * 1.5f), 0.0f, 1.0f);)
+LGBO_STMT(float thicknessCoverage = thicknessT * thicknessT * (3.0f - 2.0f * thicknessT);)
+LGBO_STMT(float weight = edgeBand * schlick * thicknessCoverage;)
 LGBO_STMT(if (!isfinite(weight)) return 0.0f;)
 LGBO_STMT(return LGBOClamp(weight, 0.0f, 0.28f);)
 LGBO_FUNCTION_END

@@ -30,6 +30,11 @@ if [[ -f "$V/candidate-source/Shared/LGLocalMinification.inc" ]]; then
     xcrun --sdk macosx clang -std=c11 -Wall -Wextra -Werror -I"$V/candidate-source/Shared" \
       "$V/candidate-source/validation/edge-radiance-candidate/test_edge_radiance_cpu.c" -lm -o "$OUT/edge-radiance-cpu"
     "$OUT/edge-radiance-cpu" > "$OUT/edge-radiance-cpu.log"
+    if [[ -f "$V/candidate-source/validation/edge-radiance-candidate/test_edge_exterior_cpu.c" ]]; then
+      xcrun --sdk macosx clang -std=c11 -Wall -Wextra -Werror -I"$V/candidate-source/Shared" \
+        "$V/candidate-source/validation/edge-radiance-candidate/test_edge_exterior_cpu.c" -lm -o "$OUT/edge-exterior-cpu"
+      "$OUT/edge-exterior-cpu" > "$OUT/edge-exterior-cpu.log"
+    fi
     xcrun --sdk macosx clang -std=c11 -Wall -Wextra -Werror -I"$V/candidate-source/Shared" \
       "$V/edge_coordinate_diagnostics.c" -lm -o "$OUT/edge-coordinate-diagnostics"
     "$OUT/edge-coordinate-diagnostics" > "$OUT/edge-coordinate-diagnostics.json"
