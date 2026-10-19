@@ -98,15 +98,14 @@ LGBO_STMT(if (d >= 0.0f || !enabled || glassThickness <= 0.0f || refractionScale
 LGBO_STMT(float depth = -d;)
 LGBO_STMT(float depthRadius = shortest * 0.5f;)
 LGBO_STMT(float t = LGBOClamp(depth / depthRadius, 0.0f, 1.0f);)
-/* A finite-slope spherical cap, not a near-hemisphere with a singular lip.
- * Curvature radius Rc=aperture radius+existing bezel budget. Sag is computed
- * stably as R^2/(Rc+sqrt(Rc^2-R^2)). No extra strength/lighting/tint parameter.
- * Preserve the original thickness compression ratio, now on this cap. */
-LGBO_STMT(float curvatureRadius = depthRadius + LGBOMax(bezel, pointScale * 1.5f);)
-LGBO_STMT(float rimHeight = sqrt(curvatureRadius * curvatureRadius - depthRadius * depthRadius);)
+/* Finite spherical cap: aperture R and base-plane offset B determine
+ * Rc=sqrt(R^2+B^2), sag=Rc-B. Reuse the existing bezel as B, not an
+ * unconstrained new strength. Rationalized expressions remain stable at
+ * very thin/corner cases. Pressure retains its original thickness ratio. */
+LGBO_STMT(float rimHeight = LGBOMax(bezel, pointScale * 1.5f);)
+LGBO_STMT(float curvatureRadius = LGBOHypot(depthRadius, rimHeight);)
 LGBO_STMT(float capSag = depthRadius * depthRadius / (curvatureRadius + rimHeight);)
-LGBO_STMT(float localRadialSquared = depthRadius * depthRadius * (1.0f - t) * (1.0f - t);)
-LGBO_STMT(float surfaceRoot = sqrt(LGBOMax(curvatureRadius * curvatureRadius - localRadialSquared, rimHeight * rimHeight));)
+LGBO_STMT(float surfaceRoot = sqrt(rimHeight * rimHeight + depthRadius * depthRadius * t * (2.0f - t));)
 LGBO_STMT(float capRise = depthRadius * depthRadius * t * (2.0f - t) / (surfaceRoot + rimHeight);)
 LGBO_STMT(float normalizedHeight = capRise / capSag;)
 LGBO_STMT(float heightAmplitude = LGBOMin(depthRadius, glassThickness) * (capSag / depthRadius);)

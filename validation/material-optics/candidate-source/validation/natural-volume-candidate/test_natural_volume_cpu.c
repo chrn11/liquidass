@@ -156,8 +156,8 @@ static void testLocalMinificationFootprint(void) {
 }
 
 static void testFiniteSphericalCap(void) {
-    const float R=66.0f,Rc=114.0f;
-    const float sag=R*R/(Rc+sqrtf(Rc*Rc-R*R));
+    const float R=66.0f,B=48.0f,Rc=sqrtf(R*R+B*B);
+    const float sag=R*R/(Rc+B);
     LGButtonOpticsResult middle=LGButtonOpticsEvaluate(66,66,132,132,66,66,66,48,108,1.6f,2,132*7.0f/36.0f,3,3,true);
     assert(middle.valid&&fabsf(middle.height-sag)<1e-4f);
     assert(middle.offsetX==0&&middle.offsetY==0&&middle.environmentWeight==0);
@@ -169,7 +169,7 @@ static void testFiniteSphericalCap(void) {
         LGButtonOpticsResult q=LGButtonOpticsEvaluate(x,66,132,132,66,66,66,48,108,1.6f,2,132*7.0f/36.0f,3,3,true);
         assert(q.valid&&q.height>=previous-1e-4f&&q.height<=sag+1e-4f);previous=q.height;
         float normalZ=sqrtf(fmaxf(0,1-q.normalX*q.normalX-q.normalY*q.normalY));
-        assert(normalZ>0.80f); // finite rim slope instead of almost-horizontal normal
+        assert(normalZ>=B/Rc-1e-5f); // exact finite rim cosine for this sphere
         if(i>2&&i<658) {
             const float e=.05f;
             LGButtonOpticsResult a=LGButtonOpticsEvaluate(x-e,66,132,132,66,66,66,48,108,1.6f,2,132*7.0f/36.0f,3,3,true);

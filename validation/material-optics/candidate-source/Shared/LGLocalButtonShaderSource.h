@@ -131,11 +131,10 @@ if (d >= 0.0f || !enabled || glassThickness <= 0.0f || refractionScale <= 0.0f |
 float depth = -d;
 float depthRadius = shortest * 0.5f;
 float t = LGBOClamp(depth / depthRadius, 0.0f, 1.0f);
-float curvatureRadius = depthRadius + LGBOMax(bezel, pointScale * 1.5f);
-float rimHeight = sqrt(curvatureRadius * curvatureRadius - depthRadius * depthRadius);
+float rimHeight = LGBOMax(bezel, pointScale * 1.5f);
+float curvatureRadius = LGBOHypot(depthRadius, rimHeight);
 float capSag = depthRadius * depthRadius / (curvatureRadius + rimHeight);
-float localRadialSquared = depthRadius * depthRadius * (1.0f - t) * (1.0f - t);
-float surfaceRoot = sqrt(LGBOMax(curvatureRadius * curvatureRadius - localRadialSquared, rimHeight * rimHeight));
+float surfaceRoot = sqrt(rimHeight * rimHeight + depthRadius * depthRadius * t * (2.0f - t));
 float capRise = depthRadius * depthRadius * t * (2.0f - t) / (surfaceRoot + rimHeight);
 float normalizedHeight = capRise / capSag;
 float heightAmplitude = LGBOMin(depthRadius, glassThickness) * (capSag / depthRadius);
@@ -878,4 +877,4 @@ fragment float4 liquidGlassFragment(
 }
 
 )LGLOCALMSL";
-static const char kLGLocalButtonCandidateMSLSHA256[] = "a3548c4a10b5770b004281b44163c7ae0a35497a7845e924dea261dbeab6d958";
+static const char kLGLocalButtonCandidateMSLSHA256[] = "a0910f9e9450ead5dbc265493fd67256efccbd75111cc6c61e9890eef508b727";
