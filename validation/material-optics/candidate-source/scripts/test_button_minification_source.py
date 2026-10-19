@@ -11,7 +11,11 @@ helper=(ROOT/'Shared/LGLocalMinification.inc').read_text()
 generator=(ROOT/'scripts/generate_local_button_shader.py').read_text()
 formula=(ROOT/'Shared/LGButtonOpticsFormula.inc').read_bytes()
 manifest=ROOT/'docs/natural-volume-candidate-manifest.json'
-assert hashlib.sha256(formula).hexdigest()=='56c17dc7dfd4c1cd3785bd5cf1727dcd05e64be03ea091691252d6617e185525'
+# This is an explicitly different optical model, not an AA-only identity claim.
+assert hashlib.sha256(formula).hexdigest()=='702874670ddffd0939f8b14cd69aef9998643443edda81fb8afc4f7c2458d92e'
+assert b'LGBOSmoothCappedLength(LGBOMax(out.height, 0.0f), displacementCap)' in formula
+assert b'out.environmentWeight = 0.0f' in formula
+assert b'out.environmentOffsetX = out.offsetX' in formula
 assert 'out.tapCount=1' in helper and 'if (major<=1.0f)' in helper
 assert 'kernelXX' in helper and 'kernelXY' in helper and 'kernelYY' in helper
 assert 'LGBOMinificationExcess' in helper and 'support*support-1.0f' in helper
