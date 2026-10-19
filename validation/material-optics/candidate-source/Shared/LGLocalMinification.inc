@@ -49,4 +49,5 @@ LGBO_STMT(out.axisX = axisX / axisLength;)
 LGBO_STMT(out.axisY = axisY / axisLength;)
 LGBO_STMT(out.filterWidth = LGBOClamp(major, 1.0f, 4.0f);)
 LGBO_STMT(out.tapCount = major <= 2.5f ? 2 : 4;)
+LGBO_STMT(return out;)
 LGBO_FUNCTION_END

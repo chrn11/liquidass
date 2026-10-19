@@ -300,6 +300,7 @@ out.axisX = axisX / axisLength;
 out.axisY = axisY / axisLength;
 out.filterWidth = LGBOClamp(major, 1.0f, 4.0f);
 out.tapCount = major <= 2.5f ? 2 : 4;
+return out;
 }
 
 float2 localButtonSourceUV(texture2d<float, access::sample> src,
