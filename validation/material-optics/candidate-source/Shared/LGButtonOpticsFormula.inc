@@ -148,7 +148,19 @@ LGBO_STMT(float contactDepthGradientX = -outwardX;)
 LGBO_STMT(float contactDepthGradientY = -outwardY;)
 LGBO_STMT(float contactGradientX = -contactAmplitude * (contactShapeGradientX * contactEdgeFade + contactShape * contactEdgeFadeDerivative * contactDepthGradientX);)
 LGBO_STMT(float contactGradientY = -contactAmplitude * (contactShapeGradientY * contactEdgeFade + contactShape * contactEdgeFadeDerivative * contactDepthGradientY);)
-LGBO_STMT(if (isfinite(contactHeightDelta) && isfinite(contactGradientX) && isfinite(contactGradientY)) { out.height += contactHeightDelta; normalX -= contactGradientX; normalY -= contactGradientY; })
+/* A shallow surface cannot support the old additive dent near its thin lip.
+ * Let D be the requested nonnegative dent and h the actual local height.
+ * h_new=h^2/(h+D) stays nonnegative; use its exact chain-rule gradient.
+ * At D=0 this is identity, and both geometry and normal vary continuously. */
+LGBO_STMT(float contactBaseHeight = LGBOMax(out.height, 0.0f);)
+LGBO_STMT(float contactRequestedDent = -contactHeightDelta;)
+LGBO_STMT(float contactDenominator = contactBaseHeight + contactRequestedDent;)
+LGBO_STMT(float contactHeightRatio = contactDenominator > 0.0f ? contactBaseHeight / contactDenominator : 1.0f;)
+LGBO_STMT(float contactBaseGradientFactor = (1.0f - contactHeightRatio) * (1.0f - contactHeightRatio);)
+LGBO_STMT(float contactDentGradientFactor = contactHeightRatio * contactHeightRatio;)
+LGBO_STMT(contactGradientX = contactBaseGradientFactor * normalX + contactDentGradientFactor * contactGradientX;)
+LGBO_STMT(contactGradientY = contactBaseGradientFactor * normalY + contactDentGradientFactor * contactGradientY;)
+LGBO_STMT(if (isfinite(contactHeightRatio) && isfinite(contactGradientX) && isfinite(contactGradientY)) { out.height = contactBaseHeight * contactHeightRatio; normalX -= contactGradientX; normalY -= contactGradientY; })
 LGBO_STMT(})
 LGBO_STMT(})
 LGBO_STMT(float normalLength = LGBOHypot(LGBOHypot(normalX, normalY), normalZ);)

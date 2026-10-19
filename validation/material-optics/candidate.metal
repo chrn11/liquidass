@@ -172,7 +172,15 @@ float contactDepthGradientX = -outwardX;
 float contactDepthGradientY = -outwardY;
 float contactGradientX = -contactAmplitude * (contactShapeGradientX * contactEdgeFade + contactShape * contactEdgeFadeDerivative * contactDepthGradientX);
 float contactGradientY = -contactAmplitude * (contactShapeGradientY * contactEdgeFade + contactShape * contactEdgeFadeDerivative * contactDepthGradientY);
-if (isfinite(contactHeightDelta) && isfinite(contactGradientX) && isfinite(contactGradientY)) { out.height += contactHeightDelta; normalX -= contactGradientX; normalY -= contactGradientY; }
+float contactBaseHeight = LGBOMax(out.height, 0.0f);
+float contactRequestedDent = -contactHeightDelta;
+float contactDenominator = contactBaseHeight + contactRequestedDent;
+float contactHeightRatio = contactDenominator > 0.0f ? contactBaseHeight / contactDenominator : 1.0f;
+float contactBaseGradientFactor = (1.0f - contactHeightRatio) * (1.0f - contactHeightRatio);
+float contactDentGradientFactor = contactHeightRatio * contactHeightRatio;
+contactGradientX = contactBaseGradientFactor * normalX + contactDentGradientFactor * contactGradientX;
+contactGradientY = contactBaseGradientFactor * normalY + contactDentGradientFactor * contactGradientY;
+if (isfinite(contactHeightRatio) && isfinite(contactGradientX) && isfinite(contactGradientY)) { out.height = contactBaseHeight * contactHeightRatio; normalX -= contactGradientX; normalY -= contactGradientY; }
 }
 }
 float normalLength = LGBOHypot(LGBOHypot(normalX, normalY), normalZ);
