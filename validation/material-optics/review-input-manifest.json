@@ -28,7 +28,7 @@
     "candidate-source/scripts/generate_local_button_shader.py": "71734998547fdd2bbfb6c33d0028c3a124985e1612a9d3817968ab3c77ccc654",
     "candidate-source/scripts/test_button_minification_source.py": "a5112eee3cf93cd6d553a6b267fc1f93409641495a6f5f8fa06a12b78216646e",
     "candidate-source/Shared/LGLocalButtonSourceContract.h": "679cd379b1e13c4522cd67fb9f4033b24b3cc49ead48b27e107c7ca63b238fee",
-    "candidate-source/validation/natural-volume-candidate/test_natural_volume_cpu.c": "b49ee15a5bfb5a82b1d6d1bbba274587ba0f681eed6d7fd621eb104db05f2a20",
+    "candidate-source/validation/natural-volume-candidate/test_natural_volume_cpu.c": "20c1f2205caaabae2013b89bc32c32665fdd1dfc603621a4259f0e59b1f4ed63",
     "candidate-source/Shared/LGButtonOpticsFormula.inc": "56c17dc7dfd4c1cd3785bd5cf1727dcd05e64be03ea091691252d6617e185525",
     "candidate-source/Shared/LGLocalSourceMapping.inc": "fc1099f53e3309ecd7e1d30afe888ed616cab584a38abb10e6b6a91fc176c7ee",
     "candidate-source/Shared/LGButtonMaterialCandidate.h": "5d4af5bf7e6b54ba07835b928f81923e06311488ff6045e02a6127451f8b2d0a"

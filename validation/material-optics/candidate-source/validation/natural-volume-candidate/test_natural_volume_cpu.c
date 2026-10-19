@@ -119,7 +119,8 @@ static void testLocalMinificationFootprint(void) {
     assert(compressed.filterWidth<=4.0f);
 
     LGMinificationFootprint diagonal=LGBOAnalyzeMinificationFootprint(2,2,-2,2);
-    assert(diagonal.valid && diagonal.tapCount==2);
+    // singular values are sqrt(8), above the explicit2.5 four-tap boundary.
+    assert(diagonal.valid && diagonal.tapCount==4);
     assert(fabsf(diagonal.major-sqrtf(8.0f))<1e-4f);
     assert(fabsf(diagonal.minor-sqrtf(8.0f))<1e-4f);
 
