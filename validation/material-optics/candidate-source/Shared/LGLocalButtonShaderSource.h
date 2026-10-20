@@ -215,13 +215,9 @@ float rayX = rayFactor * normalX;
 float rayY = rayFactor * normalY;
 float rayZ = -eta + eta * normalZ * normalZ - rootK * normalZ;
 float pathLength = LGBOSmoothCappedLength(LGBOMax(out.height, 0.0f), displacementCap);
-float radialEdgeDepth = LGBOMax(pointScale * 1.5f, depthRadius * 0.3f);
-float effectiveEdgeDepth = LGBOMin(LGBOMax(bezel, 1.0f), radialEdgeDepth);
-float edgeT = LGBOClamp(depth / effectiveEdgeDepth, 0.0f, 1.0f);
-float edgeFade = edgeT * edgeT * (3.0f - 2.0f * edgeT);
 float denominator = LGBOMax(-rayZ, 0.25f);
-float offsetX = rayX / denominator * pathLength * refractionScale * edgeFade;
-float offsetY = rayY / denominator * pathLength * refractionScale * edgeFade;
+float offsetX = rayX / denominator * pathLength * refractionScale;
+float offsetY = rayY / denominator * pathLength * refractionScale;
 float offsetLength = LGBOHypot(offsetX, offsetY);
 if (!isfinite(offsetLength)) { out.valid = false; return out; }
 float limitedOffsetLength = LGBOSmoothCappedLength(offsetLength, displacementCap);
@@ -998,4 +994,4 @@ fragment float4 liquidGlassFragment(
 }
 
 )LGLOCALMSL";
-static const char kLGLocalButtonCandidateMSLSHA256[] = "03b1802268e8fadf76a5083c03aa6e35c5281173448eb497055a9c38c1e70f3f";
+static const char kLGLocalButtonCandidateMSLSHA256[] = "9c96ac4338a3d70859b610a80317b95fdeecf5f3eaba3857d320ef3b7f758fe2";
