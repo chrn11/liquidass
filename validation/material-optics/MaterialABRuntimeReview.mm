@@ -189,7 +189,9 @@ static bool EdgeSourceGuards(id<MTLDevice> device,id<MTLCommandQueue> queue,
  unsigned coverage=0;for(size_t k=3;k<size;k+=4)coverage=std::max(coverage,(unsigned)abs((int)te[k]-(int)tp[k]));bool transparentFallback=maximum(tp,te)<=1&&coverage==0;
  [guards addObject:@{@"check":@"transparentExteriorFallsBackWithoutBlackHaloOrAlphaLift",@"pass":@(transparentFallback),@"maxParentByteDelta":@(maximum(tp,te)),@"transmittedAlphaMaxDelta":@(coverage)}];all=all&&transparentFallback;
  NSDictionary *report=@{@"scope":@"Exact NEW closed-lip primary-only vs NEW edge shader: branch/alpha/source-causality controls, old geometry is not used as a fallback reference",@"allGuardPass":@(all),@"zeroWeightControlShaderSHA256":BytesHash([zeroSource dataUsingEncoding:NSUTF8StringEncoding]),@"sameGeometryPrimaryOnlyShaderSHA256":BytesHash([primarySource dataUsingEncoding:NSUTF8StringEncoding]),@"readbacks":records};
- NSData *data=[NSJSONSerialization dataWithJSONObject:report options:NSJSONWritingPrettyPrinted|NSJSONWritingSortedKeys error:nil];return all&&data&&[data writeToFile:[out stringByAppendingPathComponent:@"exterior-source-gpu-controls.json"] atomically:YES];
+ NSData *data=[NSJSONSerialization dataWithJSONObject:report options:NSJSONWritingPrettyPrinted|NSJSONWritingSortedKeys error:nil];
+ BOOL written=data&&[data writeToFile:[out stringByAppendingPathComponent:@"exterior-source-gpu-controls.json"] atomically:YES];
+ return all&&written;
 }
 
 int main(void){@autoreleasepool{
@@ -244,7 +246,8 @@ int main(void){@autoreleasepool{
   LGButtonOpticalState noTouch={};noTouch.eligible=true;noTouch.geometryGeneration=1;LGLocalButtonUniforms neutral={};if(!LGLocalButtonBuildUniforms(&c,&noTouch,T,T,3,true,&neutral))return 10;neutral.glassThickness=0;
   for(unsigned variant=0;variant<2;variant++){auto zero=Render(device,queue,pipelines[variant],sampler,texture,&neutral,sizeof neutral,T,T);unsigned max=0;if(zero.size()!=bytes)return 11;for(size_t k=0;k<bytes;k++)max=std::max(max,(unsigned)abs((int)zero[k]-(int)roi[k]));all=all&&max<=1;[guards addObject:@{@"scene":scene,@"variant":@(variant),@"check":@"zeroThicknessSourceIdentity",@"maxByteDelta":@(max),@"pass":@(max<=1)}];}
  }
- if(!EdgeSourceGuards(device,queue,baselinePipeline,candidatePipeline,sampler,newSource,inputs,out,guards))return 15;
+ bool sourceGuards=EdgeSourceGuards(device,queue,baselinePipeline,candidatePipeline,sampler,newSource,inputs,out,guards);
+ all=all&&sourceGuards; // Always retain failed guard observations and raw pixels.
  NSDictionary *report=@{@"scope":@"Same owned inputs and production240B uniforms; completed macOS Metal offscreen readbacks, NOT iPhone or system-host visual acceptance",@"oldMSLSHA256":BytesHash(oldBytes),@"newMSLSHA256":BytesHash(newBytes),@"actualMetalDeviceName":device.name?:@"unknown",@"targetPixels":@132,@"sourcePixels":@228,@"targetOriginPixels":@[@48,@48],@"allSafetyGuards":@(all),@"records":records,@"guards":guards,@"macOffscreenCommandBenchmarks":timings,@"visualGoal":@"NOT_ACCEPTED_AUTOMATICALLY: parent must inspect actual images",@"systemRuntime":@"NOT_RUN",@"trueUIKitInputForThisMacTest":@NO};
  NSData *data=[NSJSONSerialization dataWithJSONObject:report options:NSJSONWritingPrettyPrinted|NSJSONWritingSortedKeys error:nil];if(!data||![data writeToFile:[out stringByAppendingPathComponent:@"material-ab-readbacks.json"] atomically:YES])return 12;
  printf("%s material A/B same-input Metal readbacks; images=%lu, finite/passive/zero-thickness/shape-outside guards only; visual acceptance is separate\n",all?"PASS":"FAIL",(unsigned long)records.count);
