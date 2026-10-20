@@ -823,6 +823,7 @@ float4 liquidGlassPixel(texture2d<float, access::sample> src,
         else
             opticalSample=src.sample(s,localButtonSourceUV(src,u,opticalUV));
         if (opticalSample.a < 0.01f) opticalSample = src.sample(s, localButtonSourceUV(src, u,  captureUV));
+        if (u.buttonSourceOverscanEnabled <= 0.5f) return opticalSample;
         /* Candidate-only four-point low-frequency radiance integral from the
          * same leased source. It is not a second clear image or reflection map. */
         float2 environmentUV = float2(optics.environmentU, optics.environmentV);
@@ -994,4 +995,4 @@ fragment float4 liquidGlassFragment(
 }
 
 )LGLOCALMSL";
-static const char kLGLocalButtonCandidateMSLSHA256[] = "9c96ac4338a3d70859b610a80317b95fdeecf5f3eaba3857d320ef3b7f758fe2";
+static const char kLGLocalButtonCandidateMSLSHA256[] = "740697f149d0eca63c0905f5edeb1cc6bc51d65a52040b5f7c52cbe39007ff6a";

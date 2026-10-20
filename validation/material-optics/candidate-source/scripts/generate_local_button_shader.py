@@ -264,6 +264,9 @@ def main():
         raise SystemExit('candidate optical/environment sample anchors drift')
     base=base.replace(old_optical_sample,new_optical_sample,1)
     base=base.replace(old_environment_sample,new_environment_sample,1)
+    primary_done='        if (opticalSample.a < 0.01f) opticalSample = src.sample(s, localButtonSourceUV(src, u,  captureUV));'
+    if base.count(primary_done)!=1: raise SystemExit('primary completion/fallback anchor drift')
+    base=base.replace(primary_done,primary_done+'\n        if (u.buttonSourceOverscanEnabled <= 0.5f) return opticalSample;',1)
     mix_anchor='        float environmentWeight = clamp(optics.environmentWeight, 0.0f, 0.28f);'
     if base.count(mix_anchor)!=1: raise SystemExit('real final mix anchor drift')
     base=base.replace(mix_anchor,mix_anchor+'\n        if (environmentWeight <= 0.0f) return opticalSample;',1)

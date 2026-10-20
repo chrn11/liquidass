@@ -6,7 +6,7 @@
     "reproducedCandidateMSLSHA256": "03b1802268e8fadf76a5083c03aa6e35c5281173448eb497055a9c38c1e70f3f"
   },
   "candidateFingerprints": {
-    "generatedCandidateMSLSHA256": "9c96ac4338a3d70859b610a80317b95fdeecf5f3eaba3857d320ef3b7f758fe2",
+    "generatedCandidateMSLSHA256": "740697f149d0eca63c0905f5edeb1cc6bc51d65a52040b5f7c52cbe39007ff6a",
     "Shared/LGButtonOpticsFormula.inc": "69b6483c0ed9b630a0dff54f6703a693849f04b7a388e734c3470d25a47c46b1"
   },
   "runtimeProductShaderPin": "UNCHANGED: no deployment, do not treat candidate as enabled"

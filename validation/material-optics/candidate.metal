@@ -818,6 +818,7 @@ float4 liquidGlassPixel(texture2d<float, access::sample> src,
         else
             opticalSample=src.sample(s,localButtonSourceUV(src,u,opticalUV));
         if (opticalSample.a < 0.01f) opticalSample = src.sample(s, localButtonSourceUV(src, u,  captureUV));
+        if (u.buttonSourceOverscanEnabled <= 0.5f) return opticalSample;
         /* Candidate-only four-point low-frequency radiance integral from the
          * same leased source. It is not a second clear image or reflection map. */
         float2 environmentUV = float2(optics.environmentU, optics.environmentV);
