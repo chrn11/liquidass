@@ -1,7 +1,13 @@
 {
   "sourceRoot": "/var/minis/shared/liquidass-closed-lip-main-fcf2d190-7689-491e-b382-1eb54098d848",
   "baselineRoot": "/var/minis/shared/liquidass-edge-exterior-1dd655fc-b6cf-44c1-9b9d-d311e2f42199",
-  "status": "ISOLATED_CLOSED_LIP_NOT_YET_COMPILED_OR_GPU_TESTED",
+  "status": "CLOSED_LIP_C_AND_MAC_GPU_COMPONENT_PASS; visual NOT_ACCEPTED, not deployed",
+  "actualCIrun": 39390874802,
+  "actualCommit": "bcf02dbf1360b34d8b501b2595c6738629ae6b28",
+  "actualGPUFieldSamples": 34,
+  "visualAccepted": false,
+  "wholeUserTaskCompleted": false,
+  "postCIOnlyDocumentationChanged": true,
   "baselineFingerprints": {
     "reproducedCandidateMSLSHA256": "57ab8fa399aef5cf704c3623c06a1869a402b920216dafa05367d4d013897e10"
   },

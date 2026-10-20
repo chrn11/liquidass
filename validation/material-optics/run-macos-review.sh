@@ -65,6 +65,11 @@ if [[ -f "$V/ClosedLipGPUFields.mm" ]]; then
     -framework Foundation -framework Metal -o "$OUT/ClosedLipGPUFields"
   "$OUT/ClosedLipGPUFields" "$V/baseline.metal" "$V/candidate.metal" "$OUT/closed-lip-actual-gpu-fields.json"
 fi
+if [[ -f "$V/ClosedLipGPUJacobian.mm" ]]; then
+  xcrun --sdk macosx clang++ -std=c++17 -fobjc-arc -fblocks "$V/ClosedLipGPUJacobian.mm" \
+    -framework Foundation -framework Metal -o "$OUT/ClosedLipGPUJacobian"
+  "$OUT/ClosedLipGPUJacobian" "$V/candidate.metal" "$OUT"
+fi
 xcrun --sdk macosx clang++ -std=c++17 -fobjc-arc -fblocks -I"$ROOT/Shared" \
   "$V/MaterialABRuntimeReview.mm" -framework Foundation -framework Metal \
   -framework CoreGraphics -framework ImageIO -o "$OUT/MaterialABRuntimeReview"
