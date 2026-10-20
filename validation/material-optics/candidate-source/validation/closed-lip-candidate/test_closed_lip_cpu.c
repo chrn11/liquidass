@@ -161,8 +161,7 @@ static int testInnerSameFrozenParentAndRawQ(void) {
    float depth=lip+(r-lip)*i/16.0f,x=2*r-depth;
    LGButtonOpticsResult n=LGButtonOpticsEvaluateWithContact(x,r,2*r,2*r,r,r,r,bezel,thicknesses[z],1.6f,2,2*r*7/36,scale,scale,true,contact,.9f,.5f,.8f);
    Frozen_LGButtonOpticsResult p=Frozen_LGButtonOpticsEvaluateWithContact(x,r,2*r,2*r,r,r,r,bezel,thicknesses[z],1.6f,2,2*r*7/36,scale,scale,true,contact,.9f,.5f,.8f);
-   REQUIRE(n.valid==p.valid && n.height==p.height && n.normalX==p.normalX && n.normalY==p.normalY,"inner cap height/contact/normal exactly match frozen parent; intentional ray-fade removal is not displacement identity");
-   REQUIRE(isfinite(n.offsetX)&&isfinite(n.offsetY)&&hypotf(n.offsetX,n.offsetY)<=2*r*7/36+1e-4f,"changed ray retains exact original finite displacement cap");
+   REQUIRE(n.valid==p.valid && n.height==p.height && n.normalX==p.normalX && n.normalY==p.normalY && n.offsetX==p.offsetX && n.offsetY==p.offsetY,"inner cap and contact/primary displacement exactly match frozen parent");
   }
  }
  return 0;

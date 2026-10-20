@@ -1,13 +1,15 @@
 {
-  "baselineRoot": "/var/minis/shared/liquidass-closed-lip-main-fcf2d190-7689-491e-b382-1eb54098d848",
-  "sourceRoot": "/var/minis/shared/liquidass-closed-lip-height-ray-527194c9-7ce2-4628-b085-125624dda277",
-  "status": "ISOLATED_REMOVE_DOUBLE_FADE_NOT_YET_TESTED",
+  "sourceRoot": "/var/minis/shared/liquidass-closed-lip-main-fcf2d190-7689-491e-b382-1eb54098d848",
+  "baselineRoot": "/var/minis/shared/liquidass-edge-exterior-1dd655fc-b6cf-44c1-9b9d-d311e2f42199",
+  "status": "ISOLATED_CLOSED_LIP_NOT_YET_COMPILED_OR_GPU_TESTED",
   "baselineFingerprints": {
-    "reproducedCandidateMSLSHA256": "03b1802268e8fadf76a5083c03aa6e35c5281173448eb497055a9c38c1e70f3f"
+    "reproducedCandidateMSLSHA256": "57ab8fa399aef5cf704c3623c06a1869a402b920216dafa05367d4d013897e10"
   },
   "candidateFingerprints": {
-    "generatedCandidateMSLSHA256": "740697f149d0eca63c0905f5edeb1cc6bc51d65a52040b5f7c52cbe39007ff6a",
-    "Shared/LGButtonOpticsFormula.inc": "69b6483c0ed9b630a0dff54f6703a693849f04b7a388e734c3470d25a47c46b1"
+    "generatedCandidateMSLSHA256": "03b1802268e8fadf76a5083c03aa6e35c5281173448eb497055a9c38c1e70f3f",
+    "Shared/LGButtonOpticsFormula.inc": "01939cde683f17d32b13bc924a943970d02f92973b2ebedf2d0651d90c38a5ad"
   },
-  "runtimeProductShaderPin": "UNCHANGED: no deployment, do not treat candidate as enabled"
+  "parentValidationReference": "shared/liquidass-validation/edge-radiance-20261020/manifest.json",
+  "inheritedParentValidationIsNotCandidateEvidence": true,
+  "runtimeProductShaderPin": "Intentionally unchanged; this is rawMSL review, not deployed class integration"
 }

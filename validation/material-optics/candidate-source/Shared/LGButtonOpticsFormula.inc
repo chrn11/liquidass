@@ -196,13 +196,16 @@ LGBO_STMT(float rayZ = -eta + eta * normalZ * normalZ - rootK * normalZ;)
  * dome height everywhere. Use the existing C1 finite path budget, then the
  * unchanged displacement budget; contact changes the very same local height. */
 LGBO_STMT(float pathLength = LGBOSmoothCappedLength(LGBOMax(out.height, 0.0f), displacementCap);)
-/* With the finite closed lip h=O(d^2) and |grad h|=O(d), the physical
- * local-height ray displacement already vanishes as O(d^3). The inherited
- * empirical edgeFade would suppress it again to O(d^5). Use only the actual
- * height and normal here; keep both original C1 path and displacement caps. */
+/* On the exact44pt button, the inherited16pt bezel suppressed refraction
+ * through most of the22pt radius. Keep bezel as a maximum budget, but make the
+ * actual optical shoulder proportional to radius, never a painted rim/light. */
+LGBO_STMT(float radialEdgeDepth = LGBOMax(pointScale * 1.5f, depthRadius * 0.3f);)
+LGBO_STMT(float effectiveEdgeDepth = LGBOMin(LGBOMax(bezel, 1.0f), radialEdgeDepth);)
+LGBO_STMT(float edgeT = LGBOClamp(depth / effectiveEdgeDepth, 0.0f, 1.0f);)
+LGBO_STMT(float edgeFade = edgeT * edgeT * (3.0f - 2.0f * edgeT);)
 LGBO_STMT(float denominator = LGBOMax(-rayZ, 0.25f);)
-LGBO_STMT(float offsetX = rayX / denominator * pathLength * refractionScale;)
-LGBO_STMT(float offsetY = rayY / denominator * pathLength * refractionScale;)
+LGBO_STMT(float offsetX = rayX / denominator * pathLength * refractionScale * edgeFade;)
+LGBO_STMT(float offsetY = rayY / denominator * pathLength * refractionScale * edgeFade;)
 LGBO_STMT(float offsetLength = LGBOHypot(offsetX, offsetY);)
 LGBO_STMT(if (!isfinite(offsetLength)) { out.valid = false; return out; })
 LGBO_STMT(float limitedOffsetLength = LGBOSmoothCappedLength(offsetLength, displacementCap);)

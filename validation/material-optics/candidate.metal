@@ -210,9 +210,13 @@ float rayX = rayFactor * normalX;
 float rayY = rayFactor * normalY;
 float rayZ = -eta + eta * normalZ * normalZ - rootK * normalZ;
 float pathLength = LGBOSmoothCappedLength(LGBOMax(out.height, 0.0f), displacementCap);
+float radialEdgeDepth = LGBOMax(pointScale * 1.5f, depthRadius * 0.3f);
+float effectiveEdgeDepth = LGBOMin(LGBOMax(bezel, 1.0f), radialEdgeDepth);
+float edgeT = LGBOClamp(depth / effectiveEdgeDepth, 0.0f, 1.0f);
+float edgeFade = edgeT * edgeT * (3.0f - 2.0f * edgeT);
 float denominator = LGBOMax(-rayZ, 0.25f);
-float offsetX = rayX / denominator * pathLength * refractionScale;
-float offsetY = rayY / denominator * pathLength * refractionScale;
+float offsetX = rayX / denominator * pathLength * refractionScale * edgeFade;
+float offsetY = rayY / denominator * pathLength * refractionScale * edgeFade;
 float offsetLength = LGBOHypot(offsetX, offsetY);
 if (!isfinite(offsetLength)) { out.valid = false; return out; }
 float limitedOffsetLength = LGBOSmoothCappedLength(offsetLength, displacementCap);
@@ -818,7 +822,6 @@ float4 liquidGlassPixel(texture2d<float, access::sample> src,
         else
             opticalSample=src.sample(s,localButtonSourceUV(src,u,opticalUV));
         if (opticalSample.a < 0.01f) opticalSample = src.sample(s, localButtonSourceUV(src, u,  captureUV));
-        if (u.buttonSourceOverscanEnabled <= 0.5f) return opticalSample;
         /* Candidate-only four-point low-frequency radiance integral from the
          * same leased source. It is not a second clear image or reflection map. */
         float2 environmentUV = float2(optics.environmentU, optics.environmentV);
