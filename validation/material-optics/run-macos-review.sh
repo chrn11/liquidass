@@ -21,6 +21,11 @@ xcrun --sdk macosx clang -std=c11 -Wall -Wextra -Werror \
   "$V/candidate-source/validation/natural-volume-candidate/test_natural_volume_cpu.c" \
   -lm -o "$OUT/natural-volume-cpu"
 "$OUT/natural-volume-cpu"
+if [[ -f "$V/candidate-source/validation/closed-lip-candidate/test_closed_lip_cpu.c" ]]; then
+  xcrun --sdk macosx clang -std=c11 -Wall -Wextra -Werror -I"$V/candidate-source/Shared" \
+    "$V/candidate-source/validation/closed-lip-candidate/test_closed_lip_cpu.c" -lm -o "$OUT/closed-lip-cpu"
+  "$OUT/closed-lip-cpu" > "$OUT/closed-lip-cpu.log"
+fi
 xcrun --sdk macosx clang -std=c11 -Wall -Wextra -Werror \
   -I"$V/candidate-source/Shared" -I"$ROOT/Shared" "$V/diagnose_mapping.c" -lm -o "$OUT/diagnose-mapping"
 "$OUT/diagnose-mapping" > "$OUT/exact-optical-mapping-diagnostics.json"

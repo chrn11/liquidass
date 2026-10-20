@@ -117,10 +117,15 @@ static NSString *BytesHash(NSData *d) {
  std::vector<uint8_t> b(d.length);if(d.length)memcpy(b.data(),d.bytes,d.length);return PixelSHA(b);
 }
 static bool EdgeSourceGuards(id<MTLDevice> device,id<MTLCommandQueue> queue,
- id<MTLRenderPipelineState> parent,id<MTLRenderPipelineState> candidate,
+ id<MTLRenderPipelineState> previous,id<MTLRenderPipelineState> candidate,
  id<MTLSamplerState> sampler,NSString *candidateSource,NSString *inputs,NSString *out,
  NSMutableArray *guards) {
  constexpr NSUInteger T=132,S=228,O=48;const size_t size=T*T*4;
+ (void)previous;
+ NSString *primarySource=[candidateSource stringByReplacingOccurrencesOfString:@"float4 environmentSample=opticalSample;" withString:@"return opticalSample;\n        float4 environmentSample=opticalSample;"];
+ if([primarySource isEqual:candidateSource])return false;
+ id<MTLRenderPipelineState> parent=nil;
+ if(!MakePipeline(device,primarySource.UTF8String,MTLPixelFormatBGRA8Unorm_sRGB,&parent))return false;
  NSString *zeroSource=[candidateSource stringByReplacingOccurrencesOfString:@"optics.environmentWeight=LGBOImageEdgeRadianceWeight("
   withString:@"optics.environmentWeight=0.0f*LGBOImageEdgeRadianceWeight("];
  if([zeroSource isEqual:candidateSource])return false;
@@ -183,7 +188,7 @@ static bool EdgeSourceGuards(id<MTLDevice> device,id<MTLCommandQueue> queue,
  auto tt=textureFor(clearOutside,S);auto tp=Render(device,queue,parent,sampler,tt,&u,sizeof u,T,T),te=Render(device,queue,candidate,sampler,tt,&u,sizeof u,T,T);if(tp.size()!=size||te.size()!=size)return false;
  unsigned coverage=0;for(size_t k=3;k<size;k+=4)coverage=std::max(coverage,(unsigned)abs((int)te[k]-(int)tp[k]));bool transparentFallback=maximum(tp,te)<=1&&coverage==0;
  [guards addObject:@{@"check":@"transparentExteriorFallsBackWithoutBlackHaloOrAlphaLift",@"pass":@(transparentFallback),@"maxParentByteDelta":@(maximum(tp,te)),@"transmittedAlphaMaxDelta":@(coverage)}];all=all&&transparentFallback;
- NSDictionary *report=@{@"scope":@"Extra actual Mac GPU branch/alpha/source-causality controls; same primary optical map; not real environment or phone evidence",@"allGuardPass":@(all),@"zeroWeightControlShaderSHA256":BytesHash([zeroSource dataUsingEncoding:NSUTF8StringEncoding]),@"readbacks":records};
+ NSDictionary *report=@{@"scope":@"Exact NEW closed-lip primary-only vs NEW edge shader: branch/alpha/source-causality controls, old geometry is not used as a fallback reference",@"allGuardPass":@(all),@"zeroWeightControlShaderSHA256":BytesHash([zeroSource dataUsingEncoding:NSUTF8StringEncoding]),@"sameGeometryPrimaryOnlyShaderSHA256":BytesHash([primarySource dataUsingEncoding:NSUTF8StringEncoding]),@"readbacks":records};
  NSData *data=[NSJSONSerialization dataWithJSONObject:report options:NSJSONWritingPrettyPrinted|NSJSONWritingSortedKeys error:nil];return all&&data&&[data writeToFile:[out stringByAppendingPathComponent:@"exterior-source-gpu-controls.json"] atomically:YES];
 }
 

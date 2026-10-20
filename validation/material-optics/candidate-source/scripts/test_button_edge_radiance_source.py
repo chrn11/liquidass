@@ -17,7 +17,12 @@ assert 'if (!edgeSourceValid) optics.environmentWeight=0.0f;' in s
 assert 'if (environmentWeight <= 0.0f) return opticalSample;' in s
 assert 'u.buttonSourceOverscanEnabled > 0.5f && optics.environmentWeight > 0.0f' in s
 assert 'float weight = edgeBand * schlick * thicknessCoverage;' in s
-assert 'LGBOClamp(q.height / (pointScale * 1.5f)' in f
+assert 'LGBOClamp(-q.signedDistance / lipWidth, 0.0f, 1.0f)' in f
+assert 'LGBOClamp(q.height / lipWidth, 0.0f, 1.0f)' in f
+assert 'float lipWidth = LGBOMin(pointScale * 1.5f, depthRadius);' in f
+assert 'lipCapHeight * ((3.0f - lipQ) * lipU2 + (lipQ - 2.0f) * lipU3)' in f
+assert 'heightDerivative = (lipCapHeight / lipWidth)' in f
+assert 'if (depth < lipWidth)' in f
 assert s.count('localButtonEvaluateAt(float2(px.x')==4
 assert 'kernelXX' in s and 'support*support-1.0f' in s
 assert 'opticalSample=localButtonMinifiedSample(src,s,localButtonSourceUV(src,u,opticalUV),opticalFootprint)' in s

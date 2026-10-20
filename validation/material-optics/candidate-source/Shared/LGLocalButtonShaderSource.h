@@ -139,6 +139,12 @@ float capRise = depthRadius * depthRadius * t * (2.0f - t) / (surfaceRoot + rimH
 float normalizedHeight = capRise / capSag;
 float heightAmplitude = LGBOMin(depthRadius, glassThickness) * (capSag / depthRadius);
 out.height = heightAmplitude * normalizedHeight;
+float lipWidth = LGBOMin(pointScale * 1.5f, depthRadius);
+float lipT = lipWidth / depthRadius;
+float lipSurfaceRoot = sqrt(rimHeight * rimHeight + depthRadius * depthRadius * lipT * (2.0f - lipT));
+float lipCapRise = depthRadius * depthRadius * lipT * (2.0f - lipT) / (lipSurfaceRoot + rimHeight);
+float lipCapHeight = heightAmplitude * (lipCapRise / capSag);
+float lipCapDerivative = heightAmplitude * depthRadius * (1.0f - lipT) / (lipSurfaceRoot * capSag);
 float gx = LGBOButtonRoundedBoxSDF(localX + 0.5f, localY, width, height, radius) - LGBOButtonRoundedBoxSDF(localX - 0.5f, localY, width, height, radius);
 float gy = LGBOButtonRoundedBoxSDF(localX, localY + 0.5f, width, height, radius) - LGBOButtonRoundedBoxSDF(localX, localY - 0.5f, width, height, radius);
 float gradientLength = LGBOHypot(gx, gy);
@@ -146,6 +152,14 @@ float outwardX = gradientLength > 0.0001f ? gx / gradientLength : 0.0f;
 float outwardY = gradientLength > 0.0001f ? gy / gradientLength : 0.0f;
 float normalizedHeightDerivative = t < 1.0f ? depthRadius * (1.0f - t) / (surfaceRoot * capSag) : 0.0f;
 float heightDerivative = heightAmplitude * normalizedHeightDerivative;
+float lipQ = lipCapHeight > 0.0f ? LGBOClamp(lipWidth * lipCapDerivative / lipCapHeight, 0.0f, 1.0f) : 0.0f;
+if (depth < lipWidth) {
+float lipU = depth / lipWidth;
+float lipU2 = lipU * lipU;
+float lipU3 = lipU2 * lipU;
+out.height = lipCapHeight * ((3.0f - lipQ) * lipU2 + (lipQ - 2.0f) * lipU3);
+heightDerivative = (lipCapHeight / lipWidth) * (2.0f * (3.0f - lipQ) * lipU + 3.0f * (lipQ - 2.0f) * lipU2);
+}
 float normalX = heightDerivative * outwardX;
 float normalY = heightDerivative * outwardY;
 float normalZ = 1.0f;
@@ -229,10 +243,9 @@ return LGButtonOpticsEvaluateWithContact(x, y, width, height, centerX, centerY, 
 float LGBOImageEdgeRadianceWeight(LGButtonOpticsResult q, float width, float height, float bezel, float pointScale, float refractiveIndex, bool enabled, bool leasedOverscan) {
 if (!q.valid || !enabled || !leasedOverscan || !isfinite(width) || !isfinite(height) || !isfinite(bezel) || !isfinite(pointScale) || !isfinite(refractiveIndex) || !isfinite(q.signedDistance) || !isfinite(q.height) || !isfinite(q.normalX) || !isfinite(q.normalY) || q.signedDistance >= 0.0f || q.height <= 0.0f || width < 1.0f || width > 16384.0f || height < 1.0f || height > 16384.0f || pointScale < 0.5f || pointScale > 4.0f || refractiveIndex <= 1.0f || refractiveIndex > 3.2f) return 0.0f;
 float shortest = LGBOMin(width, height);
-float radialEdgeDepth = LGBOMax(pointScale * 1.5f, shortest * 0.15f);
-float effectiveEdgeDepth = LGBOMin(LGBOMax(bezel, 1.0f), radialEdgeDepth);
-if (effectiveEdgeDepth <= 0.0f) return 0.0f;
-float edgeT = LGBOClamp(-q.signedDistance / effectiveEdgeDepth, 0.0f, 1.0f);
+float lipWidth = LGBOMin(pointScale * 1.5f, shortest * 0.5f);
+if (lipWidth <= 0.0f) return 0.0f;
+float edgeT = LGBOClamp(-q.signedDistance / lipWidth, 0.0f, 1.0f);
 float edgeBand = 1.0f - edgeT * edgeT * (3.0f - 2.0f * edgeT);
 float normalXY2 = LGBOClamp(q.normalX * q.normalX + q.normalY * q.normalY, 0.0f, 1.0f);
 float cosineIncident = sqrt(LGBOClamp(1.0f - normalXY2, 0.0f, 1.0f));
@@ -241,7 +254,7 @@ float f0 = ratio * ratio;
 float oneMinusCosine = 1.0f - cosineIncident;
 float oneMinusCosine2 = oneMinusCosine * oneMinusCosine;
 float schlick = f0 + (1.0f - f0) * oneMinusCosine2 * oneMinusCosine2 * oneMinusCosine;
-float thicknessT = LGBOClamp(q.height / (pointScale * 1.5f), 0.0f, 1.0f);
+float thicknessT = LGBOClamp(q.height / lipWidth, 0.0f, 1.0f);
 float thicknessCoverage = thicknessT * thicknessT * (3.0f - 2.0f * thicknessT);
 float weight = edgeBand * schlick * thicknessCoverage;
 if (!isfinite(weight)) return 0.0f;
@@ -985,4 +998,4 @@ fragment float4 liquidGlassFragment(
 }
 
 )LGLOCALMSL";
-static const char kLGLocalButtonCandidateMSLSHA256[] = "57ab8fa399aef5cf704c3623c06a1869a402b920216dafa05367d4d013897e10";
+static const char kLGLocalButtonCandidateMSLSHA256[] = "03b1802268e8fadf76a5083c03aa6e35c5281173448eb497055a9c38c1e70f3f";

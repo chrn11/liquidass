@@ -169,8 +169,19 @@ static void testFiniteSphericalCap(void) {
         LGButtonOpticsResult q=LGButtonOpticsEvaluate(x,66,132,132,66,66,66,48,108,1.6f,2,132*7.0f/36.0f,3,3,true);
         assert(q.valid&&q.height>=previous-1e-4f&&q.height<=sag+1e-4f);previous=q.height;
         float normalZ=sqrtf(fmaxf(0,1-q.normalX*q.normalX-q.normalY*q.normalY));
-        assert(normalZ>=B/Rc-1e-5f); // exact finite rim cosine for this sphere
-        if(i>2&&i<658) {
+        float depth=132.0f-x;
+        if(depth>=4.5f) {
+            assert(normalZ>=B/Rc-1e-5f); // unchanged inner spherical-cap bound
+        } else {
+            const float b=4.5f;
+            float rootAtJoin=sqrtf(B*B+R*R*(b/R)*(2.0f-b/R));
+            float hb=R*R*(b/R)*(2.0f-b/R)/(rootAtJoin+B);
+            // Cubic endpoint interpolation has slope <=1.5*hb/b for0<=q<=1.
+            float maximumSlope=1.5f*hb/b;
+            assert(normalZ>=1.0f/sqrtf(1.0f+maximumSlope*maximumSlope)-1e-5f);
+        }
+        // The exact lip join is C1; the dedicated lip test checks both sides.
+        if(i>2&&i<658&&fabsf(depth-4.5f)>.051f) {
             const float e=.05f;
             LGButtonOpticsResult a=LGButtonOpticsEvaluate(x-e,66,132,132,66,66,66,48,108,1.6f,2,132*7.0f/36.0f,3,3,true);
             LGButtonOpticsResult b=LGButtonOpticsEvaluate(x+e,66,132,132,66,66,66,48,108,1.6f,2,132*7.0f/36.0f,3,3,true);

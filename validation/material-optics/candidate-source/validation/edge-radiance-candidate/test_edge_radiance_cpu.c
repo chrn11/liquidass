@@ -39,7 +39,7 @@ static float modeledOutput(float x, float pressure) {
 
 static int testUniformIdentityAndQuadrature(void) {
     const float levels[]={0.0f,0.23f,0.5f,1.0f};
-    LGButtonOpticsResult edge=evaluate(126.0f,false,0.0f);
+    LGButtonOpticsResult edge=evaluate(130.0f,false,0.0f); //inside new1.5pt lip
     float weight=LGBOImageEdgeRadianceWeight(edge,132,132,48,3,1.6f,true,true);
     REQUIRE(weight>0.0f && weight<=0.28f,"candidate edge weight must be finite and bounded");
     REQUIRE(edge.environmentWeight==0.0f,"base optics API must retain zero environment weight");
@@ -59,7 +59,7 @@ static int testUniformIdentityAndQuadrature(void) {
 static int testSourceEnergyAndBoundaries(void) {
     float tap[4]={0.08f,0.31f,0.62f,0.91f};
     float integral=LGBOAverageFourRadianceSamples(tap[0],tap[1],tap[2],tap[3]);
-    LGButtonOpticsResult edge=evaluate(126.0f,false,0.0f);
+    LGButtonOpticsResult edge=evaluate(130.0f,false,0.0f); //inside new1.5pt lip
     float w=LGBOImageEdgeRadianceWeight(edge,132,132,48,3,1.6f,true,true);
     float output=LGBOEnvironmentMixPremultipliedChannel(0.17f,1.0f,integral,1.0f,w);
     float lo=0.08f,hi=0.91f;
@@ -91,17 +91,17 @@ static int testSourceEnergyAndBoundaries(void) {
 }
 
 static int testTouchContinuity(void) {
-    float baseline=modeledOutput(126.0f,0.0f);
-    float tiny=modeledOutput(126.0f,0.00001f);
+    float baseline=modeledOutput(130.0f,0.0f);
+    float tiny=modeledOutput(130.0f,0.00001f);
     REQUIRE(isfinite(baseline) && isfinite(tiny) && fabsf(baseline-tiny)<3.0e-4f,
             "touch enable at zero pressure is continuous");
-    float left=modeledOutput(126.0f,0.5f-0.0001f);
-    float right=modeledOutput(126.0f,0.5f+0.0001f);
+    float left=modeledOutput(130.0f,0.5f-0.0001f);
+    float right=modeledOutput(130.0f,0.5f+0.0001f);
     REQUIRE(isfinite(left) && isfinite(right) && fabsf(left-right)<3.0e-4f,
             "image-driven cue remains continuous across touch pressure");
     for (int i=0;i<=20;i++) {
         float p=(float)i/20.0f;
-        float value=modeledOutput(126.0f,p);
+        float value=modeledOutput(130.0f,p);
         REQUIRE(isfinite(value) && value>=0.0f && value<=1.0f,
                 "all touch pressures remain finite and bounded");
     }
