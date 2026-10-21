@@ -31,6 +31,11 @@ if [[ -f "$V/candidate-source/validation/angular-edge-candidate/test_angular_edg
     "$V/candidate-source/validation/angular-edge-candidate/test_angular_edge_cpu.c" -lm -o "$OUT/angular-weight-cpu"
   "$OUT/angular-weight-cpu" > "$OUT/angular-weight-cpu.log"
 fi
+if [[ -f "$V/candidate-source/validation/designed-light-candidate/test_designed_light_cpu.c" ]]; then
+  xcrun --sdk macosx clang -std=c11 -Wall -Wextra -Werror -I"$V/candidate-source/Shared" \
+    "$V/candidate-source/validation/designed-light-candidate/test_designed_light_cpu.c" -lm -o "$OUT/designed-light-cpu"
+  "$OUT/designed-light-cpu" > "$OUT/designed-light-cpu.log"
+fi
 xcrun --sdk macosx clang -std=c11 -Wall -Wextra -Werror \
   -I"$V/candidate-source/Shared" -I"$ROOT/Shared" "$V/diagnose_mapping.c" -lm -o "$OUT/diagnose-mapping"
 "$OUT/diagnose-mapping" > "$OUT/exact-optical-mapping-diagnostics.json"

@@ -1,14 +1,15 @@
 {
-  "sourceRoot": "/var/minis/shared/liquidass-angular-edge-615c69f7-12c4-42cd-af14-b31b7e1a653a",
+  "sourceRoot": "/var/minis/shared/liquidass-designed-light-3d924672-a5a2-4036-9dda-d557c72fd23d",
   "baselineRoot": "/var/minis/shared/liquidass-closed-lip-main-fcf2d190-7689-491e-b382-1eb54098d848",
-  "status": "ISOLATED_ANGULAR_WEIGHT_NOT_YET_COMPILED_OR_GPU_TESTED",
+  "status": "DESIGN_LIGHT_OPT_IN_EXPERIMENT_NOT_YET_COMPILED",
   "baselineFingerprints": {
     "reproducedCandidateMSLSHA256": "03b1802268e8fadf76a5083c03aa6e35c5281173448eb497055a9c38c1e70f3f"
   },
   "candidateFingerprints": {
-    "generatedCandidateMSLSHA256": "f56080fbe603cb3d455832046f645055e69181a8331135c9861fe7fdf4aa19dc",
-    "Shared/LGButtonOpticsFormula.inc": "3d786476f9d0a41f4e618e40f50100fe6f5b77c806e769a992b833b678c73bd7"
+    "generatedCandidateMSLSHA256": "1859d9436938cdbf51b4cb215b897ea175a9e3fddff7c6631e662d311af75740",
+    "Shared/LGButtonOpticsFormula.inc": "01939cde683f17d32b13bc924a943970d02f92973b2ebedf2d0651d90c38a5ad"
   },
-  "sourceScope": "Angular cue weighting only: C_h*max(F_exact(actualNormal)-F_exact(1),0); no gain, no source changes, not physical reflection",
-  "runtimeProductShaderPin": "UNCHANGED: raw MSL comparison only, cannot claim production integration"
+  "explicitlyNotMeasuredEnvironment": true,
+  "enable": "fresnelGlareStrength=0 exact off, test-only1 optin; normal uniform builder stays0",
+  "runtimeProductShaderPin": "UNCHANGED, rawMSL review only"
 }

@@ -194,6 +194,40 @@ static bool EdgeSourceGuards(id<MTLDevice> device,id<MTLCommandQueue> queue,
  return all&&written;
 }
 
+static bool DesignedLightReadbacks(id<MTLDevice> device,id<MTLCommandQueue> queue,
+ id<MTLRenderPipelineState> parent,id<MTLRenderPipelineState> candidate,id<MTLSamplerState> sampler,
+ NSString *inputs,NSString *out,NSMutableArray *records,NSMutableArray *checks) {
+ constexpr NSUInteger S=228,T=132,O=48;const size_t bytes=T*T*4;bool all=true;
+ for(NSString *scene in @[@"botanical",@"grid",@"black",@"gray",@"white"]){
+  std::vector<uint8_t>source(S*S*4),roi(bytes);
+  if([scene isEqual:@"botanical"]||[scene isEqual:@"grid"]){NSData*d=[NSData dataWithContentsOfFile:[inputs stringByAppendingPathComponent:[scene stringByAppendingString:@"-228.bgra"]]];if(d.length!=source.size())return false;memcpy(source.data(),d.bytes,source.size());}
+  else{unsigned char v=[scene isEqual:@"black"]?0:([scene isEqual:@"gray"]?128:255);for(size_t k=0;k<source.size();k+=4){source[k]=source[k+1]=source[k+2]=v;source[k+3]=255;}}
+  for(NSUInteger y=0;y<T;y++)memcpy(roi.data()+y*T*4,source.data()+((y+O)*S+O)*4,T*4);
+  MTLTextureDescriptor*td=[MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatBGRA8Unorm_sRGB width:S height:S mipmapped:NO];td.usage=MTLTextureUsageShaderRead;td.storageMode=MTLStorageModeShared;id<MTLTexture>tex=[device newTextureWithDescriptor:td];[tex replaceRegion:MTLRegionMake2D(0,0,S,S) mipmapLevel:0 withBytes:source.data() bytesPerRow:S*4];
+  LGLocalButtonSourceContract c={};c.sourceKind=LGLocalSourceStaticAsset;c.pointScale=3;c.pixelFormat=81;c.textureWidth=c.textureHeight=S;c.targetGeometryGeneration=1;c.sourceOverscanEnabled=true;c.sourceRectInOwnerPoints=CGRectMake(-16,-16,76,76);c.targetRectInOwnerPoints=CGRectMake(0,0,44,44);
+  for(unsigned phase=0;phase<4;phase++){
+   bool pressed=phase==1||phase==2;LGButtonOpticalState state={};state.eligible=true;state.geometryGeneration=1;
+   if(pressed){state.touchValid=true;state.tracking=true;state.phase=LGOpticalTrackingInside;state.touchX=phase==1?.18f:.82f;state.touchY=phase==1?.18f:.82f;state.pressure=state.target=1;}
+   LGLocalButtonUniforms u={};if(!LGLocalButtonBuildUniforms(&c,&state,T,T,3,true,&u))return false;
+   auto old=Render(device,queue,parent,sampler,tex,&u,sizeof u,T,T),off=Render(device,queue,candidate,sampler,tex,&u,sizeof u,T,T);bool offIdentity=old==off;
+   [checks addObject:@{@"scene":scene,@"phase":@(phase),@"check":@"lightingOffExactParentIdentity",@"pass":@(offIdentity)}];all=all&&offIdentity;
+   u.fresnelGlareStrength=1;auto lit=Render(device,queue,candidate,sampler,tex,&u,sizeof u,T,T);if(lit.size()!=bytes)return false;
+   unsigned outside=0,alpha=0;size_t changed=0,center=0;unsigned drops=0;
+   for(NSUInteger y=0;y<T;y++)for(NSUInteger x=0;x<T;x++){size_t k=(y*T+x)*4;unsigned delta=0;for(unsigned ch=0;ch<3;ch++){delta=std::max(delta,(unsigned)abs((int)lit[k+ch]-(int)off[k+ch]));if(lit[k+ch]+1<off[k+ch])drops++;}alpha=std::max(alpha,(unsigned)abs((int)lit[k+3]-(int)off[k+3]));changed+=delta>1;
+    if((x+.5-66)*(x+.5-66)+(y+.5-66)*(y+.5-66)>=66*66)outside=std::max(outside,delta);
+    if(x>=50&&x<82&&y>=50&&y<82)center=std::max(center,(size_t)delta);
+   }
+   bool safe=outside==0&&alpha==0&&center==0&&drops==0;
+   if([scene isEqual:@"black"]||[scene isEqual:@"gray"])safe=safe&&changed>20&&changed<T*T/5;
+   if([scene isEqual:@"white"])safe=safe&&lit==off;
+   [checks addObject:@{@"scene":scene,@"phase":@(phase),@"check":@"explicitDesignedIlluminationIsLocalizedAndPreservesTransmittedAlpha",@"pass":@(safe),@"litPixelsDeltaOverOne":@(changed),@"outsideDelta":@(outside),@"alphaDelta":@(alpha),@"central32pxDelta":@(center),@"negativeRadianceDrops":@(drops),@"uniformSourcePassiveIsExpectedOnlyWhenLightingOff":@YES}];all=all&&safe;
+   NSString*label=phase==0?@"idle":(phase==1?@"keySideContact":(phase==2?@"oppositeContact":@"release"));NSString*file=[NSString stringWithFormat:@"%@-designed-light-%@.png",scene,label];NSString*path=[[out stringByAppendingPathComponent:@"pngs"]stringByAppendingPathComponent:file];if(!SaveReadback(path,lit,T,T))return false;
+   [records addObject:@{@"scene":scene,@"phase":label,@"file":file,@"PNG_SHA256":BytesHash([NSData dataWithContentsOfFile:path]),@"BGRA_SHA256":PixelSHA(lit),@"actualCompletedReadback":@YES,@"explicitLightingGate":@1,@"isMeasuredReflection":@NO,@"sourceFullBGRA_SHA256":PixelSHA(source),@"targetSourceROI_BGRA_SHA256":PixelSHA(roi)}];
+  }
+ }
+ return all;
+}
+
 int main(void){@autoreleasepool{
  NSString *oldPath=NSProcessInfo.processInfo.environment[@"BASELINE_METAL"];
  NSString *newPath=NSProcessInfo.processInfo.environment[@"CANDIDATE_METAL"];
@@ -207,15 +241,6 @@ int main(void){@autoreleasepool{
  NSString *oldSource=[[NSString alloc]initWithData:oldBytes encoding:NSUTF8StringEncoding];NSString *newSource=[[NSString alloc]initWithData:newBytes encoding:NSUTF8StringEncoding];
  if(!MakePipeline(device,oldSource.UTF8String,MTLPixelFormatBGRA8Unorm_sRGB,&baselinePipeline)||!MakePipeline(device,newSource.UTF8String,MTLPixelFormatBGRA8Unorm_sRGB,&candidatePipeline))return 4;
  id<MTLRenderPipelineState>pipelines[2]={baselinePipeline,candidatePipeline};
- // Diagnostic ablation: change only Fresnel accuracy, retain the old window.
- NSString *weightAnchor=@"float weight = angularExcess * thicknessCoverage;";
- NSString *windowBody=@"float oldWindowT=clamp(-q.signedDistance/lipWidth,0.0f,1.0f); float exactWindow=1.0f-oldWindowT*oldWindowT*(3.0f-2.0f*oldWindowT); float weight=exactWindow*LGBODielectricFresnel(cosineIncident,refractiveIndex)*thicknessCoverage;";
- if([[newSource componentsSeparatedByString:weightAnchor] count]!=2)return 20;
- NSString *exactWindowSource=[newSource stringByReplacingOccurrencesOfString:weightAnchor withString:windowBody];
- id<MTLRenderPipelineState>exactWindowPipeline=nil;
- if(!MakePipeline(device,exactWindowSource.UTF8String,MTLPixelFormatBGRA8Unorm_sRGB,&exactWindowPipeline))return 21;
- NSMutableArray *weightAblations=[NSMutableArray array];
-
  MTLSamplerDescriptor *sd=[MTLSamplerDescriptor new];sd.minFilter=sd.magFilter=MTLSamplerMinMagFilterLinear;sd.sAddressMode=sd.tAddressMode=MTLSamplerAddressModeClampToEdge;id<MTLSamplerState>sampler=[device newSamplerStateWithDescriptor:sd];
  NSString *png=[out stringByAppendingPathComponent:@"pngs"];[[NSFileManager defaultManager]createDirectoryAtPath:png withIntermediateDirectories:YES attributes:nil error:nil];NSMutableArray *records=[NSMutableArray array],*guards=[NSMutableArray array],*timings=[NSMutableArray array];BOOL all=YES;
  constexpr NSUInteger T=132,S=228,O=48;const size_t bytes=T*T*4;
@@ -238,11 +263,6 @@ int main(void){@autoreleasepool{
     NSArray *bench=BenchmarkSampling(device,queue,baselinePipeline,candidatePipeline,sampler,texture,u);if(!bench)return 14;
     [timings addObject:@{@"scene":scene,@"statistics":bench,@"scope":@"Alternating same actual Mac GPU input; not A15 or system cost signoff"}];
    }
-   if(step==0&&([scene isEqual:@"botanical"]||[scene isEqual:@"grid"])){
-    auto control=Render(device,queue,exactWindowPipeline,sampler,texture,&u,sizeof u,T,T);if(control.size()!=bytes)return 22;
-    NSString *file=[NSString stringWithFormat:@"%@-exact-Fresnel-old-window-idle.png",scene];NSString *path=[png stringByAppendingPathComponent:file];if(!SaveReadback(path,control,T,T))return 23;
-    NSData *data=[NSData dataWithContentsOfFile:path];[weightAblations addObject:@{@"scene":scene,@"file":file,@"BGRA_SHA256":PixelSHA(control),@"PNG_SHA256":BytesHash(data),@"actualCompletedReadback":@YES,@"definition":@"Only exact Fresnel substituted for Schlick; old independent spatial window retained"}];
-   }
    for(unsigned variant=0;variant<2;variant++){
     auto pixels=Render(device,queue,pipelines[variant],sampler,texture,&u,sizeof u,T,T);if(pixels.size()!=bytes)return 8;
     if(step==0)idle[variant]=pixels;
@@ -262,7 +282,10 @@ int main(void){@autoreleasepool{
  }
  bool sourceGuards=EdgeSourceGuards(device,queue,baselinePipeline,candidatePipeline,sampler,newSource,inputs,out,guards);
  all=all&&sourceGuards; // Always retain failed guard observations and raw pixels.
- NSDictionary *report=@{@"scope":@"Same owned inputs and production240B uniforms; completed macOS Metal offscreen readbacks, NOT iPhone or system-host visual acceptance",@"oldMSLSHA256":BytesHash(oldBytes),@"newMSLSHA256":BytesHash(newBytes),@"actualMetalDeviceName":device.name?:@"unknown",@"targetPixels":@132,@"sourcePixels":@228,@"targetOriginPixels":@[@48,@48],@"allSafetyGuards":@(all),@"records":records,@"guards":guards,@"macOffscreenCommandBenchmarks":timings,@"exactFresnelOldWindowControlSHA256":BytesHash([exactWindowSource dataUsingEncoding:NSUTF8StringEncoding]),@"angularWeightAblationImages":weightAblations,@"visualGoal":@"NOT_ACCEPTED_AUTOMATICALLY: parent must inspect actual images",@"systemRuntime":@"NOT_RUN",@"trueUIKitInputForThisMacTest":@NO};
+ NSMutableArray *designedRecords=[NSMutableArray array],*designedChecks=[NSMutableArray array];
+ bool designedPass=DesignedLightReadbacks(device,queue,baselinePipeline,candidatePipeline,sampler,inputs,out,designedRecords,designedChecks);
+ all=all&&designedPass;
+ NSDictionary *report=@{@"scope":@"Same owned inputs and production240B uniforms; completed macOS Metal offscreen readbacks, NOT iPhone or system-host visual acceptance",@"oldMSLSHA256":BytesHash(oldBytes),@"newMSLSHA256":BytesHash(newBytes),@"actualMetalDeviceName":device.name?:@"unknown",@"targetPixels":@132,@"sourcePixels":@228,@"targetOriginPixels":@[@48,@48],@"allSafetyGuards":@(all),@"records":records,@"guards":guards,@"macOffscreenCommandBenchmarks":timings,@"explicitDesignedLightingImages":designedRecords,@"explicitDesignedLightingChecks":designedChecks,@"notMeasuredReflectionEnvironment":@YES,@"visualGoal":@"NOT_ACCEPTED_AUTOMATICALLY: parent must inspect actual images",@"systemRuntime":@"NOT_RUN",@"trueUIKitInputForThisMacTest":@NO};
  NSData *data=[NSJSONSerialization dataWithJSONObject:report options:NSJSONWritingPrettyPrinted|NSJSONWritingSortedKeys error:nil];if(!data||![data writeToFile:[out stringByAppendingPathComponent:@"material-ab-readbacks.json"] atomically:YES])return 12;
  printf("%s material A/B same-input Metal readbacks; images=%lu, finite/passive/zero-thickness/shape-outside guards only; visual acceptance is separate\n",all?"PASS":"FAIL",(unsigned long)records.count);
  return all?0:13;

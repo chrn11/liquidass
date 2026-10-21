@@ -76,6 +76,27 @@ float4 localButtonMinifiedSample(texture2d<float, access::sample> source,
                   source.sample(s,e,level(0.0f)));
 }
 '''
+DESIGNED_LIGHT_MSL_HELPER='''
+float4 localButtonDesignedLighting(float4 base,
+                                  LGButtonOpticsResult q,
+                                  LGButtonOpticsResult mx, LGButtonOpticsResult px,
+                                  LGButtonOpticsResult my, LGButtonOpticsResult py,
+                                  constant Uniforms &u) {
+    if (!isfinite(u.fresnelGlareStrength) || u.fresnelGlareStrength<=0.0f)
+        return base;
+    // Finite pixel-footprint smoothing reuses the existing four exact optical
+    // evaluations; no texture writes/capture or extra optical evaluations.
+    float w=0.5f*LGDesignedSoftboxCoefficient(q,u.refractiveIndex,u.buttonCandidatePointScale,u.fresnelGlareStrength);
+    w+=0.125f*LGDesignedSoftboxCoefficient(mx,u.refractiveIndex,u.buttonCandidatePointScale,u.fresnelGlareStrength);
+    w+=0.125f*LGDesignedSoftboxCoefficient(px,u.refractiveIndex,u.buttonCandidatePointScale,u.fresnelGlareStrength);
+    w+=0.125f*LGDesignedSoftboxCoefficient(my,u.refractiveIndex,u.buttonCandidatePointScale,u.fresnelGlareStrength);
+    w+=0.125f*LGDesignedSoftboxCoefficient(py,u.refractiveIndex,u.buttonCandidatePointScale,u.fresnelGlareStrength);
+    return float4(LGDesignedSoftboxPremultipliedChannel(base.r,base.a,w),
+                  LGDesignedSoftboxPremultipliedChannel(base.g,base.a,w),
+                  LGDesignedSoftboxPremultipliedChannel(base.b,base.a,w),base.a);
+}
+'''
+
 EDGE_RADIANCE_MSL_HELPER='''
 float4 localButtonEdgeRadianceSample(texture2d<float, access::sample> src,
                                      sampler s, float2 targetPoint,
@@ -267,10 +288,16 @@ def main():
     mix_anchor='        float environmentWeight = clamp(optics.environmentWeight, 0.0f, 0.28f);'
     if base.count(mix_anchor)!=1: raise SystemExit('real final mix anchor drift')
     base=base.replace(mix_anchor,mix_anchor+'\n        if (environmentWeight <= 0.0f) return opticalSample;',1)
+    # The authored illumination is independent from captured source radiance.
+    # Its exact opt-in is zero in the real product's uniform builder.
+    illumination_anchor='        if (opticalSample.a < 0.01f) opticalSample = src.sample(s, localButtonSourceUV(src, u,  captureUV));'
+    if base.count(illumination_anchor)!=1: raise SystemExit('designed-light primary anchor drift')
+    base=base.replace(illumination_anchor,illumination_anchor+'\n        if (u.fresnelGlareStrength > 0.0f) opticalSample=localButtonDesignedLighting(opticalSample,optics,localButtonMinusX,localButtonPlusX,localButtonMinusY,localButtonPlusY,u);',1)
     formula=expand_formula(SHARED/'LGButtonOpticsFormula.inc')
     formula+=expand_formula(SHARED/'LGLocalSourceMapping.inc')
     formula+=expand_formula(SHARED/'LGLocalMinification.inc')
-    formula+=expand_formula(SHARED/'LGEdgeExteriorPatch.inc')+SOURCE_UV_HELPER+MINIFICATION_MSL_HELPER+EDGE_RADIANCE_MSL_HELPER
+    formula+=expand_formula(SHARED/'LGEdgeExteriorPatch.inc')
+    formula+=expand_formula(SHARED/'LGDesignedLighting.inc')+SOURCE_UV_HELPER+MINIFICATION_MSL_HELPER+EDGE_RADIANCE_MSL_HELPER+DESIGNED_LIGHT_MSL_HELPER
     source='#define LG_BUTTON_OPTICS_COMPILED 1\n'+base.replace(MARKER,formula)
     definition='LGButtonOpticsResult LGButtonOpticsEvaluateWithContact('
     actual_call='LGButtonOpticsResult optics = LGButtonOpticsEvaluateWithContact('

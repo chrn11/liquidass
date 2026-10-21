@@ -240,25 +240,23 @@ return out;
 LGButtonOpticsResult LGButtonOpticsEvaluate(float x, float y, float width, float height, float centerX, float centerY, float radius, float bezel, float glassThickness, float refractiveIndex, float refractionScale, float displacementCap, float pointScale, float rendererScale, bool enabled) {
 return LGButtonOpticsEvaluateWithContact(x, y, width, height, centerX, centerY, radius, bezel, glassThickness, refractiveIndex, refractionScale, displacementCap, pointScale, rendererScale, enabled, false, 0.0f, 0.0f, 0.0f);
 }
-float LGBODielectricFresnel(float cosineIncident, float index) {
-if (!isfinite(cosineIncident) || !isfinite(index) || index <= 1.0f || index > 3.2f) return 0.0f;
-float ci = LGBOClamp(cosineIncident, 0.0f, 1.0f);
-float ct = sqrt(LGBOMax(0.0f, 1.0f - (1.0f - ci * ci) / (index * index)));
-float rs = (ci - index * ct) / (ci + index * ct);
-float rp = (index * ci - ct) / (index * ci + ct);
-return LGBOClamp(0.5f * (rs * rs + rp * rp), 0.0f, 1.0f);
-}
 float LGBOImageEdgeRadianceWeight(LGButtonOpticsResult q, float width, float height, float bezel, float pointScale, float refractiveIndex, bool enabled, bool leasedOverscan) {
 if (!q.valid || !enabled || !leasedOverscan || !isfinite(width) || !isfinite(height) || !isfinite(bezel) || !isfinite(pointScale) || !isfinite(refractiveIndex) || !isfinite(q.signedDistance) || !isfinite(q.height) || !isfinite(q.normalX) || !isfinite(q.normalY) || q.signedDistance >= 0.0f || q.height <= 0.0f || width < 1.0f || width > 16384.0f || height < 1.0f || height > 16384.0f || pointScale < 0.5f || pointScale > 4.0f || refractiveIndex <= 1.0f || refractiveIndex > 3.2f) return 0.0f;
-float lipWidth = LGBOMin(pointScale * 1.5f, LGBOMin(width, height) * 0.5f);
+float shortest = LGBOMin(width, height);
+float lipWidth = LGBOMin(pointScale * 1.5f, shortest * 0.5f);
 if (lipWidth <= 0.0f) return 0.0f;
+float edgeT = LGBOClamp(-q.signedDistance / lipWidth, 0.0f, 1.0f);
+float edgeBand = 1.0f - edgeT * edgeT * (3.0f - 2.0f * edgeT);
 float normalXY2 = LGBOClamp(q.normalX * q.normalX + q.normalY * q.normalY, 0.0f, 1.0f);
-float cosineIncident = sqrt(LGBOMax(0.0f, 1.0f - normalXY2));
-float f0 = LGBODielectricFresnel(1.0f, refractiveIndex);
-float angularExcess = LGBOMax(0.0f, LGBODielectricFresnel(cosineIncident, refractiveIndex) - f0);
+float cosineIncident = sqrt(LGBOClamp(1.0f - normalXY2, 0.0f, 1.0f));
+float ratio = (refractiveIndex - 1.0f) / (refractiveIndex + 1.0f);
+float f0 = ratio * ratio;
+float oneMinusCosine = 1.0f - cosineIncident;
+float oneMinusCosine2 = oneMinusCosine * oneMinusCosine;
+float schlick = f0 + (1.0f - f0) * oneMinusCosine2 * oneMinusCosine2 * oneMinusCosine;
 float thicknessT = LGBOClamp(q.height / lipWidth, 0.0f, 1.0f);
 float thicknessCoverage = thicknessT * thicknessT * (3.0f - 2.0f * thicknessT);
-float weight = angularExcess * thicknessCoverage;
+float weight = edgeBand * schlick * thicknessCoverage;
 if (!isfinite(weight)) return 0.0f;
 return LGBOClamp(weight, 0.0f, 0.28f);
 }
@@ -384,6 +382,33 @@ return p.boundaryX+p.support*(LGBOExteriorPatchRadialNode(tap)*p.outwardX-LGBOEx
 float LGBOExteriorPatchSampleY(LGBOEdgeExteriorPatch p, int tap) {
 return p.boundaryY+p.support*(LGBOExteriorPatchRadialNode(tap)*p.outwardY+LGBOExteriorPatchTangentNode(tap)*p.outwardX);
 }
+float LGDesignedDielectricFresnel(float ci, float index) {
+if (!isfinite(ci) || !isfinite(index) || index<=1.0f || index>3.2f) return 0.0f;
+ci=LGBOClamp(ci,0.0f,1.0f);
+float ct=sqrt(LGBOMax(0.0f,1.0f-(1.0f-ci*ci)/(index*index)));
+float rs=(ci-index*ct)/(ci+index*ct);
+float rp=(index*ci-ct)/(index*ci+ct);
+return LGBOClamp(0.5f*(rs*rs+rp*rp),0.0f,1.0f);
+}
+float LGDesignedSoftboxCoefficient(LGButtonOpticsResult q, float index, float pointScale, float explicitStrength) {
+if (!isfinite(explicitStrength) || explicitStrength<=0.0f || !q.valid || !isfinite(q.height) || q.height<=0.0f || !isfinite(q.signedDistance) || q.signedDistance>=0.0f || !isfinite(q.normalX) || !isfinite(q.normalY) || !isfinite(pointScale) || pointScale<0.5f || pointScale>4.0f || !isfinite(index) || index<=1.0f || index>3.2f) return 0.0f;
+float nz=sqrt(LGBOClamp(1.0f-q.normalX*q.normalX-q.normalY*q.normalY,0.0f,1.0f));
+float reflectedX=2.0f*nz*q.normalX;
+float reflectedY=2.0f*nz*q.normalY;
+float reflectedZ=2.0f*nz*nz-1.0f;
+float cosineAperture=-0.6644630244f*reflectedX-0.6644630244f*reflectedY-0.3420201433f*reflectedZ;
+float apertureT=LGBOClamp((cosineAperture-0.8829475929f)/(0.9702957263f-0.8829475929f),0.0f,1.0f);
+float aperture=apertureT*apertureT*(3.0f-2.0f*apertureT);
+float heightT=LGBOClamp(q.height/(1.5f*pointScale),0.0f,1.0f);
+float heightCoverage=heightT*heightT*(3.0f-2.0f*heightT);
+float coefficient=LGDesignedDielectricFresnel(nz,index)*aperture*heightCoverage*LGBOClamp(explicitStrength,0.0f,1.0f);
+return isfinite(coefficient)?LGBOClamp(coefficient,0.0f,1.0f):0.0f;
+}
+float LGDesignedSoftboxPremultipliedChannel(float basePremul, float alpha, float coefficient) {
+if (!isfinite(coefficient) || coefficient<=0.0f || !isfinite(alpha) || alpha<=0.0f) return basePremul;
+float w=LGBOClamp(coefficient,0.0f,1.0f);
+return basePremul+(alpha-basePremul)*w;
+}
 
 float2 localButtonSourceUV(texture2d<float, access::sample> src,
                            constant Uniforms &u, float2 targetUV) {
@@ -481,6 +506,25 @@ float4 localButtonEdgeRadianceSample(texture2d<float, access::sample> src,
         LGBOAverageFourRadianceSamples(a.g,b.g,c.g,d.g),
         LGBOAverageFourRadianceSamples(a.b,b.b,c.b,d.b),
         LGBOAverageFourRadianceSamples(a.a,b.a,c.a,d.a));
+}
+
+float4 localButtonDesignedLighting(float4 base,
+                                  LGButtonOpticsResult q,
+                                  LGButtonOpticsResult mx, LGButtonOpticsResult px,
+                                  LGButtonOpticsResult my, LGButtonOpticsResult py,
+                                  constant Uniforms &u) {
+    if (!isfinite(u.fresnelGlareStrength) || u.fresnelGlareStrength<=0.0f)
+        return base;
+    // Finite pixel-footprint smoothing reuses the existing four exact optical
+    // evaluations; no texture writes/capture or extra optical evaluations.
+    float w=0.5f*LGDesignedSoftboxCoefficient(q,u.refractiveIndex,u.buttonCandidatePointScale,u.fresnelGlareStrength);
+    w+=0.125f*LGDesignedSoftboxCoefficient(mx,u.refractiveIndex,u.buttonCandidatePointScale,u.fresnelGlareStrength);
+    w+=0.125f*LGDesignedSoftboxCoefficient(px,u.refractiveIndex,u.buttonCandidatePointScale,u.fresnelGlareStrength);
+    w+=0.125f*LGDesignedSoftboxCoefficient(my,u.refractiveIndex,u.buttonCandidatePointScale,u.fresnelGlareStrength);
+    w+=0.125f*LGDesignedSoftboxCoefficient(py,u.refractiveIndex,u.buttonCandidatePointScale,u.fresnelGlareStrength);
+    return float4(LGDesignedSoftboxPremultipliedChannel(base.r,base.a,w),
+                  LGDesignedSoftboxPremultipliedChannel(base.g,base.a,w),
+                  LGDesignedSoftboxPremultipliedChannel(base.b,base.a,w),base.a);
 }
 
 #endif
@@ -829,6 +873,7 @@ float4 liquidGlassPixel(texture2d<float, access::sample> src,
         else
             opticalSample=src.sample(s,localButtonSourceUV(src,u,opticalUV));
         if (opticalSample.a < 0.01f) opticalSample = src.sample(s, localButtonSourceUV(src, u,  captureUV));
+        if (u.fresnelGlareStrength > 0.0f) opticalSample=localButtonDesignedLighting(opticalSample,optics,localButtonMinusX,localButtonPlusX,localButtonMinusY,localButtonPlusY,u);
         /* Candidate-only four-point low-frequency radiance integral from the
          * same leased source. It is not a second clear image or reflection map. */
         float2 environmentUV = float2(optics.environmentU, optics.environmentV);
@@ -1000,4 +1045,4 @@ fragment float4 liquidGlassFragment(
 }
 
 )LGLOCALMSL";
-static const char kLGLocalButtonCandidateMSLSHA256[] = "f56080fbe603cb3d455832046f645055e69181a8331135c9861fe7fdf4aa19dc";
+static const char kLGLocalButtonCandidateMSLSHA256[] = "1859d9436938cdbf51b4cb215b897ea175a9e3fddff7c6631e662d311af75740";

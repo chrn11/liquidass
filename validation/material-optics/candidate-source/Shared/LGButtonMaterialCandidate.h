@@ -24,6 +24,7 @@
 #include "LGLocalSourceMapping.inc"
 #include "LGLocalMinification.inc"
 #include "LGEdgeExteriorPatch.inc"
+#include "LGDesignedLighting.inc"
 #undef LGBO_FUNCTION_END
 #undef LGBO_STMT
 #undef LGBO_FUNCTION_BEGIN
