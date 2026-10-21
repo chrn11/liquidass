@@ -16,8 +16,10 @@ assert 'sourceValid=true;' in helper
 assert 'if (!edgeSourceValid) optics.environmentWeight=0.0f;' in s
 assert 'if (environmentWeight <= 0.0f) return opticalSample;' in s
 assert 'u.buttonSourceOverscanEnabled > 0.5f && optics.environmentWeight > 0.0f' in s
-assert 'float weight = edgeBand * schlick * thicknessCoverage;' in s
-assert 'LGBOClamp(-q.signedDistance / lipWidth, 0.0f, 1.0f)' in f
+assert 'float weight = angularExcess * thicknessCoverage;' in s
+assert 'LGBODielectricFresnel(cosineIncident, refractiveIndex) - f0' in f
+assert 'float f0 = LGBODielectricFresnel(1.0f, refractiveIndex);' in f
+assert 'LGBO_STMT(float edgeBand' not in f and 'LGBO_STMT(float schlick' not in f
 assert 'LGBOClamp(q.height / lipWidth, 0.0f, 1.0f)' in f
 assert 'float lipWidth = LGBOMin(pointScale * 1.5f, depthRadius);' in f
 assert 'lipCapHeight * ((3.0f - lipQ) * lipU2 + (lipQ - 2.0f) * lipU3)' in f

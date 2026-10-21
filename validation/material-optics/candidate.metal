@@ -235,23 +235,25 @@ return out;
 LGButtonOpticsResult LGButtonOpticsEvaluate(float x, float y, float width, float height, float centerX, float centerY, float radius, float bezel, float glassThickness, float refractiveIndex, float refractionScale, float displacementCap, float pointScale, float rendererScale, bool enabled) {
 return LGButtonOpticsEvaluateWithContact(x, y, width, height, centerX, centerY, radius, bezel, glassThickness, refractiveIndex, refractionScale, displacementCap, pointScale, rendererScale, enabled, false, 0.0f, 0.0f, 0.0f);
 }
+float LGBODielectricFresnel(float cosineIncident, float index) {
+if (!isfinite(cosineIncident) || !isfinite(index) || index <= 1.0f || index > 3.2f) return 0.0f;
+float ci = LGBOClamp(cosineIncident, 0.0f, 1.0f);
+float ct = sqrt(LGBOMax(0.0f, 1.0f - (1.0f - ci * ci) / (index * index)));
+float rs = (ci - index * ct) / (ci + index * ct);
+float rp = (index * ci - ct) / (index * ci + ct);
+return LGBOClamp(0.5f * (rs * rs + rp * rp), 0.0f, 1.0f);
+}
 float LGBOImageEdgeRadianceWeight(LGButtonOpticsResult q, float width, float height, float bezel, float pointScale, float refractiveIndex, bool enabled, bool leasedOverscan) {
 if (!q.valid || !enabled || !leasedOverscan || !isfinite(width) || !isfinite(height) || !isfinite(bezel) || !isfinite(pointScale) || !isfinite(refractiveIndex) || !isfinite(q.signedDistance) || !isfinite(q.height) || !isfinite(q.normalX) || !isfinite(q.normalY) || q.signedDistance >= 0.0f || q.height <= 0.0f || width < 1.0f || width > 16384.0f || height < 1.0f || height > 16384.0f || pointScale < 0.5f || pointScale > 4.0f || refractiveIndex <= 1.0f || refractiveIndex > 3.2f) return 0.0f;
-float shortest = LGBOMin(width, height);
-float lipWidth = LGBOMin(pointScale * 1.5f, shortest * 0.5f);
+float lipWidth = LGBOMin(pointScale * 1.5f, LGBOMin(width, height) * 0.5f);
 if (lipWidth <= 0.0f) return 0.0f;
-float edgeT = LGBOClamp(-q.signedDistance / lipWidth, 0.0f, 1.0f);
-float edgeBand = 1.0f - edgeT * edgeT * (3.0f - 2.0f * edgeT);
 float normalXY2 = LGBOClamp(q.normalX * q.normalX + q.normalY * q.normalY, 0.0f, 1.0f);
-float cosineIncident = sqrt(LGBOClamp(1.0f - normalXY2, 0.0f, 1.0f));
-float ratio = (refractiveIndex - 1.0f) / (refractiveIndex + 1.0f);
-float f0 = ratio * ratio;
-float oneMinusCosine = 1.0f - cosineIncident;
-float oneMinusCosine2 = oneMinusCosine * oneMinusCosine;
-float schlick = f0 + (1.0f - f0) * oneMinusCosine2 * oneMinusCosine2 * oneMinusCosine;
+float cosineIncident = sqrt(LGBOMax(0.0f, 1.0f - normalXY2));
+float f0 = LGBODielectricFresnel(1.0f, refractiveIndex);
+float angularExcess = LGBOMax(0.0f, LGBODielectricFresnel(cosineIncident, refractiveIndex) - f0);
 float thicknessT = LGBOClamp(q.height / lipWidth, 0.0f, 1.0f);
 float thicknessCoverage = thicknessT * thicknessT * (3.0f - 2.0f * thicknessT);
-float weight = edgeBand * schlick * thicknessCoverage;
+float weight = angularExcess * thicknessCoverage;
 if (!isfinite(weight)) return 0.0f;
 return LGBOClamp(weight, 0.0f, 0.28f);
 }

@@ -123,8 +123,13 @@ static int testContactAndIdentityEdges(void) {
             "zero pressure is exact identity");
     REQUIRE(LGBOImageEdgeRadianceWeight(atDepth(2.0f,false,0.0f),132,132,48,3,1.6f,true,true)>0.0f,
             "same-geometry edge cue has coverage inside the lip");
-    REQUIRE(LGBOImageEdgeRadianceWeight(atDepth(4.6f,false,0.0f),132,132,48,3,1.6f,true,true)==0.0f,
-            "edge cue is zero outside its geometric lip width");
+    /* The new hypothesis intentionally removes the independent lip-width
+     * window. Geometry, source bounds and the0.28 cap stay unchanged. */
+    LGButtonOpticsResult tilted=atDepth(4.6f,false,0.0f);
+    float actual=LGBOImageEdgeRadianceWeight(tilted,132,132,48,3,1.6f,true,true);
+    float ci=sqrtf(fmaxf(0,1-tilted.normalX*tilted.normalX-tilted.normalY*tilted.normalY));
+    REQUIRE(actual>0 && actual<=LGBODielectricFresnel(ci,1.6f),
+            "tilted inner cap may respond; it is not a false compact-support claim");
     LGButtonOpticsResult zeroT=LGButtonOpticsEvaluateWithContact(
         130,66,132,132,66,66,66,48,0,1.6f,2,132.0f*7/36,3,3,true,
         true,0.95f,0.5f,1.0f);

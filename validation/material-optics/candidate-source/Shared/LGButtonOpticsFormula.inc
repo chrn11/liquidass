@@ -233,31 +233,34 @@ LGBO_FUNCTION_BEGIN(LGButtonOpticsResult, LGButtonOpticsEvaluate, (float x, floa
 LGBO_STMT(return LGButtonOpticsEvaluateWithContact(x, y, width, height, centerX, centerY, radius, bezel, glassThickness, refractiveIndex, refractionScale, displacementCap, pointScale, rendererScale, enabled, false, 0.0f, 0.0f, 0.0f);)
 LGBO_FUNCTION_END
 
-/* Candidate-only image-driven edge-radiance approximation. The source is the
- * explicitly leased background plane, not an inferred environment map. A
- * Schlick reflectance-shaped coefficient limits a local edge cue; the C/MSL
- * caller must additionally require the explicit candidate overscan lease. */
+/* Exact scalar dielectric coefficient. This supplies only an angular factor;
+ * the optional color cue below still has no measured reflection environment. */
+LGBO_FUNCTION_BEGIN(float, LGBODielectricFresnel, (float cosineIncident, float index))
+LGBO_STMT(if (!isfinite(cosineIncident) || !isfinite(index) || index <= 1.0f || index > 3.2f) return 0.0f;)
+LGBO_STMT(float ci = LGBOClamp(cosineIncident, 0.0f, 1.0f);)
+LGBO_STMT(float ct = sqrt(LGBOMax(0.0f, 1.0f - (1.0f - ci * ci) / (index * index)));)
+LGBO_STMT(float rs = (ci - index * ct) / (ci + index * ct);)
+LGBO_STMT(float rp = (index * ci - ct) / (index * ci + ct);)
+LGBO_STMT(return LGBOClamp(0.5f * (rs * rs + rp * rp), 0.0f, 1.0f);)
+LGBO_FUNCTION_END
+
+/* Same leased-source approximation as the parent, different angular weight.
+ * Flat normal has no angular excess; there is no new light, tint or gain.
+ * Remove the independent edgeBand that masked an already closed geometric
+ * lip. The actual normal controls angular decay and the original local-height
+ * coverage closes the zero-thickness contour. Thick tilted interior may have
+ * a weak response: measure spatial support rather than calling this compact. */
 LGBO_FUNCTION_BEGIN(float, LGBOImageEdgeRadianceWeight, (LGButtonOpticsResult q, float width, float height, float bezel, float pointScale, float refractiveIndex, bool enabled, bool leasedOverscan))
 LGBO_STMT(if (!q.valid || !enabled || !leasedOverscan || !isfinite(width) || !isfinite(height) || !isfinite(bezel) || !isfinite(pointScale) || !isfinite(refractiveIndex) || !isfinite(q.signedDistance) || !isfinite(q.height) || !isfinite(q.normalX) || !isfinite(q.normalY) || q.signedDistance >= 0.0f || q.height <= 0.0f || width < 1.0f || width > 16384.0f || height < 1.0f || height > 16384.0f || pointScale < 0.5f || pointScale > 4.0f || refractiveIndex <= 1.0f || refractiveIndex > 3.2f) return 0.0f;)
-LGBO_STMT(float shortest = LGBOMin(width, height);)
-/* The weight's spatial support is the same finite closed-lip width, not the
- * wider bezel or the old broad shoulder. Its coverage uses that same scale. */
-LGBO_STMT(float lipWidth = LGBOMin(pointScale * 1.5f, shortest * 0.5f);)
+LGBO_STMT(float lipWidth = LGBOMin(pointScale * 1.5f, LGBOMin(width, height) * 0.5f);)
 LGBO_STMT(if (lipWidth <= 0.0f) return 0.0f;)
-LGBO_STMT(float edgeT = LGBOClamp(-q.signedDistance / lipWidth, 0.0f, 1.0f);)
-LGBO_STMT(float edgeBand = 1.0f - edgeT * edgeT * (3.0f - 2.0f * edgeT);)
 LGBO_STMT(float normalXY2 = LGBOClamp(q.normalX * q.normalX + q.normalY * q.normalY, 0.0f, 1.0f);)
-LGBO_STMT(float cosineIncident = sqrt(LGBOClamp(1.0f - normalXY2, 0.0f, 1.0f));)
-LGBO_STMT(float ratio = (refractiveIndex - 1.0f) / (refractiveIndex + 1.0f);)
-LGBO_STMT(float f0 = ratio * ratio;)
-LGBO_STMT(float oneMinusCosine = 1.0f - cosineIncident;)
-LGBO_STMT(float oneMinusCosine2 = oneMinusCosine * oneMinusCosine;)
-LGBO_STMT(float schlick = f0 + (1.0f - f0) * oneMinusCosine2 * oneMinusCosine2 * oneMinusCosine;)
-/* A vanishingly thin lip must not paint a finite cue. The1.5pt scale is
- * the existing geometric minimum, not a new light-strength parameter. */
+LGBO_STMT(float cosineIncident = sqrt(LGBOMax(0.0f, 1.0f - normalXY2));)
+LGBO_STMT(float f0 = LGBODielectricFresnel(1.0f, refractiveIndex);)
+LGBO_STMT(float angularExcess = LGBOMax(0.0f, LGBODielectricFresnel(cosineIncident, refractiveIndex) - f0);)
 LGBO_STMT(float thicknessT = LGBOClamp(q.height / lipWidth, 0.0f, 1.0f);)
 LGBO_STMT(float thicknessCoverage = thicknessT * thicknessT * (3.0f - 2.0f * thicknessT);)
-LGBO_STMT(float weight = edgeBand * schlick * thicknessCoverage;)
+LGBO_STMT(float weight = angularExcess * thicknessCoverage;)
 LGBO_STMT(if (!isfinite(weight)) return 0.0f;)
 LGBO_STMT(return LGBOClamp(weight, 0.0f, 0.28f);)
 LGBO_FUNCTION_END

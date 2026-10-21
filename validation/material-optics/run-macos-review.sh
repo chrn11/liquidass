@@ -26,6 +26,11 @@ if [[ -f "$V/candidate-source/validation/closed-lip-candidate/test_closed_lip_cp
     "$V/candidate-source/validation/closed-lip-candidate/test_closed_lip_cpu.c" -lm -o "$OUT/closed-lip-cpu"
   "$OUT/closed-lip-cpu" > "$OUT/closed-lip-cpu.log"
 fi
+if [[ -f "$V/candidate-source/validation/angular-edge-candidate/test_angular_edge_cpu.c" ]]; then
+  xcrun --sdk macosx clang -std=c11 -Wall -Wextra -Werror -I"$V/candidate-source/Shared" \
+    "$V/candidate-source/validation/angular-edge-candidate/test_angular_edge_cpu.c" -lm -o "$OUT/angular-weight-cpu"
+  "$OUT/angular-weight-cpu" > "$OUT/angular-weight-cpu.log"
+fi
 xcrun --sdk macosx clang -std=c11 -Wall -Wextra -Werror \
   -I"$V/candidate-source/Shared" -I"$ROOT/Shared" "$V/diagnose_mapping.c" -lm -o "$OUT/diagnose-mapping"
 "$OUT/diagnose-mapping" > "$OUT/exact-optical-mapping-diagnostics.json"
@@ -60,15 +65,24 @@ for SHADER in baseline candidate; do
   xcrun --sdk macosx metal -c "$V/$SHADER.metal" -o "$OUT/$SHADER.air"
   xcrun --sdk macosx metallib "$OUT/$SHADER.air" -o "$OUT/$SHADER.metallib"
 done
-if [[ -f "$V/ClosedLipGPUFields.mm" ]]; then
-  xcrun --sdk macosx clang++ -std=c++17 -fobjc-arc -fblocks "$V/ClosedLipGPUFields.mm" \
-    -framework Foundation -framework Metal -o "$OUT/ClosedLipGPUFields"
-  "$OUT/ClosedLipGPUFields" "$V/baseline.metal" "$V/candidate.metal" "$OUT/closed-lip-actual-gpu-fields.json"
-fi
-if [[ -f "$V/ClosedLipGPUJacobian.mm" ]]; then
-  xcrun --sdk macosx clang++ -std=c++17 -fobjc-arc -fblocks "$V/ClosedLipGPUJacobian.mm" \
-    -framework Foundation -framework Metal -o "$OUT/ClosedLipGPUJacobian"
-  "$OUT/ClosedLipGPUJacobian" "$V/candidate.metal" "$OUT"
+if [[ -f "$V/AngularWeightMap.mm" ]]; then
+  # The old field fixture assumes compact edgeBand support. It is not a
+  # valid acceptance oracle for this explicitly different angular hypothesis.
+  # Geometry/transmission bytes are frozen; read the actual new weight map.
+  xcrun --sdk macosx clang++ -std=c++17 -fobjc-arc -fblocks "$V/AngularWeightMap.mm" \
+    -framework Foundation -framework Metal -o "$OUT/AngularWeightMap"
+  "$OUT/AngularWeightMap" "$V/candidate.metal" "$OUT"
+else
+  if [[ -f "$V/ClosedLipGPUFields.mm" ]]; then
+    xcrun --sdk macosx clang++ -std=c++17 -fobjc-arc -fblocks "$V/ClosedLipGPUFields.mm" \
+      -framework Foundation -framework Metal -o "$OUT/ClosedLipGPUFields"
+    "$OUT/ClosedLipGPUFields" "$V/baseline.metal" "$V/candidate.metal" "$OUT/closed-lip-actual-gpu-fields.json"
+  fi
+  if [[ -f "$V/ClosedLipGPUJacobian.mm" ]]; then
+    xcrun --sdk macosx clang++ -std=c++17 -fobjc-arc -fblocks "$V/ClosedLipGPUJacobian.mm" \
+      -framework Foundation -framework Metal -o "$OUT/ClosedLipGPUJacobian"
+    "$OUT/ClosedLipGPUJacobian" "$V/candidate.metal" "$OUT"
+  fi
 fi
 xcrun --sdk macosx clang++ -std=c++17 -fobjc-arc -fblocks -I"$ROOT/Shared" \
   "$V/MaterialABRuntimeReview.mm" -framework Foundation -framework Metal \
