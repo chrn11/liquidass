@@ -68,6 +68,16 @@ typedef void (^LGLocalButtonAvailabilityHandler)(LGLocalButtonMaterialView *view
                         sourceProvider:(id<LGLocalButtonSourceProvider>)provider
                  allowApproximateSource:(BOOL)allowApproximateSource
                      explicitOptIn:(BOOL)explicitOptIn NS_DESIGNATED_INITIALIZER;
+#if defined(LG_LOCAL_DESIGNED_LIGHT_EXPERIMENT) && LG_LOCAL_DESIGNED_LIGHT_EXPERIMENT
+// Test carrier only. Immutable per-instance choice; ordinary initializer stays OFF.
+@property(nonatomic,readonly) BOOL experimentalDesignedLightEnabled;
+@property(nonatomic,copy,readonly,nullable) NSString *experimentalDesignedLightCaptureDirectoryName;
+@property(nonatomic,copy,readonly,nullable) NSString *experimentalVerifiedShaderSHA256;
+- (nullable instancetype)initWithFrame:(CGRect)frame targetView:(UIView *)targetView
+    sourceProvider:(id<LGLocalButtonSourceProvider>)provider
+    allowApproximateSource:(BOOL)allowApproximateSource explicitOptIn:(BOOL)explicitOptIn
+    experimentalDesignedLighting:(BOOL)enabled;
+#endif
 - (instancetype)initWithFrame:(CGRect)frame device:(nullable id<MTLDevice>)device NS_UNAVAILABLE;
 - (instancetype)initWithCoder:(NSCoder *)coder NS_UNAVAILABLE;
 

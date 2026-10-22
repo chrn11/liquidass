@@ -334,22 +334,13 @@ static NSArray<UIColor *> *LGOwnedTouchPalette(void) {
         self.geometryGeneration);
 }
 - (void)installBackdropModel {
-    CGFloat w=44.0,h=44.0;
     CGRect modelFrame=CGRectMake(0,(CGRectGetHeight(self.scopeView.bounds)-44.0)*0.5,44,44);
-    UIView *root=[[UIView alloc] initWithFrame:modelFrame];
-    root.opaque=YES; root.backgroundColor=[UIColor colorWithRed:0.08 green:0.32 blue:0.67 alpha:1];
-    root.userInteractionEnabled=NO; root.accessibilityElementsHidden=YES;
-    NSMutableArray<UIView *> *bands=[NSMutableArray arrayWithCapacity:4];
-    NSArray<UIColor *> *palette=LGOwnedTouchPalette();
-    for (NSUInteger i=0;i<4;i++) {
-        CGFloat bandWidth=w/4.0;
-        UIView *band=[[UIView alloc] initWithFrame:CGRectMake(i*bandWidth,0,
-            i==3 ? w-i*bandWidth : bandWidth,h)];
-        band.opaque=YES; band.backgroundColor=palette[i];
-        band.userInteractionEnabled=NO; band.accessibilityElementsHidden=YES;
-        [root addSubview:band]; [bands addObject:band];
-    }
-    self.sourceRoot=root; self.sourceBands=[bands copy];
+    UIImageView *root=[[UIImageView alloc] initWithFrame:modelFrame];
+    root.image=[UIImage imageNamed:@"InputBotanical.png"];
+    root.contentMode=UIViewContentModeScaleAspectFill;root.clipsToBounds=YES;
+    root.opaque=YES;root.backgroundColor=UIColor.blackColor;
+    root.userInteractionEnabled=NO;root.accessibilityElementsHidden=YES;
+    self.sourceRoot=root;self.sourceBands=@[];
 }
 - (NSURL *)ownTouchReadyURL {
     NSURL *docs=[NSFileManager.defaultManager URLsForDirectory:NSDocumentDirectory inDomains:NSUserDomainMask].firstObject;
@@ -384,7 +375,7 @@ static NSArray<UIColor *> *LGOwnedTouchPalette(void) {
         @"ownPublicWindowHitTestConfirmed":@(actualHit),
         @"actualInitialGPUCompletedSerial":@(self.material.lastCompletedSubmissionSerial),
         @"windowBounds":NSStringFromCGRect(window.bounds),
-        @"foregroundActiveAtPublish":@YES,@"inputNotSynthesizedByFixture":@YES,
+        @"foregroundActiveAtPublish":@YES,@"inputNotSynthesizedByFixture":@YES,@"designedLightCaptureDirectory":self.material.experimentalDesignedLightCaptureDirectoryName?:@"UNAVAILABLE",@"runtimeVerifiedShaderSHA256":self.material.experimentalVerifiedShaderSHA256?:@"UNAVAILABLE",@"designedLightExperiment":@(self.material.experimentalDesignedLightEnabled),@"designedLightMSLSHA256":@"1859d9436938cdbf51b4cb215b897ea175a9e3fddff7c6631e662d311af75740",
         @"notSettingsOrSystemHost":@YES};
     NSData *encoded=[NSJSONSerialization dataWithJSONObject:record options:NSJSONWritingPrettyPrinted error:nil];
     if(encoded && [encoded writeToURL:[self ownTouchReadyURL] options:NSDataWritingAtomic error:nil]){
@@ -436,7 +427,7 @@ static NSArray<UIColor *> *LGOwnedTouchPalette(void) {
 
     UILabel *label=[[UILabel alloc] initWithFrame:CGRectMake(50,0,
         CGRectGetWidth(buttonRect)-50,CGRectGetHeight(buttonRect))];
-    label.text=@"按住玻璃并左右拖动（左右端各停留）";
+    label.text=@"设计光实验：按住玻璃左右拖动";
     label.font=[UIFont systemFontOfSize:14 weight:UIFontWeightSemibold];
     label.textColor=UIColor.whiteColor; label.textAlignment=NSTextAlignmentCenter;
     label.adjustsFontSizeToFitWidth=YES; label.minimumScaleFactor=0.75;
@@ -455,7 +446,7 @@ static NSArray<UIColor *> *LGOwnedTouchPalette(void) {
     }
     LGLocalButtonMaterialView *material=[[LGLocalButtonMaterialView alloc]
         initWithFrame:self.target.frame targetView:self.target sourceProvider:provider
-        allowApproximateSource:NO explicitOptIn:YES];
+        allowApproximateSource:NO explicitOptIn:YES experimentalDesignedLighting:YES];
     self.material=material;
     if (!material || !material.device) {
         [self failSetup:@"FAIL_RENDERER_INIT" detail:@"actual LGLocalButtonMaterialView could not be created"];
@@ -969,9 +960,9 @@ static NSArray<UIColor *> *LGOwnedTouchPalette(void) {
         observed:@{@"explicitOptInIsTemporaryFixtureOnly":@YES,@"productionOptInChanged":@NO,
             @"preferencesChanged":@NO,@"existingSettingsOrBundleGateChanged":@NO,
             @"systemHookRuntime":@"NOT_RUN"} details:nil];
-    [self addCheck:@"no_screen_capture_or_material_pixel_readback" pass:YES
+    [self addCheck:@"no_screen_or_primary_drawable_readback" pass:YES
         observed:@{@"sourceDomain":@"explicit App-owned sourceRoot subtree only",
-            @"screenCapture":@NO,@"materialPixelReadback":@NO,@"systemSource":@NO} details:nil];
+            @"screenCapture":@NO,@"primaryDrawablePixelReadback":@NO,@"auxiliarySameCommandMaterialReadbackEnabled":@YES,@"systemSource":@NO} details:nil];
 
     CGRect targetInParent=CGRectZero, scopeInParent=CGRectZero, screenFrame=CGRectZero;
     if (target && target.superview) targetInParent=[target convertRect:target.bounds toView:target.superview.superview];
@@ -987,7 +978,7 @@ static NSArray<UIColor *> *LGOwnedTouchPalette(void) {
         @"providerClass":self.provider?NSStringFromClass(self.provider.class):@"unavailable",
         @"baseProviderClass":NSStringFromClass(LGAppOwnedButtonSourceProvider.class),
         @"sourceRootIsExplicitAppOwnedUIKitModel":@YES,
-        @"sourceRootViewCount":@(1+self.sourceBands.count),@"opaqueUIKitColorBands":@(self.sourceBands.count),
+        @"sourceRootViewCount":@(1+self.sourceBands.count),@"opaqueUIKitColorBands":@(self.sourceBands.count),@"staticOriginalBotanicalForLightingComparison":@YES,@"designedLightExperiment":@YES,@"notProductionLightingSetting":@YES,@"designedLightCaptureDirectory":self.material.experimentalDesignedLightCaptureDirectoryName?:@"UNAVAILABLE",@"runtimeVerifiedShaderSHA256":self.material.experimentalVerifiedShaderSHA256?:@"UNAVAILABLE",
         @"paddingPoints":@[@0,@0,@0,@0],@"sourceRootFrame":NSStringFromCGRect(self.sourceRoot?self.sourceRoot.frame:CGRectZero),
         @"systemMaterialPixelsRead":@NO,@"screenOrWindowCapture":@NO,
         @"CPUFabricatedMaterial":@NO,@"providerFrameLeasePreserved":@YES};

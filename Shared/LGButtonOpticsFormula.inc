@@ -42,6 +42,17 @@ LGBO_FUNCTION_BEGIN(float, LGBOHypot, (float x, float y))
 LGBO_STMT(return sqrt(x * x + y * y);)
 LGBO_FUNCTION_END
 
+/* C1 radial limiter: exact through 75% of cap, then approaches (never
+ * exceeds) cap with zero slope. Unlike hard min(cap/r), it has no slope kink. */
+LGBO_FUNCTION_BEGIN(float, LGBOSmoothCappedLength, (float rawLength, float cap))
+LGBO_STMT(if (!isfinite(rawLength) || !isfinite(cap) || rawLength <= 0.0f || cap <= 0.0f) return 0.0f;)
+LGBO_STMT(float shoulder = cap * 0.25f;)
+LGBO_STMT(float start = cap - shoulder;)
+LGBO_STMT(if (rawLength <= start) return rawLength;)
+LGBO_STMT(float excess = rawLength - start;)
+LGBO_STMT(return start + shoulder * excess / (shoulder + excess);)
+LGBO_FUNCTION_END
+
 LGBO_FUNCTION_BEGIN(float, LGBOButtonRoundedBoxSDF, (float x, float y, float width, float height, float radius))
 LGBO_STMT(float halfWidth = width * 0.5f;)
 LGBO_STMT(float halfHeight = height * 0.5f;)
@@ -84,37 +95,47 @@ LGBO_STMT(out.sampleV = LGBOClamp(y, 0.5f, height - 0.5f) / height;)
 LGBO_STMT(out.environmentU = out.sampleU;)
 LGBO_STMT(out.environmentV = out.sampleV;)
 LGBO_STMT(if (d >= 0.0f || !enabled || glassThickness <= 0.0f || refractionScale <= 0.0f || displacementCap <= 0.0f || refractiveIndex <= 1.0f) return out;)
-LGBO_STMT(float halfWidth = width * 0.5f;)
-LGBO_STMT(float halfHeight = height * 0.5f;)
 LGBO_STMT(float depth = -d;)
 LGBO_STMT(float depthRadius = shortest * 0.5f;)
 LGBO_STMT(float t = LGBOClamp(depth / depthRadius, 0.0f, 1.0f);)
-LGBO_STMT(float depthCurve = t * (2.0f - t);)
-LGBO_STMT(float nx = localX / halfWidth;)
-LGBO_STMT(float ny = localY / halfHeight;)
-LGBO_STMT(float axial = LGBOClamp(1.0f - 0.20f * (nx * nx + ny * ny), 0.0f, 1.0f);)
-LGBO_STMT(float q = LGBOClamp(depthCurve * axial, 0.0f, 1.0f);)
-LGBO_STMT(float regularizer = 0.03125f;)
-LGBO_STMT(float normalization = sqrt(1.0f + regularizer * regularizer) - regularizer;)
-LGBO_STMT(float root = sqrt(q + regularizer * regularizer);)
-LGBO_STMT(float normalizedHeight = (root - regularizer) / normalization;)
-LGBO_STMT(float heightAmplitude = LGBOMin(depthRadius, glassThickness);)
+/* Finite spherical cap: aperture R and base-plane offset B determine
+ * Rc=sqrt(R^2+B^2), sag=Rc-B. Reuse the existing bezel as B, not an
+ * unconstrained new strength. Rationalized expressions remain stable at
+ * very thin/corner cases. Pressure retains its original thickness ratio. */
+LGBO_STMT(float rimHeight = LGBOMax(bezel, pointScale * 1.5f);)
+LGBO_STMT(float curvatureRadius = LGBOHypot(depthRadius, rimHeight);)
+LGBO_STMT(float capSag = depthRadius * depthRadius / (curvatureRadius + rimHeight);)
+LGBO_STMT(float surfaceRoot = sqrt(rimHeight * rimHeight + depthRadius * depthRadius * t * (2.0f - t));)
+LGBO_STMT(float capRise = depthRadius * depthRadius * t * (2.0f - t) / (surfaceRoot + rimHeight);)
+LGBO_STMT(float normalizedHeight = capRise / capSag;)
+LGBO_STMT(float heightAmplitude = LGBOMin(depthRadius, glassThickness) * (capSag / depthRadius);)
 LGBO_STMT(out.height = heightAmplitude * normalizedHeight;)
+/* Close only the outer 1.5pt footprint. At d=b the original finite-cap
+ * height and slope are the matching data; the cubic starts tangent to zero
+ * height outside the footprint and is monotone for q=b*m_b/h_b in [0,1]. */
+LGBO_STMT(float lipWidth = LGBOMin(pointScale * 1.5f, depthRadius);)
+LGBO_STMT(float lipT = lipWidth / depthRadius;)
+LGBO_STMT(float lipSurfaceRoot = sqrt(rimHeight * rimHeight + depthRadius * depthRadius * lipT * (2.0f - lipT));)
+LGBO_STMT(float lipCapRise = depthRadius * depthRadius * lipT * (2.0f - lipT) / (lipSurfaceRoot + rimHeight);)
+LGBO_STMT(float lipCapHeight = heightAmplitude * (lipCapRise / capSag);)
+LGBO_STMT(float lipCapDerivative = heightAmplitude * depthRadius * (1.0f - lipT) / (lipSurfaceRoot * capSag);)
 LGBO_STMT(float gx = LGBOButtonRoundedBoxSDF(localX + 0.5f, localY, width, height, radius) - LGBOButtonRoundedBoxSDF(localX - 0.5f, localY, width, height, radius);)
 LGBO_STMT(float gy = LGBOButtonRoundedBoxSDF(localX, localY + 0.5f, width, height, radius) - LGBOButtonRoundedBoxSDF(localX, localY - 0.5f, width, height, radius);)
 LGBO_STMT(float gradientLength = LGBOHypot(gx, gy);)
 LGBO_STMT(float outwardX = gradientLength > 0.0001f ? gx / gradientLength : 0.0f;)
 LGBO_STMT(float outwardY = gradientLength > 0.0001f ? gy / gradientLength : 0.0f;)
-LGBO_STMT(float depthCurveDerivative = t < 1.0f ? 2.0f * (1.0f - t) / depthRadius : 0.0f;)
-LGBO_STMT(float depthGradientX = -outwardX;)
-LGBO_STMT(float depthGradientY = -outwardY;)
-LGBO_STMT(float axialGradientX = -0.40f * nx / halfWidth;)
-LGBO_STMT(float axialGradientY = -0.40f * ny / halfHeight;)
-LGBO_STMT(float qGradientX = axial * depthCurveDerivative * depthGradientX + depthCurve * axialGradientX;)
-LGBO_STMT(float qGradientY = axial * depthCurveDerivative * depthGradientY + depthCurve * axialGradientY;)
-LGBO_STMT(float heightDerivative = heightAmplitude / (2.0f * root * normalization);)
-LGBO_STMT(float normalX = -heightDerivative * qGradientX;)
-LGBO_STMT(float normalY = -heightDerivative * qGradientY;)
+LGBO_STMT(float normalizedHeightDerivative = t < 1.0f ? depthRadius * (1.0f - t) / (surfaceRoot * capSag) : 0.0f;)
+LGBO_STMT(float heightDerivative = heightAmplitude * normalizedHeightDerivative;)
+LGBO_STMT(float lipQ = lipCapHeight > 0.0f ? LGBOClamp(lipWidth * lipCapDerivative / lipCapHeight, 0.0f, 1.0f) : 0.0f;)
+LGBO_STMT(if (depth < lipWidth) {)
+LGBO_STMT(float lipU = depth / lipWidth;)
+LGBO_STMT(float lipU2 = lipU * lipU;)
+LGBO_STMT(float lipU3 = lipU2 * lipU;)
+LGBO_STMT(out.height = lipCapHeight * ((3.0f - lipQ) * lipU2 + (lipQ - 2.0f) * lipU3);)
+LGBO_STMT(heightDerivative = (lipCapHeight / lipWidth) * (2.0f * (3.0f - lipQ) * lipU + 3.0f * (lipQ - 2.0f) * lipU2);)
+LGBO_STMT(})
+LGBO_STMT(float normalX = heightDerivative * outwardX;)
+LGBO_STMT(float normalY = heightDerivative * outwardY;)
 LGBO_STMT(float normalZ = 1.0f;)
 LGBO_STMT(bool contactInputValid = contactEnabled && isfinite(contactX) && isfinite(contactY) && isfinite(contactPressure);)
 LGBO_STMT(if (contactInputValid && contactPressure > 0.0f) {)
@@ -143,7 +164,19 @@ LGBO_STMT(float contactDepthGradientX = -outwardX;)
 LGBO_STMT(float contactDepthGradientY = -outwardY;)
 LGBO_STMT(float contactGradientX = -contactAmplitude * (contactShapeGradientX * contactEdgeFade + contactShape * contactEdgeFadeDerivative * contactDepthGradientX);)
 LGBO_STMT(float contactGradientY = -contactAmplitude * (contactShapeGradientY * contactEdgeFade + contactShape * contactEdgeFadeDerivative * contactDepthGradientY);)
-LGBO_STMT(if (isfinite(contactHeightDelta) && isfinite(contactGradientX) && isfinite(contactGradientY)) { out.height += contactHeightDelta; normalX -= contactGradientX; normalY -= contactGradientY; })
+/* A shallow surface cannot support the old additive dent near its thin lip.
+ * Let D be the requested nonnegative dent and h the actual local height.
+ * h_new=h^2/(h+D) stays nonnegative; use its exact chain-rule gradient.
+ * At D=0 this is identity, and both geometry and normal vary continuously. */
+LGBO_STMT(float contactBaseHeight = LGBOMax(out.height, 0.0f);)
+LGBO_STMT(float contactRequestedDent = -contactHeightDelta;)
+LGBO_STMT(float contactDenominator = contactBaseHeight + contactRequestedDent;)
+LGBO_STMT(float contactHeightRatio = contactDenominator > 0.0f ? contactBaseHeight / contactDenominator : 1.0f;)
+LGBO_STMT(float contactBaseGradientFactor = (1.0f - contactHeightRatio) * (1.0f - contactHeightRatio);)
+LGBO_STMT(float contactDentGradientFactor = contactHeightRatio * contactHeightRatio;)
+LGBO_STMT(contactGradientX = contactBaseGradientFactor * normalX + contactDentGradientFactor * contactGradientX;)
+LGBO_STMT(contactGradientY = contactBaseGradientFactor * normalY + contactDentGradientFactor * contactGradientY;)
+LGBO_STMT(if (isfinite(contactHeightRatio) && isfinite(contactGradientX) && isfinite(contactGradientY)) { out.height = contactBaseHeight * contactHeightRatio; normalX -= contactGradientX; normalY -= contactGradientY; })
 LGBO_STMT(})
 LGBO_STMT(})
 LGBO_STMT(float normalLength = LGBOHypot(LGBOHypot(normalX, normalY), normalZ);)
@@ -159,42 +192,38 @@ LGBO_STMT(float rayFactor = eta * normalZ - rootK;)
 LGBO_STMT(float rayX = rayFactor * normalX;)
 LGBO_STMT(float rayY = rayFactor * normalY;)
 LGBO_STMT(float rayZ = -eta + eta * normalZ * normalZ - rootK * normalZ;)
-LGBO_STMT(float pathLength = LGBOMin(displacementCap, heightAmplitude);)
-LGBO_STMT(float edgeT = LGBOClamp(depth / LGBOMax(bezel, 1.0f), 0.0f, 1.0f);)
+/* A ray at this surface point crosses this local height, not the maximum
+ * dome height everywhere. Use the existing C1 finite path budget, then the
+ * unchanged displacement budget; contact changes the very same local height. */
+LGBO_STMT(float pathLength = LGBOSmoothCappedLength(LGBOMax(out.height, 0.0f), displacementCap);)
+/* On the exact44pt button, the inherited16pt bezel suppressed refraction
+ * through most of the22pt radius. Keep bezel as a maximum budget, but make the
+ * actual optical shoulder proportional to radius, never a painted rim/light. */
+LGBO_STMT(float radialEdgeDepth = LGBOMax(pointScale * 1.5f, depthRadius * 0.3f);)
+LGBO_STMT(float effectiveEdgeDepth = LGBOMin(LGBOMax(bezel, 1.0f), radialEdgeDepth);)
+LGBO_STMT(float edgeT = LGBOClamp(depth / effectiveEdgeDepth, 0.0f, 1.0f);)
 LGBO_STMT(float edgeFade = edgeT * edgeT * (3.0f - 2.0f * edgeT);)
 LGBO_STMT(float denominator = LGBOMax(-rayZ, 0.25f);)
 LGBO_STMT(float offsetX = rayX / denominator * pathLength * refractionScale * edgeFade;)
 LGBO_STMT(float offsetY = rayY / denominator * pathLength * refractionScale * edgeFade;)
 LGBO_STMT(float offsetLength = LGBOHypot(offsetX, offsetY);)
 LGBO_STMT(if (!isfinite(offsetLength)) { out.valid = false; return out; })
-LGBO_STMT(if (offsetLength > displacementCap && offsetLength > 0.0f) { float factor = displacementCap / offsetLength; offsetX *= factor; offsetY *= factor; })
+LGBO_STMT(float limitedOffsetLength = LGBOSmoothCappedLength(offsetLength, displacementCap);)
+LGBO_STMT(if (offsetLength > 0.0f) { float factor = limitedOffsetLength / offsetLength; offsetX *= factor; offsetY *= factor; })
 LGBO_STMT(out.offsetX = offsetX;)
 LGBO_STMT(out.offsetY = offsetY;)
 LGBO_STMT(out.sampleU = LGBOClamp(x + offsetX, 0.5f, width - 0.5f) / width;)
 LGBO_STMT(out.sampleV = LGBOClamp(y + offsetY, 0.5f, height - 0.5f) / height;)
-LGBO_STMT(float normalCosine = LGBOClamp(normalZ, 0.0f, 1.0f);)
-LGBO_STMT(float fresnelBaseRatio = (refractiveIndex - 1.0f) / (refractiveIndex + 1.0f);)
-LGBO_STMT(float fresnelBase = fresnelBaseRatio * fresnelBaseRatio;)
-LGBO_STMT(float fresnelEdge = fresnelBase + (1.0f - fresnelBase) * pow(1.0f - normalCosine, 5.0f);)
-LGBO_STMT(float thicknessCoverage = LGBOClamp(glassThickness / LGBOMax(bezel, 1.0f), 0.0f, 1.0f);)
-LGBO_STMT(float environmentEdgeCoverage = LGBOClamp(depth / LGBOMax(pointScale * 0.75f, 1.0f), 0.0f, 1.0f);)
-LGBO_STMT(out.environmentWeight = LGBOMin(fresnelEdge * environmentEdgeCoverage * thicknessCoverage, 0.28f);)
-LGBO_STMT(float reflectedZ = 2.0f * normalZ * normalZ - 1.0f;)
-LGBO_STMT(float reflectedDenominator = LGBOMax(LGBOAbs(reflectedZ), 0.65f);)
-LGBO_STMT(float reflectedX = 2.0f * normalZ * normalX / reflectedDenominator;)
-LGBO_STMT(float reflectedY = 2.0f * normalZ * normalY / reflectedDenominator;)
-LGBO_STMT(float thicknessPathFraction = 0.35f + 0.65f * edgeT;)
-LGBO_STMT(float environmentPath = LGBOMin(glassThickness, LGBOMax(bezel, 1.0f)) * 0.38f * refractionScale * thicknessPathFraction;)
-LGBO_STMT(float environmentOffsetX = reflectedX * environmentPath;)
-LGBO_STMT(float environmentOffsetY = reflectedY * environmentPath;)
-LGBO_STMT(float environmentLength = LGBOHypot(environmentOffsetX, environmentOffsetY);)
-LGBO_STMT(float environmentCap = LGBOMin(displacementCap * 0.45f, LGBOMin(glassThickness, LGBOMax(bezel, 1.0f)) * 0.38f);)
-LGBO_STMT(if (!isfinite(environmentLength) || !isfinite(out.environmentWeight)) { out.valid = false; return out; })
-LGBO_STMT(if (environmentLength > environmentCap && environmentLength > 0.0f) { float factor = environmentCap / environmentLength; environmentOffsetX *= factor; environmentOffsetY *= factor; })
-LGBO_STMT(out.environmentOffsetX = environmentOffsetX;)
-LGBO_STMT(out.environmentOffsetY = environmentOffsetY;)
-LGBO_STMT(out.environmentU = LGBOClamp(x + environmentOffsetX, 0.5f, width - 0.5f) / width;)
-LGBO_STMT(out.environmentV = LGBOClamp(y + environmentOffsetY, 0.5f, height - 0.5f) / height;)
+/* This owned source describes one plane. Without a separately measured
+ * reflected environment or a traced second interface, compositing a second
+ * differently displaced copy creates an ungrounded double image. Retain all
+ * legacy result fields/ABI but make them coincide with the sole transmitted
+ * ray and give the absent secondary path exactly zero energy. */
+LGBO_STMT(out.environmentWeight = 0.0f;)
+LGBO_STMT(out.environmentOffsetX = out.offsetX;)
+LGBO_STMT(out.environmentOffsetY = out.offsetY;)
+LGBO_STMT(out.environmentU = out.sampleU;)
+LGBO_STMT(out.environmentV = out.sampleV;)
 LGBO_STMT(return out;)
 LGBO_FUNCTION_END
 
@@ -204,16 +233,62 @@ LGBO_FUNCTION_BEGIN(LGButtonOpticsResult, LGButtonOpticsEvaluate, (float x, floa
 LGBO_STMT(return LGButtonOpticsEvaluateWithContact(x, y, width, height, centerX, centerY, radius, bezel, glassThickness, refractiveIndex, refractionScale, displacementCap, pointScale, rendererScale, enabled, false, 0.0f, 0.0f, 0.0f);)
 LGBO_FUNCTION_END
 
-/* Mix in the native Metal sample domain, preserving premultiplication and
- * the transmitted alpha. On _sRGB textures Metal supplies linear RGB samples;
- * no second transfer-function conversion or synthetic radiance is added. */
+/* Candidate-only image-driven edge-radiance approximation. The source is the
+ * explicitly leased background plane, not an inferred environment map. A
+ * Schlick reflectance-shaped coefficient limits a local edge cue; the C/MSL
+ * caller must additionally require the explicit candidate overscan lease. */
+LGBO_FUNCTION_BEGIN(float, LGBOImageEdgeRadianceWeight, (LGButtonOpticsResult q, float width, float height, float bezel, float pointScale, float refractiveIndex, bool enabled, bool leasedOverscan))
+LGBO_STMT(if (!q.valid || !enabled || !leasedOverscan || !isfinite(width) || !isfinite(height) || !isfinite(bezel) || !isfinite(pointScale) || !isfinite(refractiveIndex) || !isfinite(q.signedDistance) || !isfinite(q.height) || !isfinite(q.normalX) || !isfinite(q.normalY) || q.signedDistance >= 0.0f || q.height <= 0.0f || width < 1.0f || width > 16384.0f || height < 1.0f || height > 16384.0f || pointScale < 0.5f || pointScale > 4.0f || refractiveIndex <= 1.0f || refractiveIndex > 3.2f) return 0.0f;)
+LGBO_STMT(float shortest = LGBOMin(width, height);)
+/* The weight's spatial support is the same finite closed-lip width, not the
+ * wider bezel or the old broad shoulder. Its coverage uses that same scale. */
+LGBO_STMT(float lipWidth = LGBOMin(pointScale * 1.5f, shortest * 0.5f);)
+LGBO_STMT(if (lipWidth <= 0.0f) return 0.0f;)
+LGBO_STMT(float edgeT = LGBOClamp(-q.signedDistance / lipWidth, 0.0f, 1.0f);)
+LGBO_STMT(float edgeBand = 1.0f - edgeT * edgeT * (3.0f - 2.0f * edgeT);)
+LGBO_STMT(float normalXY2 = LGBOClamp(q.normalX * q.normalX + q.normalY * q.normalY, 0.0f, 1.0f);)
+LGBO_STMT(float cosineIncident = sqrt(LGBOClamp(1.0f - normalXY2, 0.0f, 1.0f));)
+LGBO_STMT(float ratio = (refractiveIndex - 1.0f) / (refractiveIndex + 1.0f);)
+LGBO_STMT(float f0 = ratio * ratio;)
+LGBO_STMT(float oneMinusCosine = 1.0f - cosineIncident;)
+LGBO_STMT(float oneMinusCosine2 = oneMinusCosine * oneMinusCosine;)
+LGBO_STMT(float schlick = f0 + (1.0f - f0) * oneMinusCosine2 * oneMinusCosine2 * oneMinusCosine;)
+/* A vanishingly thin lip must not paint a finite cue. The1.5pt scale is
+ * the existing geometric minimum, not a new light-strength parameter. */
+LGBO_STMT(float thicknessT = LGBOClamp(q.height / lipWidth, 0.0f, 1.0f);)
+LGBO_STMT(float thicknessCoverage = thicknessT * thicknessT * (3.0f - 2.0f * thicknessT);)
+LGBO_STMT(float weight = edgeBand * schlick * thicknessCoverage;)
+LGBO_STMT(if (!isfinite(weight)) return 0.0f;)
+LGBO_STMT(return LGBOClamp(weight, 0.0f, 0.28f);)
+LGBO_FUNCTION_END
+
+/* Explicit image-space cone width, not a physical world-space reflection
+ * distance: 12-degree half-angle times local cap height, capped at the legal
+ * 16-point source overscan. The real leased source is sampled by the caller. */
+LGBO_FUNCTION_BEGIN(float, LGBOImageEdgeRadianceRadius, (float localHeight, float pointScale))
+LGBO_STMT(if (!isfinite(localHeight) || !isfinite(pointScale) || pointScale <= 0.0f) return 0.0f;)
+LGBO_STMT(float screenConeTangent = 0.21255656f;)
+LGBO_STMT(float requestedRadius = LGBOMax(localHeight, 0.0f) * screenConeTangent;)
+LGBO_STMT(float legalRadius = 16.0f * pointScale;)
+LGBO_STMT(return LGBOSmoothCappedLength(requestedRadius, legalRadius);)
+LGBO_FUNCTION_END
+
+/* Four equal, nonnegative quadrature weights preserve a constant source and
+ * make the cone integral a convex average of actual captured radiance. */
+LGBO_FUNCTION_BEGIN(float, LGBOAverageFourRadianceSamples, (float a, float b, float c, float d))
+LGBO_STMT(return 0.25f * (a + b + c + d);)
+LGBO_FUNCTION_END
+
+/* Mix an optional same-live-source low-frequency edge integral in native Metal
+ * space. It is a bounded image-driven cue, not external reflected radiance.
+ * Preserve premultiplication and transmitted alpha; _sRGB samples are linear. */
 LGBO_FUNCTION_BEGIN(float, LGBOEnvironmentMixPremultipliedChannel, (float transmittedPremul, float transmittedAlpha, float environmentPremul, float environmentAlpha, float weight))
 LGBO_STMT(float alpha = LGBOClamp(transmittedAlpha, 0.0f, 1.0f);)
 LGBO_STMT(if (alpha <= 0.00001f) return 0.0f;)
 LGBO_STMT(float transmittedStraight = LGBOClamp(transmittedPremul / alpha, 0.0f, 1.0f);)
-LGBO_STMT(float reflectedAlpha = LGBOClamp(environmentAlpha, 0.0f, 1.0f);)
-LGBO_STMT(float reflectedStraight = reflectedAlpha > 0.00001f ? LGBOClamp(environmentPremul / reflectedAlpha, 0.0f, 1.0f) : transmittedStraight;)
+LGBO_STMT(float pathAlpha = LGBOClamp(environmentAlpha, 0.0f, 1.0f);)
+LGBO_STMT(float pathStraight = pathAlpha > 0.00001f ? LGBOClamp(environmentPremul / pathAlpha, 0.0f, 1.0f) : transmittedStraight;)
 LGBO_STMT(float boundedWeight = LGBOClamp(weight, 0.0f, 0.28f);)
-LGBO_STMT(float straightResult = transmittedStraight + (reflectedStraight - transmittedStraight) * boundedWeight;)
+LGBO_STMT(float straightResult = transmittedStraight + (pathStraight - transmittedStraight) * boundedWeight;)
 LGBO_STMT(return LGBOClamp(straightResult, 0.0f, 1.0f) * alpha;)
 LGBO_FUNCTION_END

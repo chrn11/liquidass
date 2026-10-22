@@ -130,10 +130,10 @@ static void LRDelay(NSTimeInterval duration, dispatch_block_t done) {
     self.report=[@{@"schemaVersion":@2,@"runID":NSUUID.UUID.UUIDString,
         @"buildVersion":NSBundle.mainBundle.infoDictionary[@"CFBundleVersion"]?:@"unknown",
         @"bundleID":NSBundle.mainBundle.bundleIdentifier?:@"unknown",
-        @"scope":@"Actual frozen LGLocalButtonMaterialView with asynchronous own-App event-loop stages; no system source/UI capture",
+        @"scope":@"Isolated designed-light LGLocalButtonMaterialView; old initializer OFF, explicitly marked touch fixture ON; no system source/UI capture",
         @"mode":@"MIXED_STATIC_GUARDS_AND_EXPLICIT_OWNED_SUBTREE_TEST",@"SYSTEM_BACKGROUND_PROVIDER_NOT_IMPLEMENTED":@YES,
-        @"pixelEvidence":@"NONE; framebufferOnly remains YES; prior shader pixels are separate evidence",
-        @"shaderExpectedSHA256":@"efe6ff61dcc87625ce4664c940ae55de908878b31255fcab9a7167954e4efb2d",
+        @"pixelEvidence":@"No primary drawable/screen readback. Separately marked touch-fixture auxiliary same-command ON/OFF GPU outputs require their own manifests; not presentation proof",
+        @"shaderExpectedSHA256":@"1859d9436938cdbf51b4cb215b897ea175a9e3fddff7c6631e662d311af75740",
         @"compileMacroLG_LOCAL_BUTTON_RENDERER_COMPILED":@1,
         @"execution":@"ASYNC_STAGED_MAIN_QUEUE; no nested CFRunLoop wait; production source maximum age remains100ms"} mutableCopy];
     if(!self.device||!self.queue||!self.input||!self.container.window||

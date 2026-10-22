@@ -10,9 +10,17 @@
 #import <string.h>
 
 static const char kExpectedLocalShaderSHA256[] =
-    "efe6ff61dcc87625ce4664c940ae55de908878b31255fcab9a7167954e4efb2d";
+    "1859d9436938cdbf51b4cb215b897ea175a9e3fddff7c6631e662d311af75740";
 
+#if defined(LG_LOCAL_DESIGNED_LIGHT_EXPERIMENT) && LG_LOCAL_DESIGNED_LIGHT_EXPERIMENT
+#import "LGDesignedLightGPUCapture.h"
+#endif
 @interface LGLocalButtonMaterialView ()
+#if defined(LG_LOCAL_DESIGNED_LIGHT_EXPERIMENT) && LG_LOCAL_DESIGNED_LIGHT_EXPERIMENT
+@property(nonatomic,readwrite) BOOL experimentalDesignedLightEnabled;
+@property(nonatomic,strong) LGDesignedLightCapture *experimentCapture;
+@property(nonatomic,copy,readwrite) NSString *experimentalVerifiedShaderSHA256;
+#endif
 @property(nonatomic,weak) UIView *targetView;
 @property(nonatomic,strong) id<LGLocalButtonSourceProvider> sourceProvider;
 @property(nonatomic,strong) LGLocalButtonTextureFrame *sourceFrame;
@@ -100,6 +108,23 @@ minimumFrameGeneration:(uint64_t)minimumFrameGeneration
 @end
 
 @implementation LGLocalButtonMaterialView
+#if defined(LG_LOCAL_DESIGNED_LIGHT_EXPERIMENT) && LG_LOCAL_DESIGNED_LIGHT_EXPERIMENT
+- (NSString *)experimentalDesignedLightCaptureDirectoryName {
+    return self.experimentCapture.directoryName;
+}
+- (instancetype)initWithFrame:(CGRect)frame targetView:(UIView *)targetView
+    sourceProvider:(id<LGLocalButtonSourceProvider>)provider
+    allowApproximateSource:(BOOL)allowApproximateSource explicitOptIn:(BOOL)explicitOptIn
+    experimentalDesignedLighting:(BOOL)enabled {
+    if ((self=[self initWithFrame:frame targetView:targetView sourceProvider:provider
+        allowApproximateSource:allowApproximateSource explicitOptIn:explicitOptIn])) {
+        _experimentalDesignedLightEnabled=enabled && explicitOptIn &&
+            [NSBundle.mainBundle.bundleIdentifier isEqualToString:@"org.liquidass.native-play-lab"];
+        if (_experimentalDesignedLightEnabled) _experimentCapture=[LGDesignedLightCapture new];
+    }
+    return self;
+}
+#endif
 - (instancetype)initWithFrame:(CGRect)frame targetView:(UIView *)targetView
                 sourceProvider:(id<LGLocalButtonSourceProvider>)provider
          allowApproximateSource:(BOOL)allowApproximateSource
@@ -262,6 +287,9 @@ minimumFrameGeneration:(uint64_t)minimumFrameGeneration
     sd.sAddressMode=MTLSamplerAddressModeClampToEdge;
     sd.tAddressMode=MTLSamplerAddressModeClampToEdge;
     self.localSampler=[self.device newSamplerStateWithDescriptor:sd];
+#if defined(LG_LOCAL_DESIGNED_LIGHT_EXPERIMENT) && LG_LOCAL_DESIGNED_LIGHT_EXPERIMENT
+    if (self.localSampler) self.experimentalVerifiedShaderSHA256=[NSString stringWithUTF8String:actual];
+#endif
     return self.localSampler!=nil;
 }
 
@@ -558,9 +586,13 @@ minimumFrameGeneration:(uint64_t)minimumFrameGeneration
     if (!frame || !out || !state.eligible) return NO;
     LGLocalButtonSourceContract c=frame.contract;
     float rendererScale=(float)self.targetView.window.screen.scale;
-    return LGLocalButtonBuildUniforms(&c,&state,
+    BOOL built=LGLocalButtonBuildUniforms(&c,&state,
         (float)drawableSize.width,(float)drawableSize.height,rendererScale,
         self.explicitOptIn,out);
+#if defined(LG_LOCAL_DESIGNED_LIGHT_EXPERIMENT) && LG_LOCAL_DESIGNED_LIGHT_EXPERIMENT
+    if (built && self.experimentalDesignedLightEnabled) out->fresnelGlareStrength=1.0f;
+#endif
+    return built;
 }
 
 - (void)requestLocalDraw {
@@ -619,6 +651,15 @@ minimumFrameGeneration:(uint64_t)minimumFrameGeneration
     [encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
     [encoder endEncoding];
     const uint64_t serial=self.submissionSerial;
+#if defined(LG_LOCAL_DESIGNED_LIGHT_EXPERIMENT) && LG_LOCAL_DESIGNED_LIGHT_EXPERIMENT == 1
+    LGDesignedLightCaptureRecord *captureRecord=nil;
+    if (self.experimentalDesignedLightEnabled && self.experimentCapture) {
+        captureRecord=[self.experimentCapture encodeForCommand:command device:self.device
+            pipeline:self.localPipeline sampler:self.localSampler drawable:drawable.texture
+            source:frame.texture uniforms:uniforms state:submittedState
+            contract:frame.contract serial:serial];
+    }
+#endif
     self.pendingDraw=NO;
     dispatch_semaphore_t inFlight=self.localInFlight;
     LGLocalButtonTextureFrame *retainedFrame=frame;
@@ -661,6 +702,9 @@ minimumFrameGeneration:(uint64_t)minimumFrameGeneration
             if (strongSelf.pendingDraw && strongSelf.sourceFrame)
                 [strongSelf requestLocalDraw];
         });
+#if defined(LG_LOCAL_DESIGNED_LIGHT_EXPERIMENT) && LG_LOCAL_DESIGNED_LIGHT_EXPERIMENT == 1
+        [captureRecord completeWithCommandSucceeded:succeeded];
+#endif
     }];
     [command presentDrawable:drawable];
     [command commit];

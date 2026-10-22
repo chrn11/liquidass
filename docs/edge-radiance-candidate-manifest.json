@@ -1,0 +1,23 @@
+{
+  "sourceRoot": "/var/minis/shared/liquidass-designed-light-3d924672-a5a2-4036-9dda-d557c72fd23d",
+  "baselineRoot": "/var/minis/shared/liquidass-closed-lip-main-fcf2d190-7689-491e-b382-1eb54098d848",
+  "status": "MAC_GPU_DESIGNED_LIGHT_COMPONENT_PASS; retained for further review, not a product or full visual signoff",
+  "CIrun": 39569911012,
+  "commit": "72a4157014e2161e22cc51228727978747dabf5b",
+  "userRoute": "User explicitly selected 验证光照 via options card; no system installation approved",
+  "ordinaryLightingOffBitIdentity": true,
+  "explicitLightingOnImages": 20,
+  "syntheticTouchSnapshotsNotUIKitRuntime": true,
+  "wholeVisualAccepted": false,
+  "postCIOnlyMetadataUpdated": true,
+  "baselineFingerprints": {
+    "reproducedCandidateMSLSHA256": "03b1802268e8fadf76a5083c03aa6e35c5281173448eb497055a9c38c1e70f3f"
+  },
+  "candidateFingerprints": {
+    "generatedCandidateMSLSHA256": "1859d9436938cdbf51b4cb215b897ea175a9e3fddff7c6631e662d311af75740",
+    "Shared/LGButtonOpticsFormula.inc": "01939cde683f17d32b13bc924a943970d02f92973b2ebedf2d0651d90c38a5ad"
+  },
+  "explicitlyNotMeasuredEnvironment": true,
+  "enable": "fresnelGlareStrength=0 exact off, test-only1 optin; normal uniform builder stays0",
+  "runtimeProductShaderPin": "UNCHANGED, rawMSL review only"
+}

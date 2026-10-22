@@ -21,7 +21,7 @@ Provider只允许交付它实际拥有的同进程MTLTexture。这里不提供�
 
 沿用一份主体/触点高度、法线、Snell和有界源平面色光公式，没有添加固定灯或彩色蒙层。press/drag只消费原状态机的有效点；release/cancel保点随pressure衰减，idle/disable/reset归零。源域扩大不改变触点中心。
 
-100ms源期限、owner/frame/target代际、immutable texture lease、zeroing-weak同帧身份和完整descriptor比较均保留。重复帧不能换纹理、换源rect/overscan标记或重贴时间戳。源失效/后台/离窗/命令失败只停本地层；正常完成释放lease。默认无常驻displayLink和轮询，只有原来的单次源过期timer。
+100ms源期限、owner/frame/target代际、immutable texture lease、zeroing-weak同帧身份和完整descriptor比较均保留。重复帧不能换纹理、换源rect/overscan标记或重贴时间戳。源失效/后台/离窗/命令失败只停本地层。新版本保留最多一份真实完成帧的lease以衔接刷新，但其原100ms期限不延长；新帧真正完成、clear或到期才释放/替换。默认关闭无常驻displayLink和轮询；原宿主仅在显式绑定、可见活跃时用弱单次timer以不高于15Hz续帧，失败预算有限，详见local-host-binding.md。
 
 ## 验证结果及不可外推项
 

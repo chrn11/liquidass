@@ -1,0 +1,15 @@
+{
+  "Shared/LGButtonOpticsFormula.inc": "01939cde683f17d32b13bc924a943970d02f92973b2ebedf2d0651d90c38a5ad",
+  "Shared/LGDesignedLighting.inc": "a06abb98962093dc9557de6b4f80775d11d3ae55d1920eab825aee19c331bcf0",
+  "Shared/LGLocalMinification.inc": "7f317e2edf0b7383c78f137ab6d2fc269a1bc91cecc20fa40e3e8dbd7ade4288",
+  "Shared/LGLocalSourceMapping.inc": "fc1099f53e3309ecd7e1d30afe888ed616cab584a38abb10e6b6a91fc176c7ee",
+  "Shared/LGEdgeExteriorPatch.inc": "55462a9ed9dc2db092cc47a0acdf92fbc596883768898882d68bb696e85e4e3f",
+  "Shared/LGLocalButtonUniforms.h": "5f84f9946f7fc4c959a140b07c62f2083239962a105aa963306cd53c72098d3e",
+  "Shared/LGButtonOpticalState.h": "7c919d5d14936e9e8b219385808e20233b536fdf4780449e912cc43d857c1788",
+  "Shared/LGLocalButtonSourceContract.h": "679cd379b1e13c4522cd67fb9f4033b24b3cc49ead48b27e107c7ca63b238fee",
+  "Shared/LGAppOwnedButtonSourceProvider.mm": "9c711cef6b88c9152d03a9c846c1f2b66e3925d7d219cdd8702466299e00218f",
+  "Shared/LGAppOwnedLeasePolicy.h": "1f25d620f73f7d70c3acdf3898840cc4cc6b37d03dbd98d9d8791aa724868a36",
+  "Shared/LGSettingsBackButtonLocalBinding.h": "dbed12dd0ff9eed7eddb62898a2138bd8b78505b0941d1810c9aa93f679710d2",
+  "Shared/LGLocalButtonRefreshPolicy.h": "6d928c224ec8d6786c77a5c527d65e8d7ee30e5ee3f3ea0ca2273e6d7c36cc1d",
+  "Hooks/Controls.x": "32609599857748bae9578c1a2abcaba07093c905f3579c930417e491c61bd3b4"
+}

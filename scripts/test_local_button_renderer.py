@@ -9,7 +9,7 @@ assert hashlib.sha256(legacy_body.encode()).hexdigest()=='f21b394471fd9d39835024
 shader=(root/'Shared/LGLocalButtonShaderSource.h').read_text()
 body=re.search(r'R"LGLOCALMSL\((.*?)\)LGLOCALMSL";',shader,re.S).group(1)
 shader_sha=hashlib.sha256(body.encode()).hexdigest()
-assert shader_sha=='efe6ff61dcc87625ce4664c940ae55de908878b31255fcab9a7167954e4efb2d'
+assert shader_sha=='1859d9436938cdbf51b4cb215b897ea175a9e3fddff7c6631e662d311af75740'
 assert 'LGButtonOpticsEvaluateWithContact' in body and 'LGButtonOpticsEvaluate' in body and 'struct Uniforms {' in body
 formula=root/'Shared/LGButtonOpticsFormula.inc'
 assert b'LGButtonOpticsEvaluateWithContact' in formula.read_bytes()
