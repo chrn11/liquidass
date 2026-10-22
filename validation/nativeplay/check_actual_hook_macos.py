@@ -21,5 +21,5 @@ with tempfile.TemporaryDirectory(prefix='liquidass-real-hook-sdk-') as tmp:
     command=[CXX if cxx else CC,*args,*(['-std=c++17','-x','objective-c++'] if cxx else ['-x','objective-c']),str(path)]
     subprocess.run(command,check=True);results.append({'source':name,'architecture':arch,'compiledGate':enabled,'pass':True})
     print('PASS actual original Hook/local/provider Apple SDK',name,arch,enabled,flush=True)
-D=R/'ci-artifacts/local-renderer-build16';D.mkdir(parents=True,exist_ok=True)
+D=R/'ci-artifacts/local-renderer-hardening-build30';D.mkdir(parents=True,exist_ok=True)
 (D/'actual-hook-sdk-validation.json').write_text(json.dumps({'scope':'Apple macOS focused syntax validation of real Hooks, not complete tweak linking or live Settings enablement','checks':results},indent=2))

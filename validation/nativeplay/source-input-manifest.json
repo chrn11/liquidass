@@ -417,7 +417,7 @@
     "validation/nativeplay/carrier/main.m": "6583e7ec2ee3eb29f6d496b4bdaa0879bd92b6bc9ffdcab21e98aac9752c3a36",
     "validation/nativeplay/carrier/manifest.json": "621e51e1981963e0009c45df32a74f8f0c06d36ce4013c64b9ed969978bfd7f3",
     "validation/nativeplay/carrier/sourceCanvas-export.json": "7a9d8528e5df6ac9a55e35319ff3774100298a99ee0309f29e41799f7e17f197",
-    "validation/nativeplay/check_actual_hook_macos.py": "ccba81cb6ab05b0c480c925f42a56c137b4b11007f265f929aae15cb5943d906",
+    "validation/nativeplay/check_actual_hook_macos.py": "8613e62bef65cd0757f325dfa8439991a29dfa094729f5c56751f4f8042206ea",
     "validation/nativeplay/check_designed_light_gates_macos.py": "897df3b344761343be3c6d3fc68f8144bbeb0462f05c1a780fbea3213def0b2f",
     "validation/nativeplay/contact-inputs/botanical-132.bgra": "28333c44ab7fed26a6c7dbc1636e158b9b16534d0c2650d9e965e62ab4fe520a",
     "validation/nativeplay/contact-inputs/botanical-228.bgra": "ca47645fb8a108fa625edbaa759774104e317cfb1fd899de90cc494d65f68650",
