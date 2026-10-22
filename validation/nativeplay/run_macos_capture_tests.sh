@@ -48,8 +48,8 @@ PLIST
 }
 write_plist "$matchApp/Contents/Info.plist" "org.liquidass.native-play-lab"
 write_plist "$otherApp/Contents/Info.plist" "org.liquidass.capture-hardening-tests.nonmatch"
-clangxx="$(xcrun --find clang++)"
-"$clangxx" -x objective-c++ -std=c++17 -fobjc-arc -fblocks \
+macSDK="$(xcrun --sdk macosx --show-sdk-path)"
+xcrun --sdk macosx clang++ -isysroot "$macSDK" -x objective-c++ -std=c++17 -fobjc-arc -fblocks \
   -DLG_LOCAL_DESIGNED_LIGHT_EXPERIMENT=1 -DLG_LOCAL_BUTTON_RENDERER_COMPILED=1 \
   -I "$shared" -I "$helper" \
   "$sourceFile" -framework Foundation -framework Metal \

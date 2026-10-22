@@ -429,7 +429,7 @@
     "validation/nativeplay/frozen_touch_semantics.json": "fcec7b47dd7ff477bbfc3aa897c7b9a53978d492c2453a6fa86db5004fa9c7d2",
     "validation/nativeplay/guard_touch_and_capture.py": "2105b47fb307ae8e829ada8fb63df961581259b41875d91b3728b861c1b34e35",
     "validation/nativeplay/package_ci_app.py": "a6f4171a12db505618379b700d9c75d18dba75317247d1d8f69b691f37591a5b",
-    "validation/nativeplay/run_macos_capture_tests.sh": "89b2c79b0cd35e18ac73965f724face00dc412a2b5228a087559d7fb9c690d7b",
+    "validation/nativeplay/run_macos_capture_tests.sh": "986102e958cf2e153b32af4a5b6bff80223ff1322f1c982d86fa1655102dd2fb",
     "validation/nativeplay/test_capture_macos.mm": "662a245e211e7ec5d377b0ee314e9cb556645e3e31823146b1d493f3619f2d88",
     "validation/nativeplay/test_designed_light_gate_policy.c": "21f4976041392935c2e85302d584b08c65c496ea53716bacb49204fd11d2ec68",
     "validation/nativeplay/test_guard_mutations.py": "8c48aa4f4ce1ae134affa4feca0bea44882c6366cecc005ed024d59c947b2c91",
