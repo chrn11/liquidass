@@ -12,11 +12,11 @@
 static const char kExpectedLocalShaderSHA256[] =
     "1859d9436938cdbf51b4cb215b897ea175a9e3fddff7c6631e662d311af75740";
 
-#if defined(LG_LOCAL_DESIGNED_LIGHT_EXPERIMENT) && LG_LOCAL_DESIGNED_LIGHT_EXPERIMENT
+#if defined(LG_LOCAL_DESIGNED_LIGHT_EXPERIMENT) && LG_LOCAL_DESIGNED_LIGHT_EXPERIMENT == 1
 #import "LGDesignedLightGPUCapture.h"
 #endif
 @interface LGLocalButtonMaterialView ()
-#if defined(LG_LOCAL_DESIGNED_LIGHT_EXPERIMENT) && LG_LOCAL_DESIGNED_LIGHT_EXPERIMENT
+#if defined(LG_LOCAL_DESIGNED_LIGHT_EXPERIMENT) && LG_LOCAL_DESIGNED_LIGHT_EXPERIMENT == 1
 @property(nonatomic,readwrite) BOOL experimentalDesignedLightEnabled;
 @property(nonatomic,strong) LGDesignedLightCapture *experimentCapture;
 @property(nonatomic,copy,readwrite) NSString *experimentalVerifiedShaderSHA256;
@@ -108,9 +108,16 @@ minimumFrameGeneration:(uint64_t)minimumFrameGeneration
 @end
 
 @implementation LGLocalButtonMaterialView
-#if defined(LG_LOCAL_DESIGNED_LIGHT_EXPERIMENT) && LG_LOCAL_DESIGNED_LIGHT_EXPERIMENT
+#if defined(LG_LOCAL_DESIGNED_LIGHT_EXPERIMENT) && LG_LOCAL_DESIGNED_LIGHT_EXPERIMENT == 1
 - (NSString *)experimentalDesignedLightCaptureDirectoryName {
     return self.experimentCapture.directoryName;
+}
+- (LGDLFixtureCaptureFinalizer)experimentalCaptureSuiteFinalizer {
+    LGDesignedLightCapture *capture=self.experimentCapture;
+    return [^(LGDLFixtureCaptureCompletion completion) {
+        if (!capture) { completion(@{@"captureSuiteStatus":@"FAIL_CAPTURE_NOT_INITIALIZED",@"pass":@NO}); return; }
+        [capture finishSuiteWithCompletion:completion];
+    } copy];
 }
 - (instancetype)initWithFrame:(CGRect)frame targetView:(UIView *)targetView
     sourceProvider:(id<LGLocalButtonSourceProvider>)provider
@@ -118,9 +125,16 @@ minimumFrameGeneration:(uint64_t)minimumFrameGeneration
     experimentalDesignedLighting:(BOOL)enabled {
     if ((self=[self initWithFrame:frame targetView:targetView sourceProvider:provider
         allowApproximateSource:allowApproximateSource explicitOptIn:explicitOptIn])) {
-        _experimentalDesignedLightEnabled=enabled && explicitOptIn &&
-            [NSBundle.mainBundle.bundleIdentifier isEqualToString:@"org.liquidass.native-play-lab"];
-        if (_experimentalDesignedLightEnabled) _experimentCapture=[LGDesignedLightCapture new];
+        BOOL ownBundle=[NSBundle.mainBundle.bundleIdentifier isEqualToString:@"org.liquidass.native-play-lab"];
+        BOOL pipelineReady=self.localPipeline && self.localSampler && self.experimentalVerifiedShaderSHA256;
+        if (enabled) {
+            if (!LGDLExperimentMayEnable(LG_LOCAL_BUTTON_RENDERER_COMPILED!=0,
+                self.explicitOptIn,enabled,ownBundle,pipelineReady,YES)) return nil;
+            _experimentCapture=[LGDesignedLightCapture new];
+            if (!LGDLExperimentMayEnable(LG_LOCAL_BUTTON_RENDERER_COMPILED!=0,
+                self.explicitOptIn,enabled,ownBundle,pipelineReady,_experimentCapture!=nil)) return nil;
+            _experimentalDesignedLightEnabled=YES;
+        }
     }
     return self;
 }
@@ -287,7 +301,7 @@ minimumFrameGeneration:(uint64_t)minimumFrameGeneration
     sd.sAddressMode=MTLSamplerAddressModeClampToEdge;
     sd.tAddressMode=MTLSamplerAddressModeClampToEdge;
     self.localSampler=[self.device newSamplerStateWithDescriptor:sd];
-#if defined(LG_LOCAL_DESIGNED_LIGHT_EXPERIMENT) && LG_LOCAL_DESIGNED_LIGHT_EXPERIMENT
+#if defined(LG_LOCAL_DESIGNED_LIGHT_EXPERIMENT) && LG_LOCAL_DESIGNED_LIGHT_EXPERIMENT == 1
     if (self.localSampler) self.experimentalVerifiedShaderSHA256=[NSString stringWithUTF8String:actual];
 #endif
     return self.localSampler!=nil;
@@ -589,7 +603,7 @@ minimumFrameGeneration:(uint64_t)minimumFrameGeneration
     BOOL built=LGLocalButtonBuildUniforms(&c,&state,
         (float)drawableSize.width,(float)drawableSize.height,rendererScale,
         self.explicitOptIn,out);
-#if defined(LG_LOCAL_DESIGNED_LIGHT_EXPERIMENT) && LG_LOCAL_DESIGNED_LIGHT_EXPERIMENT
+#if defined(LG_LOCAL_DESIGNED_LIGHT_EXPERIMENT) && LG_LOCAL_DESIGNED_LIGHT_EXPERIMENT == 1
     if (built && self.experimentalDesignedLightEnabled) out->fresnelGlareStrength=1.0f;
 #endif
     return built;
@@ -652,6 +666,7 @@ minimumFrameGeneration:(uint64_t)minimumFrameGeneration
     [encoder endEncoding];
     const uint64_t serial=self.submissionSerial;
 #if defined(LG_LOCAL_DESIGNED_LIGHT_EXPERIMENT) && LG_LOCAL_DESIGNED_LIGHT_EXPERIMENT == 1
+
     LGDesignedLightCaptureRecord *captureRecord=nil;
     if (self.experimentalDesignedLightEnabled && self.experimentCapture) {
         captureRecord=[self.experimentCapture encodeForCommand:command device:self.device
@@ -703,6 +718,7 @@ minimumFrameGeneration:(uint64_t)minimumFrameGeneration
                 [strongSelf requestLocalDraw];
         });
 #if defined(LG_LOCAL_DESIGNED_LIGHT_EXPERIMENT) && LG_LOCAL_DESIGNED_LIGHT_EXPERIMENT == 1
+
         [captureRecord completeWithCommandSucceeded:succeeded];
 #endif
     }];

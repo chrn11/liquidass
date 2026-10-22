@@ -418,6 +418,10 @@ static void LRDelay(NSTimeInterval duration, dispatch_block_t done) {
             BOOL passed=[touch[@"status"] isEqualToString:@"PASS_REAL_UIKIT_TOUCH_AND_COMPLETED_LOCAL_RENDER"];
             for(NSDictionary *entry in touch[@"checks"]) passed=passed && [entry[@"pass"] boolValue];
             [self record:@"K_real_UIKit_touch_actual_material_completion" pass:passed details:@{@"touchStatus":touch[@"status"]?:@"NO_STATUS",@"systemHookRuntime":@"NOT_RUN",@"source":@"Original-App temporary controller fixture only"}];
+            BOOL pixels=[touch[@"captureSuiteResult"][@"pass"] boolValue] &&
+                [touch[@"captureSuiteStatus"] isEqual:@"PASS_ALL_FOUR_GPU_READBACKS_SAVED"];
+            [self record:@"L_four_auxiliary_GPU_captures_independent_of_touch_PASS" pass:pixels
+                details:touch[@"captureSuiteResult"]?:@{@"captureSuiteStatus":@"FAIL_MISSING_SUITE"}];
             [self finish];
         });
         return;

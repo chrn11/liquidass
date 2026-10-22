@@ -8,14 +8,56 @@
 #import <ImageIO/ImageIO.h>
 #import <CommonCrypto/CommonDigest.h>
 #import "LGLocalButtonUniforms.h"
+#import "LGDesignedLightExperimentPolicy.h"
 #include <math.h>
 #include <string.h>
 
 NS_ASSUME_NONNULL_BEGIN
 @class LGDesignedLightCaptureRecord;
+/* Thread-safe value ledger, never retains source/frame/device or the renderer. */
+@interface LGDesignedLightCaptureLedger : NSObject
+@property(nonatomic,strong) NSMutableDictionary<NSString *,NSDictionary *> *states;
+- (void)record:(NSDictionary *)metadata;
+- (NSDictionary *)snapshot;
+@end
+@implementation LGDesignedLightCaptureLedger
+- (instancetype)init { if ((self=[super init])) _states=[NSMutableDictionary dictionary]; return self; }
+- (void)record:(NSDictionary *)m { @synchronized(self) { self.states[m[@"state"]]=[m copy]; } }
+- (NSDictionary *)snapshot {
+    @synchronized(self) {
+        BOOL pass=YES,failed=NO;
+        for (NSString *name in @[@"idle",@"left",@"right",@"release"]) {
+            NSDictionary *m=self.states[name];
+            BOOL saved=[m[@"result"] isEqual:@"GPU_COMPLETED_READBACK_SAVED"] &&
+                [m[@"capturePass"] boolValue] && [m[@"commandSucceeded"] boolValue] &&
+                [m[@"primaryDrawableUniformStrength"] floatValue]==1.0f &&
+                [m[@"filesSHA256"] count]==4;
+            pass=pass && saved;
+            if (m && !saved && ![m[@"result"] isEqual:@"ENCODED_AWAITING_ORIGINAL_COMMAND_COMPLETION"])
+                failed=YES;
+        }
+        return @{@"captureSuiteStatus":pass?@"PASS_ALL_FOUR_GPU_READBACKS_SAVED":(failed?@"FAIL_CAPTURE_SUITE":@"PENDING_CAPTURE_SUITE"),
+            @"pass":@(pass),@"stateResults":[self.states copy],@"auxiliaryOnlyNotScreenshot":@YES};
+    }
+}
+@end
+static void LGDLAwaitLedger(LGDesignedLightCaptureLedger *ledger, double deadline,
+    void (^completion)(NSDictionary *suite)) {
+    NSDictionary *suite=[ledger snapshot];
+    if (![suite[@"captureSuiteStatus"] isEqual:@"PENDING_CAPTURE_SUITE"]) { completion(suite); return; }
+    if (NSProcessInfo.processInfo.systemUptime>=deadline) {
+        NSMutableDictionary *failed=[suite mutableCopy];failed[@"pass"]=@NO;
+        failed[@"captureSuiteStatus"]=@"FAIL_CAPTURE_TIMEOUT";completion(failed);return;
+    }
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW,10*NSEC_PER_MSEC),dispatch_get_main_queue(),^{
+        LGDLAwaitLedger(ledger,deadline,completion);
+    });
+}
 @interface LGDesignedLightCapture : NSObject
 @property(nonatomic,copy,readonly) NSString *runIdentifier;
 @property(nonatomic,copy,readonly) NSString *directoryName;
+- (NSDictionary *)captureSuiteSnapshot;
+- (void)finishSuiteWithCompletion:(void (^)(NSDictionary *suite))completion;
 - (nullable instancetype)init;
 - (nullable LGDesignedLightCaptureRecord *)encodeForCommand:(id<MTLCommandBuffer>)command
     device:(id<MTLDevice>)device pipeline:(id<MTLRenderPipelineState>)pipeline
@@ -29,7 +71,6 @@ NS_ASSUME_NONNULL_BEGIN
 /* Call exactly once from this command buffer's completion handler. */
 - (void)completeWithCommandSucceeded:(BOOL)succeeded;
 @end
-NS_ASSUME_NONNULL_END
 
 static NSString *LGDLHexSHA256(const void *bytes,size_t length) {
     unsigned char d[CC_SHA256_DIGEST_LENGTH]; CC_SHA256(bytes,(CC_LONG)length,d);
@@ -70,7 +111,11 @@ static NSDictionary *LGDLBaseMetadata(NSString *run,NSString *dir,NSString *name
       @"originalUniformsByteLength":@(sizeof(LGLocalButtonUniforms)),
       @"originalUniformsSHA256":LGDLHexSHA256(&u,sizeof(u)),
       @"originalUniformsBase64":[[NSData dataWithBytes:&u length:sizeof(u)] base64EncodedStringWithOptions:0],
-      @"originalUniformFresnelGlareStrength":@(u.fresnelGlareStrength),
+      @"originalUniformFresnelGlareStrength":LGDLNumber(u.fresnelGlareStrength),
+      @"primaryDrawableUniformStrength":LGDLNumber(u.fresnelGlareStrength),
+      @"primaryPassUniformSHA256":LGDLHexSHA256(&u,sizeof(u)),
+      @"bundleIdentifier":NSBundle.mainBundle.bundleIdentifier?:@"",
+      @"build":NSBundle.mainBundle.infoDictionary[@"CFBundleVersion"]?:@"",
       @"capturePixelFormat":@"BGRA8Unorm_sRGB",@"captureWidth":@132,@"captureHeight":@132,
       @"drawableReadback":@NO,@"screenScreenshot":@NO,@"sourceFrameRetainedByCaptureHelper":@NO};
 }
@@ -126,6 +171,7 @@ static BOOL LGDLWritePNG(NSURL *url,NSData *bgra) {
 @property(nonatomic,copy) NSDictionary *metadata;
 @property(nonatomic,strong) id<MTLTexture> offTexture;
 @property(nonatomic,strong) id<MTLTexture> onTexture;
+@property(nonatomic,strong) LGDesignedLightCaptureLedger *ledger;
 @end
 @implementation LGDesignedLightCaptureRecord
 - (void)completeWithCommandSucceeded:(BOOL)succeeded {
@@ -141,7 +187,7 @@ static BOOL LGDLWritePNG(NSURL *url,NSData *bgra) {
         m[@"commandSucceeded"]=@(succeeded); m[@"capturePass"]=@NO;
         if (!succeeded) { m[@"result"]=@"COMMAND_FAILED"; m[@"failure"]=@"Original command buffer did not complete successfully; no texture readback performed.";
             NSError *e=nil; if (!LGDLWriteJSON(json,m,&e)) NSLog(@"LGDesignedLightCapture manifest write failed: %@",e.localizedDescription);
-            self.offTexture=nil; self.onTexture=nil; return; }
+            [self.ledger record:m]; self.offTexture=nil; self.onTexture=nil; return; }
         m[@"result"]=@"GPU_COMPLETED_READBACK_PENDING";
         NSError *e=nil; if (!LGDLWriteJSON(json,m,&e)) NSLog(@"LGDesignedLightCapture pending manifest write failed: %@",e.localizedDescription);
         NSData *off=LGDLReadSharedBGRA(self.offTexture), *on=LGDLReadSharedBGRA(self.onTexture);
@@ -157,8 +203,18 @@ static BOOL LGDLWritePNG(NSURL *url,NSData *bgra) {
             m[@"rawBytesPerRow"]=@528; m[@"getBytesBytesPerRow"]=@768; m[@"rawPixelOrder"]=@"BGRA8"; m[@"pngColorSpace"]=@"sRGB";
             m[@"files"]=@{@"offRaw":offRaw.lastPathComponent,@"offPNG":offPNG.lastPathComponent,
                            @"onRaw":onRaw.lastPathComponent,@"onPNG":onPNG.lastPathComponent};
+            NSData *op=[NSData dataWithContentsOfURL:offPNG], *np=[NSData dataWithContentsOfURL:onPNG];
+            if (!op || !np) { m[@"capturePass"]=@NO; m[@"result"]=@"READBACK_OR_FILE_WRITE_FAILED"; }
+            else m[@"filesSHA256"]=@{offRaw.lastPathComponent:LGDLHexSHA256(off.bytes,off.length),
+                onRaw.lastPathComponent:LGDLHexSHA256(on.bytes,on.length),
+                offPNG.lastPathComponent:LGDLHexSHA256(op.bytes,op.length),
+                onPNG.lastPathComponent:LGDLHexSHA256(np.bytes,np.length)};
         }
-        if (!LGDLWriteJSON(json,m,&e)) NSLog(@"LGDesignedLightCapture final manifest write failed: %@",e.localizedDescription);
+        if (!LGDLWriteJSON(json,m,&e)) {
+            m[@"capturePass"]=@NO; m[@"result"]=@"FINAL_MANIFEST_WRITE_FAILED";
+            m[@"failure"]=e.localizedDescription?:@"Final manifest could not be saved";
+        }
+        [self.ledger record:m];
         self.offTexture=nil; self.onTexture=nil;
     }
 }
@@ -170,6 +226,7 @@ static BOOL LGDLWritePNG(NSURL *url,NSData *bgra) {
 @property(nonatomic,strong) NSURL *directoryURL;
 @property(nonatomic,strong) NSMutableSet<NSString *> *claimedStates;
 @property(nonatomic,assign) BOOL hadContact;
+@property(nonatomic,strong) LGDesignedLightCaptureLedger *ledger;
 @end
 @implementation LGDesignedLightCapture
 - (instancetype)init {
@@ -180,7 +237,11 @@ static BOOL LGDLWritePNG(NSURL *url,NSData *bgra) {
     NSURL *docs=[[[NSFileManager defaultManager] URLsForDirectory:NSDocumentDirectory inDomains:NSUserDomainMask] firstObject];
     _directoryURL=[docs URLByAppendingPathComponent:_directoryName isDirectory:YES];
     NSError *e=nil; if (!docs || ![[NSFileManager defaultManager] createDirectoryAtURL:_directoryURL withIntermediateDirectories:NO attributes:nil error:&e]) return nil;
-    _claimedStates=[NSMutableSet set]; return self;
+    _claimedStates=[NSMutableSet set]; _ledger=[LGDesignedLightCaptureLedger new]; return self;
+}
+- (NSDictionary *)captureSuiteSnapshot { return [self.ledger snapshot]; }
+- (void)finishSuiteWithCompletion:(void (^)(NSDictionary *suite))completion {
+    LGDLAwaitLedger(self.ledger,NSProcessInfo.processInfo.systemUptime+0.75,[completion copy]);
 }
 - (NSString *)candidateAndClaim:(LGButtonOpticalState)s {
     if (!s.eligible) return nil;
@@ -208,13 +269,19 @@ static BOOL LGDLWritePNG(NSURL *url,NSData *bgra) {
     NSMutableDictionary *m=[LGDLBaseMetadata(self.runIdentifier,self.directoryName,name,serial,s,c,source,u) mutableCopy];
     m[@"result"]=@"ENCODING_FAILED"; m[@"failure"]=reason; m[@"capturePass"]=@NO;
     NSURL *url=[self.directoryURL URLByAppendingPathComponent:[name stringByAppendingString:@".json"]];
-    NSError *e=nil; if (!LGDLWriteJSON(url,m,&e)) NSLog(@"LGDesignedLightCapture failure manifest write failed: %@",e.localizedDescription);
+    NSError *e=nil; if (!LGDLWriteJSON(url,m,&e)) m[@"failureManifestWriteFailed"]=@YES;
+    [self.ledger record:m];
 }
 - (LGDesignedLightCaptureRecord *)encodeForCommand:(id<MTLCommandBuffer>)command device:(id<MTLDevice>)device
     pipeline:(id<MTLRenderPipelineState>)pipeline sampler:(id<MTLSamplerState>)sampler drawable:(id<MTLTexture>)drawable
     source:(id<MTLTexture>)source uniforms:(LGLocalButtonUniforms)uniforms state:(LGButtonOpticalState)state
     contract:(LGLocalButtonSourceContract)contract serial:(uint64_t)serial {
     NSString *name=[self candidateAndClaim:state]; if (!name) return nil;
+    if (!LGDLPrimaryStrengthIsOn(uniforms.fresnelGlareStrength)) {
+        [self writeEncodingFailure:name serial:serial state:state contract:contract source:source
+            uniforms:uniforms reason:@"Primary drawable strength must already be finite and exactly1; no auxiliary encoders appended."];
+        return nil;
+    }
     NSString *why=nil; const float w=uniforms.outputResolution.x,h=uniforms.outputResolution.y;
     BOOL valid=command&&device&&pipeline&&sampler&&drawable&&source&&
         command.status==MTLCommandBufferStatusNotEnqueued && command.commandQueue.device==device &&
@@ -248,7 +315,9 @@ static BOOL LGDLWritePNG(NSURL *url,NSData *bgra) {
     m[@"actualDrawableReadbackPerformed"]=@NO; m[@"primaryFramebufferOnlyChanged"]=@NO;
     m[@"outputs"]=@{@"off":@"OFF",@"on":@"ON"};
     LGDesignedLightCaptureRecord *r=[LGDesignedLightCaptureRecord new]; r.stateName=name; r.directoryURL=self.directoryURL;
-    r.metadata=m; r.offTexture=off; r.onTexture=on; return r;
+    r.metadata=m; r.offTexture=off; r.onTexture=on; r.ledger=self.ledger;
+    [self.ledger record:m]; return r;
 }
 @end
+NS_ASSUME_NONNULL_END
 #endif /* LG_LOCAL_DESIGNED_LIGHT_EXPERIMENT == 1 */

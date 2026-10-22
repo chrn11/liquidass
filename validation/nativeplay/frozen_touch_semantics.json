@@ -1,0 +1,102 @@
+{
+  "schema_version": 1,
+  "baseline": "build29 UIKit/source baseline; exact method bodies, no runtime claims",
+  "methods": [
+    {
+      "file": "stage/validation/nativeplay/OwnedTouchRuntimeProbe.mm",
+      "selector": "-beginTrackingWithTouch:withEvent:",
+      "signature": "- (BOOL)beginTrackingWithTouch:(UITouch *)touch withEvent:(UIEvent * _Nullable)event",
+      "body_sha256": "0b751774390704836ff3c3b79ff20e4b4f1118c8099d5918eaf3f3e0fc219df4"
+    },
+    {
+      "file": "stage/validation/nativeplay/OwnedTouchRuntimeProbe.mm",
+      "selector": "-continueTrackingWithTouch:withEvent:",
+      "signature": "- (BOOL)continueTrackingWithTouch:(UITouch *)touch withEvent:(UIEvent * _Nullable)event",
+      "body_sha256": "a1734a3d620cf6f7c32bee87f761bfad8acfcda21a05fdb4ef5f5739338ec958"
+    },
+    {
+      "file": "stage/validation/nativeplay/OwnedTouchRuntimeProbe.mm",
+      "selector": "-endTrackingWithTouch:withEvent:",
+      "signature": "- (void)endTrackingWithTouch:(UITouch * _Nullable)touch withEvent:(UIEvent * _Nullable)event",
+      "body_sha256": "3d16bfd39909dfa1a35a0b6fe87de2f6d409b6b76959f5d96fdac7a575cf9790"
+    },
+    {
+      "file": "stage/validation/nativeplay/OwnedTouchRuntimeProbe.mm",
+      "selector": "-cancelTrackingWithEvent:",
+      "signature": "- (void)cancelTrackingWithEvent:(UIEvent * _Nullable)event",
+      "body_sha256": "e1fb96b3027dae825abd303cfc902d2f9dd467a09ba57a43997660874f90bf22"
+    },
+    {
+      "file": "stage/validation/nativeplay/OwnedTouchRuntimeProbe.mm",
+      "selector": "-synchronizeOverlayGeometry",
+      "signature": "- (BOOL)synchronizeOverlayGeometry",
+      "body_sha256": "2f8cec8f2c9577e91ea0b6a52bd85afbfbe8cff7f799330eef46ac7fd0550285"
+    },
+    {
+      "file": "stage/validation/nativeplay/OwnedTouchRuntimeProbe.mm",
+      "selector": "-refreshEligibility",
+      "signature": "- (void)refreshEligibility",
+      "body_sha256": "2ad3a90b84c8e6fa456e9d708247054363b2360b8ce26d0d5eaa471c33b6fb0a"
+    },
+    {
+      "file": "stage/validation/nativeplay/OwnedTouchRuntimeProbe.mm",
+      "selector": "-trackingCallback:touch:originalResult:originalResultAvailable:inside:acceptedTouch:",
+      "signature": "- (void)trackingCallback:(NSString *)phase touch:(UITouch * _Nullable)touch originalResult:(BOOL)result originalResultAvailable:(BOOL)resultAvailable inside:(BOOL)inside acceptedTouch:(BOOL)acceptedTouch",
+      "body_sha256": "11f6051d5dac458874da14976188d46e034a2232dfe9a935dc80d9cd9a26cccd"
+    },
+    {
+      "file": "stage/validation/nativeplay/OwnedTouchRuntimeProbe.mm",
+      "selector": "-cancelCallback",
+      "signature": "- (void)cancelCallback",
+      "body_sha256": "f2850547acb7aa43b83d3551b58fdf50631653e22191ad594ccfa8512e094330"
+    },
+    {
+      "file": "stage/validation/nativeplay/OwnedTouchRuntimeProbe.mm",
+      "selector": "-submitSnapshotForReason:initial:",
+      "signature": "- (BOOL)submitSnapshotForReason:(NSString *)reason initial:(BOOL)initial",
+      "body_sha256": "dc3d2a8bdc348007c66d6808b1b5c6dec9abf4c28b6b7c2720614754f7f135dc"
+    },
+    {
+      "file": "stage/validation/nativeplay/OwnedTouchRuntimeProbe.mm",
+      "selector": "-isActuallyCompletedSample:renderer:observedSerial:sourceKind:",
+      "signature": "- (BOOL)isActuallyCompletedSample:(NSMutableDictionary *)sample renderer:(LGLocalButtonMaterialView *)view observedSerial:(uint64_t)serial sourceKind:(NSString *)sourceKind",
+      "body_sha256": "69a4801cd92fe3fbf04cd3bb65b82596d870a7796830ade1ab4d2b89b3ce1199"
+    },
+    {
+      "file": "stage/validation/nativeplay/OwnedTouchRuntimeProbe.mm",
+      "selector": "-markSampleActuallyCompleted:observedSerial:sourceKind:",
+      "signature": "- (void)markSampleActuallyCompleted:(NSMutableDictionary *)sample observedSerial:(uint64_t)serial sourceKind:(NSString *)sourceKind",
+      "body_sha256": "ed000e8b4914c88a0d4abf9912a20e688b789e6a786a8f378ef238632b37d3a7"
+    },
+    {
+      "file": "stage/validation/nativeplay/OwnedTouchRuntimeProbe.mm",
+      "selector": "-observeCompletionSequence:sample:startedAt:attempt:",
+      "signature": "- (void)observeCompletionSequence:(uint64_t)sequence sample:(NSMutableDictionary *)sample startedAt:(CFTimeInterval)startedAt attempt:(NSUInteger)attempt",
+      "body_sha256": "cb3ba5a46575f06d8d8824029b358b3a10c15f02bedacb6d66e80985d82247c7"
+    },
+    {
+      "file": "stage/validation/nativeplay/OwnedTouchRuntimeProbe.mm",
+      "selector": "-rendererAvailabilityChanged:available:",
+      "signature": "- (void)rendererAvailabilityChanged:(LGLocalButtonMaterialView *)view available:(BOOL)available",
+      "body_sha256": "30468847b408dbde1e5f5ab4b0630a2426161ffe424af0ac445b266e3614a716"
+    },
+    {
+      "file": "stage/validation/nativeplay/OwnedTouchRuntimeProbe.mm",
+      "selector": "-tupleMatchesActuallyObservedSample:",
+      "signature": "- (BOOL)tupleMatchesActuallyObservedSample:(NSDictionary *)tuple",
+      "body_sha256": "77ba860119b26c347cc3cd3caf5572db845c05e59e70a3f8445bd77b9f0e9150"
+    },
+    {
+      "file": "stage/validation/nativeplay/OwnedTouchRuntimeProbe.mm",
+      "selector": "-latestRequestIsCompletedRelease",
+      "signature": "- (BOOL)latestRequestIsCompletedRelease",
+      "body_sha256": "343dfb0523e3d35bc2110637f227182a437e49027a4477fa71e515d6bc83d44c"
+    },
+    {
+      "file": "stage/validation/nativeplay/OwnedTouchRuntimeProbe.mm",
+      "selector": "-cleanupFixture",
+      "signature": "- (void)cleanupFixture",
+      "body_sha256": "871150b05c0976ea036a048f928777ac2fe92a43903bfee5b899ea2fddd75391"
+    }
+  ]
+}

@@ -1039,6 +1039,7 @@ static NSArray<UIColor *> *LGOwnedTouchPalette(void) {
 - (void)finishWithStatus:(NSString *)status failure:(NSString *)failure {
     if (self.didCleanup) return;
     NSDictionary *base=[self buildFinalResult:status failure:failure];
+    LGDLFixtureCaptureFinalizer captureFinalizer=[self.material experimentalCaptureSuiteFinalizer];
     [self cleanupFixture];
     NSMutableDictionary *result=[base mutableCopy]; result[@"cleanupCompleted"]=@YES;
     NSMutableArray *finalChecks=[result[@"checks"] mutableCopy]?:[NSMutableArray array];
@@ -1051,7 +1052,21 @@ static NSArray<UIColor *> *LGOwnedTouchPalette(void) {
     result[@"checks"]=[finalChecks copy];
     void (^callback)(NSDictionary *)=self.completion; self.completion=nil;
     [LGOwnedTouchLiveProbes() removeObjectForKey:self.runIdentifier?:@""];
-    if (callback) callback([result copy]);
+    if (captureFinalizer) {
+        captureFinalizer(^(NSDictionary *suite) {
+            NSMutableDictionary *finished=[result mutableCopy];
+            finished[@"captureSuiteResult"]=suite;
+            finished[@"captureSuiteStatus"]=suite[@"captureSuiteStatus"]?:@"FAIL_NO_CAPTURE_STATUS";
+            BOOL touchPass=[finished[@"status"] isEqual:@"PASS_REAL_UIKIT_TOUCH_AND_COMPLETED_LOCAL_RENDER"];
+            finished[@"experimentAcceptanceStatus"]=(touchPass && [suite[@"pass"] boolValue])?
+                @"PASS_TOUCH_AND_FOUR_AUXILIARY_GPU_CAPTURES":@"FAIL_TOUCH_OR_CAPTURE_SUITE";
+            if (callback) callback([finished copy]);
+        });
+    } else {
+        result[@"captureSuiteStatus"]=@"FAIL_CAPTURE_NOT_INITIALIZED";
+        result[@"experimentAcceptanceStatus"]=@"FAIL_TOUCH_OR_CAPTURE_SUITE";
+        if (callback) callback([result copy]);
+    }
 }
 @end
 

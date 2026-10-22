@@ -57,8 +57,8 @@ jobs:
           mkdir -p sdks
           ln -s "$SDK" sdks/iPhoneOS16.5.sdk
           echo "THEOS=$THEOS" >> "$GITHUB_ENV"
-          mkdir -p "$GITHUB_WORKSPACE/ci-artifacts/local-renderer-build16/logs"
-          git submodule status > "$GITHUB_WORKSPACE/ci-artifacts/local-renderer-build16/logs/dependency-source-refs.txt"
+          mkdir -p "$GITHUB_WORKSPACE/ci-artifacts/local-renderer-hardening-build30/logs"
+          git submodule status > "$GITHUB_WORKSPACE/ci-artifacts/local-renderer-hardening-build30/logs/dependency-source-refs.txt"
       - name: Build only the same-App local renderer validation on macOS
         shell: bash
         run: bash validation/nativeplay/build-macos.sh
@@ -66,7 +66,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: LiquidAss-local-renderer-build16-UNSIGNED
-          path: ci-artifacts/local-renderer-build16/
+          name: LiquidAss-local-renderer-hardening-build30-UNSIGNED
+          path: ci-artifacts/local-renderer-hardening-build30/
           if-no-files-found: error
           retention-days: 7
