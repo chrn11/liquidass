@@ -384,7 +384,7 @@
     "validation/nativeplay/AppOwnedBackgroundRuntimeProbe.h": "d671c816e8816145663421be7d0d5610b4701afe06084c0c816e75e887c78908",
     "validation/nativeplay/AppOwnedBackgroundRuntimeProbe.mm": "935c2a0a76b42574baf826ee36613754dae1271c729e6087aac693d92ba87c4e",
     "validation/nativeplay/LGDesignedLightExperimentPolicy.h": "3e9179866f42b0dfbc5427da43eb27d0ad46a4488806f60b8eebda696b4f9a90",
-    "validation/nativeplay/LGDesignedLightGPUCapture.h": "fc81b4cbc3e9e27dafe1102740f2b597b6fec2cf3a0780118b077a72fcca14a8",
+    "validation/nativeplay/LGDesignedLightGPUCapture.h": "d57537b5c3e9ebbd8918a7c2ed341210986d34e36900bc73bea8317a92bd200c",
     "validation/nativeplay/LocalRendererRuntimeProbe.h": "e8c3a3206e64ce9ec7cd8978f8caaf4180c4c995ea6d7ac7b3faaa6d07bcc701",
     "validation/nativeplay/LocalRendererRuntimeProbe.mm": "d35996ba906310c3f6cb650983494a041cf8b8daffd377afada8e6eb2ed96bc4",
     "validation/nativeplay/OwnedTouchRuntimeProbe.h": "724a0c329ea957a180701e1abbbabae3d945d7ff849023cf50e3b5e6bfb603c9",
@@ -544,7 +544,7 @@
     "sharedUniformBuilderChanged": false,
     "rendererSHA256": "99c4d461604f5785083eb5ddc475ac2aee037c6b35b632df6c14745c9b961d51",
     "rendererHeaderSHA256": "481b247baee40d22be154d3f19d4ce59ee57c3d633118a864a16e5448ed980d7",
-    "captureHelperSHA256": "fc81b4cbc3e9e27dafe1102740f2b597b6fec2cf3a0780118b077a72fcca14a8",
+    "captureHelperSHA256": "d57537b5c3e9ebbd8918a7c2ed341210986d34e36900bc73bea8317a92bd200c",
     "realUIKitFixtureSHA256": "47ad81d1e0a16da8d110144bf352acfc7d914f485a71bbdad4fea11230362334",
     "nativeParentOffIdentity": "NOT_RUN; native auxiliary variants compare same candidate OFF/ON, prior Mac OFF identity is separate",
     "fixturePaddingPoints": [

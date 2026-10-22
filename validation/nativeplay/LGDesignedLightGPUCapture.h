@@ -169,8 +169,8 @@ static BOOL LGDLWritePNG(NSURL *url,NSData *bgra) {
 @property(nonatomic,copy,readwrite) NSString *stateName;
 @property(nonatomic,strong) NSURL *directoryURL;
 @property(nonatomic,copy) NSDictionary *metadata;
-@property(nonatomic,strong) id<MTLTexture> offTexture;
-@property(nonatomic,strong) id<MTLTexture> onTexture;
+@property(nonatomic,strong,nullable) id<MTLTexture> offTexture;
+@property(nonatomic,strong,nullable) id<MTLTexture> onTexture;
 @property(nonatomic,strong) LGDesignedLightCaptureLedger *ledger;
 @end
 @implementation LGDesignedLightCaptureRecord
@@ -229,7 +229,7 @@ static BOOL LGDLWritePNG(NSURL *url,NSData *bgra) {
 @property(nonatomic,strong) LGDesignedLightCaptureLedger *ledger;
 @end
 @implementation LGDesignedLightCapture
-- (instancetype)init {
+- (nullable instancetype)init {
     if (![NSBundle.mainBundle.bundleIdentifier isEqualToString:@"org.liquidass.native-play-lab"]) return nil;
     if (!(self=[super init])) return nil;
     _runIdentifier=NSUUID.UUID.UUIDString;
@@ -243,7 +243,7 @@ static BOOL LGDLWritePNG(NSURL *url,NSData *bgra) {
 - (void)finishSuiteWithCompletion:(void (^)(NSDictionary *suite))completion {
     LGDLAwaitLedger(self.ledger,NSProcessInfo.processInfo.systemUptime+0.75,[completion copy]);
 }
-- (NSString *)candidateAndClaim:(LGButtonOpticalState)s {
+- (nullable NSString *)candidateAndClaim:(LGButtonOpticalState)s {
     if (!s.eligible) return nil;
     @synchronized(self) {
         BOOL contact=s.tracking && s.touchValid && isfinite(s.pressure) && s.pressure>0.0f &&
@@ -272,7 +272,7 @@ static BOOL LGDLWritePNG(NSURL *url,NSData *bgra) {
     NSError *e=nil; if (!LGDLWriteJSON(url,m,&e)) m[@"failureManifestWriteFailed"]=@YES;
     [self.ledger record:m];
 }
-- (LGDesignedLightCaptureRecord *)encodeForCommand:(id<MTLCommandBuffer>)command device:(id<MTLDevice>)device
+- (nullable LGDesignedLightCaptureRecord *)encodeForCommand:(id<MTLCommandBuffer>)command device:(id<MTLDevice>)device
     pipeline:(id<MTLRenderPipelineState>)pipeline sampler:(id<MTLSamplerState>)sampler drawable:(id<MTLTexture>)drawable
     source:(id<MTLTexture>)source uniforms:(LGLocalButtonUniforms)uniforms state:(LGButtonOpticalState)state
     contract:(LGLocalButtonSourceContract)contract serial:(uint64_t)serial {
