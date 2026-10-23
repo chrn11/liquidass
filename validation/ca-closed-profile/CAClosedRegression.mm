@@ -122,7 +122,8 @@ static bool SavePNG(NSString *path, const uint8_t *bytes, NSUInteger width, NSUI
     CGImageRef image=provider&&cs?CGImageCreate(width,height,8,32,width*4,cs,info,provider,NULL,false,kCGRenderingIntentDefault):NULL;
     NSURL *url=[NSURL fileURLWithPath:path];
     CGImageDestinationRef dest=image?CGImageDestinationCreateWithURL((__bridge CFURLRef)url,CFSTR("public.png"),1,NULL):NULL;
-    bool ok=dest&&CGImageDestinationAddImage(dest,image,NULL), finalized=ok&&CGImageDestinationFinalize(dest);
+    bool finalized=false;
+    if (dest) { CGImageDestinationAddImage(dest,image,NULL); finalized=CGImageDestinationFinalize(dest); }
     if (dest) CFRelease(dest); if (image) CGImageRelease(image); if (cs) CGColorSpaceRelease(cs);
     if (provider) CGDataProviderRelease(provider); CFRelease(data); return finalized;
 }
@@ -168,7 +169,7 @@ static id<MTLTexture> MakeSource(id<MTLDevice> device, NSUInteger w, NSUInteger 
 }
 static id<MTLTexture> MakeColorTarget(id<MTLDevice> device, NSUInteger w, NSUInteger h) {
     MTLTextureDescriptor *d=[MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatBGRA8Unorm_sRGB width:w height:h mipmapped:NO];
-    d.usage=MTLTextureUsageRenderTarget|MTLTextureUsageBlitSource; d.storageMode=MTLStorageModePrivate;
+    d.usage=MTLTextureUsageRenderTarget; d.storageMode=MTLStorageModePrivate;
     return [device newTextureWithDescriptor:d];
 }
 static id<MTLTexture> MakeReadback(id<MTLDevice> device, NSUInteger w, NSUInteger h) {
