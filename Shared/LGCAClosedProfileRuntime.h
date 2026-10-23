@@ -27,17 +27,20 @@ static BOOL LGCAClosedTexturesAreDisjoint(id<MTLTexture> source,id<MTLTexture> d
 }
 @interface LGCAClosedAuditLease : NSObject
 @property(nonatomic,strong,readonly) id<MTLBuffer> buffer;
-- (instancetype)initWithBuffer:(id<MTLBuffer>)buffer;
+// Weak after completion: a retained lease must not cache source pixels.
+@property(nonatomic,weak,readonly,nullable) id<MTLTexture> sourceTexture;
+- (instancetype)initWithBuffer:(id<MTLBuffer>)buffer sourceTexture:(id<MTLTexture>)snapshot;
 @end
 @implementation LGCAClosedAuditLease
-- (instancetype)initWithBuffer:(id<MTLBuffer>)buffer {
-    if ((self=[super init])) _buffer=buffer; return self;
+- (instancetype)initWithBuffer:(id<MTLBuffer>)buffer sourceTexture:(id<MTLTexture>)snapshot {
+    if ((self=[super init])) { _buffer=buffer; _sourceTexture=snapshot; } return self;
 }
 @end
 @interface LGCAAuditSlot : NSObject
 @property(nonatomic,strong) id<MTLBuffer> buffer;
 @property(nonatomic) BOOL busy;
 @property(nonatomic) uint64_t generation;
+@property(nonatomic,strong,nullable) id<MTLTexture> snapshot;
 @end
 @implementation LGCAAuditSlot @end
 @interface LGCAClosedProfileRuntime : NSObject
@@ -93,8 +96,13 @@ static BOOL LGCAClosedTexturesAreDisjoint(id<MTLTexture> source,id<MTLTexture> d
 }
 - (NSDictionary *)poolSnapshot {
     @synchronized(self) {
-        NSUInteger busy=0;for (LGCAAuditSlot *slot in self.slots) busy+=slot.busy?1u:0u;
-        return @{@"busyCount":@(busy),@"slotCount":@(self.slots.count),@"retainsSourceFrames":@NO};
+        NSUInteger busy=0,copies=0;for (LGCAAuditSlot *slot in self.slots) {
+            busy+=slot.busy?1u:0u;copies+=slot.snapshot?1u:0u;
+        }
+        return @{@"busyCount":@(busy),@"slotCount":@(self.slots.count),@"ownedSnapshotCount":@(copies),
+            @"retainsOriginalSourceUntilCommandCompletion":@(busy>0),
+            @"retainsOriginalSourceAfterCompletion":@NO,
+            @"ownedSnapshotMaximumInFlight":@3,@"ownedSnapshotReleasedOnCompletion":@YES};
     }
 }
 - (nullable LGCAClosedAuditLease *)encodeAuditForSource:(id<MTLTexture>)source
@@ -122,16 +130,31 @@ static BOOL LGCAClosedTexturesAreDisjoint(id<MTLTexture> source,id<MTLTexture> d
     id<MTLTexture> sourceUntilCommandCompletion=source;
     [command addCompletedHandler:^(__unused id<MTLCommandBuffer> completed) {
         (void)sourceUntilCommandCompletion.width;
-        @synchronized(self) { if (retainedSlot.generation==generation) retainedSlot.busy=NO; }
+        @synchronized(self) { if (retainedSlot.generation==generation) {
+            retainedSlot.snapshot=nil;retainedSlot.busy=NO;
+        } }
     }];
+    MTLTextureDescriptor *snapshotDescriptor=[MTLTextureDescriptor
+        texture2DDescriptorWithPixelFormat:MTLPixelFormatBGRA8Unorm_sRGB
+        width:source.width height:source.height mipmapped:NO];
+    snapshotDescriptor.storageMode=MTLStorageModePrivate;
+    snapshotDescriptor.hazardTrackingMode=MTLHazardTrackingModeTracked;
+    snapshotDescriptor.usage=MTLTextureUsageShaderRead;
+    id<MTLTexture> snapshot=[self.device newTextureWithDescriptor:snapshotDescriptor];
+    if (!snapshot) return nil;
+    selected.snapshot=snapshot; // slot and original command own it only until completion
     *(uint32_t *)selected.buffer.contents=0u; // DENY/PENDING; only finalizer can write ACCEPT_MAGIC.
     id<MTLBlitCommandEncoder> clear=[command blitCommandEncoder];
     if (!clear) return nil;
-    [clear fillBuffer:selected.buffer range:NSMakeRange(0,sizeof(uint32_t)) value:0];[clear endEncoding];
+    [clear fillBuffer:selected.buffer range:NSMakeRange(0,sizeof(uint32_t)) value:0];
+    [clear copyFromTexture:source sourceSlice:0 sourceLevel:0 sourceOrigin:MTLOriginMake(0,0,0)
+        sourceSize:MTLSizeMake(source.width,source.height,1) toTexture:snapshot
+        destinationSlice:0 destinationLevel:0 destinationOrigin:MTLOriginMake(0,0,0)];
+    [clear endEncoding];
     id<MTLComputeCommandEncoder> audit=[command computeCommandEncoder];
     if (!audit) return nil;
     [audit setComputePipelineState:self.auditPipeline];
-    [audit setTexture:source atIndex:0];[audit setBuffer:selected.buffer offset:0 atIndex:1];
+    [audit setTexture:snapshot atIndex:0];[audit setBuffer:selected.buffer offset:0 atIndex:1];
     [audit dispatchThreadgroups:MTLSizeMake((source.width+7u)/8u,(source.height+7u)/8u,1)
         threadsPerThreadgroup:MTLSizeMake(8,8,1)];
     [audit endEncoding];
@@ -140,10 +163,10 @@ static BOOL LGCAClosedTexturesAreDisjoint(id<MTLTexture> source,id<MTLTexture> d
     id<MTLComputeCommandEncoder> finalize=[command computeCommandEncoder];
     if (!finalize) return nil;
     [finalize setComputePipelineState:self.finalizePipeline];
-    [finalize setTexture:source atIndex:0];[finalize setBuffer:selected.buffer offset:0 atIndex:1];
+    [finalize setTexture:snapshot atIndex:0];[finalize setBuffer:selected.buffer offset:0 atIndex:1];
     [finalize dispatchThreadgroups:MTLSizeMake(1,1,1) threadsPerThreadgroup:MTLSizeMake(1,1,1)];
     [finalize endEncoding];
-    return [[LGCAClosedAuditLease alloc] initWithBuffer:selected.buffer];
+    return [[LGCAClosedAuditLease alloc] initWithBuffer:selected.buffer sourceTexture:snapshot];
 }
 @end
 /* Only one physical device is accepted by this optional cache. Original CA

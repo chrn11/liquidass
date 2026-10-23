@@ -21,6 +21,11 @@ runtime=(R/'Shared/LGCAClosedProfileRuntime.h').read_text()
 for token in ['source.mipmapLevelCount!=1','source.parentTexture','source.buffer','source.heap','IOSurfaceGetID(a)==IOSurfaceGetID(b)','MTLResourceHazardTrackingModeTracked','selected.buffer.contents=0u','self.finalizePipeline','slot.generation++','retainedSlot.generation==generation','self.slots','newBufferWithLength:sizeof(uint32_t)']:
  assert token in runtime,token
 assert runtime.index('[audit endEncoding]')<runtime.index('id<MTLComputeCommandEncoder> finalize=')<runtime.index('[finalize endEncoding]')
+assert 'glassSourceTexture=closedAudit.sourceTexture' in s
+for token in ['copyFromTexture:source','toTexture:snapshot','[audit setTexture:snapshot atIndex:0]','[finalize setTexture:snapshot atIndex:0]','sourceTexture:snapshot','retainedSlot.snapshot=nil','ownedSnapshotCount','weak,readonly,nullable']:
+ assert token in runtime,('Immutable owned snapshot invariant missing',token)
+assert '[audit setTexture:source ' not in runtime and '[finalize setTexture:source ' not in runtime
+assert runtime.index('copyFromTexture:source')<runtime.index('[audit setTexture:snapshot')<runtime.index('[finalize setTexture:snapshot')
 assert 'waitUntilCompleted' not in runtime and '[command commit]' not in runtime and 'getBytes:' not in runtime
 assert 'atomic_load_explicit(auditWord,memory_order_relaxed)!=0x4c474341u' in metal
 assert 'observed==expected' in metal and 'atomic_fetch_add_explicit(auditWord,1u' in metal

@@ -1923,7 +1923,8 @@ static void ourCustomRender13(void *self, void *filter, void *layer, void *ctx,
         (float)w,(float)h,(float)destTex.width,(float)destTex.height,scale)) {
         LGCAClosedProfileRuntime *closedRuntime=LGCAClosedRuntimeForDevice(device);
         if (closedRuntime) closedAudit=[closedRuntime encodeAuditForSource:origTex command:cmdBuf];
-        if (closedAudit) {
+        if (closedAudit && closedAudit.sourceTexture) {
+            glassSourceTexture=closedAudit.sourceTexture;
             /* Not a new ABI: value2 marks this distinct opt-in shader branch.
              * Original value1/old source/library/pipeline remain untouched.
              * The GPU still requires a full-source positive opaque-audit token. */
