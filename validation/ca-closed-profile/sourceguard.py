@@ -13,7 +13,7 @@ assert 'g_caClosedProfileRequested{false}' in s and 'g_caDesignedLightRequested{
 assert 'LG_CA_CLOSED_PROFILE ?= 0' in (R/'LiquidAssBackboardd/Makefile').read_text()
 assert sha(R/'Shared/LGButtonOpticsFormula.inc')==M['baselineFormulaSHA256']
 for n,h in M['profileMathSHA256'].items():assert sha(V/'pinned-local-math'/n)==h
-h=(R/'Shared/LGCAClosedProfileShaderSource.h').read_text();metal=re.search(r'R"LGCA_CLOSED_PROFILE\((.*?)\)LGCA_CLOSED_PROFILE"',h,re.S).group(1);old=re.search(r'R"LGCA_CLOSED_BASELINE\((.*?)\)LGCA_CLOSED_BASELINE"',h,re.S).group(1)
+h=(R/'Shared/LGCAClosedProfileShaderSource.h').read_text();metal=re.search(r'R"LGCA_PROF\((.*?)\)LGCA_PROF"',h,re.S).group(1);old=re.search(r'R"LGCA_BASE\((.*?)\)LGCA_BASE"',h,re.S).group(1)
 assert metal.startswith(old) and metal.count('struct Uniforms {')==1
 assert hashlib.sha256(metal.encode()).hexdigest()==M['profileMSLSHA256']
 assert hashlib.sha256(old.encode()).hexdigest()==M['baselineMSLSHA256']

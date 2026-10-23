@@ -43,8 +43,8 @@
       "sha256": "afc8bcff90130e258d9651642e1ef51c519b4dff6cdb45f591f2462a5f829462"
     },
     "LGCAClosedProfileShaderSource.h": {
-      "bytes": 93155,
-      "sha256": "00f62812905ccb951fb809c435ffdd0aebc193141ba42081dddf15ba0489f80b"
+      "bytes": 93113,
+      "sha256": "408251c8aeaf9769cc4731346dbd8f363cbd18449a984561f3d38f719852dff3"
     },
     "LiquidAssCAClosed.metal": {
       "bytes": 60032,
