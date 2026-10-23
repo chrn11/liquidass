@@ -1,0 +1,10 @@
+{
+  "originalAsset": "Original project synthetic botanical, NOT Apple artwork and NOT real CA capture",
+  "originalPNG_SHA256": "028a69496776ec609800cf9bf27201e122c0075e82f25fc9bd1e4b0d8743515b",
+  "fixedSourceBGRA_SHA256": "ece03d8bbfc1d4a8c652afb729201365b000ad962640859df57acf54ea5172ff",
+  "inputTransform": "Pillow Lanczos resize of original fixed artwork to132x132 for deterministic source only; no CPU material rendering",
+  "width": 132,
+  "height": 132,
+  "alpha": "All255",
+  "format": "BGRA8 sRGB bytes"
+}

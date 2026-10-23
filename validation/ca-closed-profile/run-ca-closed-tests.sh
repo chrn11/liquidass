@@ -34,7 +34,7 @@ xcrun --sdk macosx clang++ \
 compile_status=$?
 if [ "$compile_status" -ne 0 ]; then echo "harness build failed ($compile_status)" >&2; exit "$compile_status"; fi
 
-"$binary" "$out_root"
+"$binary" "$out_root" "$repo_root/validation/ca-closed-profile/assets/botanical132.bgra"
 run_status=$?
 case "$run_status" in
   0)  echo "CA-closed Metal regression PASS; report: $out_root/json/run.json" ;;

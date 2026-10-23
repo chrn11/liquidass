@@ -186,12 +186,13 @@ static id<MTLTexture> MakeGlyphMask(id<MTLDevice> device) {
 static RenderResult Draw(id<MTLDevice> device, id<MTLCommandQueue> queue,
                          LGCAClosedProfileRuntime *runtime, id<MTLRenderPipelineState> oldPipeline,
                          id<MTLTexture> source, id<MTLTexture> glyph, const LGCAClosedTestUniforms& u,
-                         NSUInteger outW, NSUInteger outH, bool tryProfile) {
+                         NSUInteger outW, NSUInteger outH, bool tryProfile, id<MTLBuffer> faultToken=nil) {
     RenderResult r; id<MTLTexture> target=MakeColorTarget(device,outW,outH), readback=MakeReadback(device,outW,outH);
     id<MTLCommandBuffer> cb=[queue commandBuffer];
     if (!target||!readback||!cb) { r.errorMessage=@"texture/command allocation failed"; return r; }
     id<MTLRenderPipelineState> pipeline=oldPipeline;
-    if (tryProfile) {
+    if (faultToken) { pipeline=runtime.renderPipeline; r.usedProfile=YES; }
+    else if (tryProfile) {
         r.lease=[runtime encodeAuditForSource:source command:cb];
         if (r.lease) { pipeline=runtime.renderPipeline; r.usedProfile=YES; }
     }
@@ -205,7 +206,7 @@ static RenderResult Draw(id<MTLDevice> device, id<MTLCommandQueue> queue,
     [enc setCullMode:MTLCullModeNone]; [enc setFrontFacingWinding:MTLWindingClockwise];
     [enc setFragmentTexture:source atIndex:0]; [enc setFragmentTexture:glyph atIndex:1];
     [enc setFragmentBytes:&u length:sizeof(u) atIndex:0];
-    if (r.usedProfile) [enc setFragmentBuffer:r.lease.buffer offset:0 atIndex:1];
+    if (r.usedProfile) [enc setFragmentBuffer:faultToken?:r.lease.buffer offset:0 atIndex:1];
     [enc drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3]; [enc endEncoding];
     id<MTLBlitCommandEncoder> blit=[cb blitCommandEncoder];
     if (!blit) { r.errorMessage=@"readback blit encoder allocation failed"; [cb commit]; [cb waitUntilCompleted]; r.commandStatus=StatusName(cb.status); return r; }
@@ -218,7 +219,8 @@ static RenderResult Draw(id<MTLDevice> device, id<MTLCommandQueue> queue,
     }
     r.pixels.resize(outW*outH*4);
     [readback getBytes:r.pixels.data() bytesPerRow:outW*4 fromRegion:MTLRegionMake2D(0,0,outW,outH) mipmapLevel:0];
-    if (r.lease && r.lease.buffer.contents) { memcpy(&r.auditFlag,r.lease.buffer.contents,sizeof(r.auditFlag)); r.auditFlagAvailable=YES; }
+    id<MTLBuffer> token=faultToken?:r.lease.buffer;
+    if (token.contents) { memcpy(&r.auditFlag,token.contents,sizeof(r.auditFlag)); r.auditFlagAvailable=YES; }
     else if (r.lease) r.errorMessage=@"audit lease buffer is not CPU-readable after completion";
     return r;
 }
@@ -301,6 +303,7 @@ static bool BorderEqual(const std::vector<uint8_t>& a,const std::vector<uint8_t>
         size_t i=(y*w+x)*4; for (unsigned c=0;c<4;++c) if (a[i+c]!=b[i+c]) return false;
     } return true;
 }
+#include "CAClosedAuditFaultTests.h"
 static bool TestFormat80(NSString *outRoot,id<MTLDevice> device,id<MTLCommandQueue> queue,LGCAClosedProfileRuntime *runtime) {
     NSUInteger w=132,h=132; std::vector<uint8_t> pixels=MakeGrid(w,h);
     id<MTLTexture> source=MakeSource(device,w,h,pixels,MTLPixelFormatBGRA8Unorm);
@@ -429,6 +432,26 @@ int main(int argc,const char *argv[]) {
         lightOn.record[@"glareAssertions"]=lightOff.record[@"glareAssertions"];
         if (!glareAlphaSame||!glareLocalDiff||!candidateGeometryDiff) { lightOff.record[@"status"]=@"FAIL"; lightOn.record[@"status"]=@"FAIL"; }
         allOK=allOK&&glareAlphaSame&&glareLocalDiff&&candidateGeometryDiff;
+        // Original project artwork is a fixed test INPUT, never a CA capture.
+        if (argc<3) { fprintf(stderr,"FAIL missing deterministic botanical input\n"); return 1; }
+        NSData *input=[NSData dataWithContentsOfFile:[NSString stringWithUTF8String:argv[2]]];
+        if (input.length!=132u*132u*4u) { fprintf(stderr,"FAIL botanical input length\n"); return 1; }
+        std::vector<uint8_t> botanical(input.length);memcpy(botanical.data(),input.bytes,input.length);
+        for (size_t i=3;i<botanical.size();i+=4) if(botanical[i]!=255) return 1;
+        std::vector<uint8_t> idleNatural[2],releaseNatural[2];
+        for (unsigned state=0;state<3;state++) for (unsigned light=0;light<2;light++) {
+            NSString *stateName=@[@"idle",@"pressure",@"release"][state];
+            NSString *name=[NSString stringWithFormat:@"botanical-%@-light%u",stateName,light];
+            LGCAClosedTestUniforms u=Uniforms(132,132,132,132,2.0f,(float)light);
+            if(state==1) { u.glassThickness=52.8f;u.refractionScale=1.8f; }
+            CaseResult r=RunCase(outRoot,records,device,queue,runtime,oldPipeline,glyph,name,132,132,132,132,botanical,u,true,nil);
+            r.record[@"sourceKind"]=@"Original fixed botanical test artwork, not CA scene";
+            r.record[@"pressureIsSyntheticParameterNotRealTouch"]=@YES;
+            if(state==0)idleNatural[light]=r.profilePixels;
+            if(state==2)releaseNatural[light]=r.profilePixels;
+        }
+        bool naturalRelease=Compare(idleNatural[0],releaseNatural[0]).differentBytes==0 && Compare(idleNatural[1],releaseNatural[1]).differentBytes==0;
+        allOK=allOK&&naturalRelease;
         // A single damaged texel in a remote corner must reject the whole candidate,
         // even though it is outside the central synthetic shape and ordinary taps.
         for (uint8_t alpha : {uint8_t(0),uint8_t(64),uint8_t(128),uint8_t(254)}) {
@@ -473,11 +496,13 @@ int main(int argc,const char *argv[]) {
         edge.record[@"assertions"]=edgeAssertions;
         if (!edgeTransparent||!edgeSame) edge.record[@"status"]=@"FAIL";
         allOK=allOK&&edgeTransparent&&edgeSame;
+        bool auditFailureOK=TestAuditFailClosed(outRoot,device,queue,runtime,oldPipeline,glyph);
+        bool resourceRejectionOK=TestResourceRejections(outRoot,device,queue,runtime);
         bool formatOK=TestFormat80(outRoot,device,queue,runtime);
         bool poolOK=TestPool(outRoot,device,queue,runtime);
         bool caseFilesOK=WriteCaseReports(outRoot,records);
         bool casesPass=AllCaseRecordsPass(records);
-        allOK=allOK&&formatOK&&poolOK&&caseFilesOK&&casesPass;
+        allOK=allOK&&auditFailureOK&&resourceRejectionOK&&formatOK&&poolOK&&caseFilesOK&&casesPass;
         NSMutableArray *caseNames=[NSMutableArray array]; for (NSDictionary *r in records) [caseNames addObject:r[@"case"]];
         NSDictionary *run=@{
             @"schemaVersion":@1,@"status":allOK?@"PASS":@"FAIL",@"device":device.name?:@"unknown",
@@ -491,6 +516,7 @@ int main(int argc,const char *argv[]) {
             @"scopeLimit":@"This is a synthetic-source Metal regression, not a measurement of an ordinary live CA optical source or whole-screen visual quality.",
             @"poolTestScope":@"Three uncommitted command-buffer leases validate the fixed three-slot bound only; they are not GPU-concurrency/performance results.",
             @"glareComparison":@{@"profileOutputDifferentPixels":N(glareDiff.differentPixels),@"profileOutputDifferentBytes":N(glareDiff.differentBytes),@"profileOutputDifferentRGBBytes":N(glareDiff.rgbDifferentBytes),@"maxByteDiff":@(glareDiff.maxByteDiff),@"alphaDifferentByteCount":N(glareDiff.alphaDifferentBytes),@"alphaIdentical":@(glareAlphaSame),@"localRGBDifferencePresent":@(glareLocalDiff),@"opaqueCandidateRGBDiffersFromOld":@(candidateGeometryDiff)},
+            @"auditFailureInjectionTest":@(auditFailureOK),@"resourceRejectionTest":@(resourceRejectionOK),@"naturalReleaseMatchesIdle":@(naturalRelease),
             @"format80Test":@(formatOK),@"poolTest":@(poolOK),@"caseArtifactsWritten":@(caseFilesOK),@"caseCount":@(records.count),@"cases":caseNames,
             @"rawLayout":@"rawBGRA files are tightly packed 4-byte BGRA rows, top-to-bottom, no header; these are authoritative.",
             @"pngNote":@"PNG files are ImageIO previews wrapped from captured GPU output bytes; rawBGRA is authoritative for exact comparisons.",
