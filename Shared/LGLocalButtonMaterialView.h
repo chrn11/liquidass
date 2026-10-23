@@ -55,10 +55,6 @@ typedef NS_ENUM(NSInteger, LGLocalButtonRendererResult) {
 @class LGLocalButtonMaterialView;
 typedef void (^LGLocalButtonAvailabilityHandler)(LGLocalButtonMaterialView *view,
                                                    BOOL available);
-#if defined(LG_LOCAL_DESIGNED_LIGHT_EXPERIMENT) && LG_LOCAL_DESIGNED_LIGHT_EXPERIMENT == 1
-typedef void (^LGDLFixtureCaptureCompletion)(NSDictionary *suite);
-typedef void (^LGDLFixtureCaptureFinalizer)(LGDLFixtureCaptureCompletion completion);
-#endif
 @interface LGLocalButtonMaterialView : MTKView <MTKViewDelegate>
 /* Main-thread callback for this exact renderer instance. YES means either the
  * current submission serial actually completed, or the separately retained
@@ -72,18 +68,6 @@ typedef void (^LGDLFixtureCaptureFinalizer)(LGDLFixtureCaptureCompletion complet
                         sourceProvider:(id<LGLocalButtonSourceProvider>)provider
                  allowApproximateSource:(BOOL)allowApproximateSource
                      explicitOptIn:(BOOL)explicitOptIn NS_DESIGNATED_INITIALIZER;
-#if defined(LG_LOCAL_DESIGNED_LIGHT_EXPERIMENT) && LG_LOCAL_DESIGNED_LIGHT_EXPERIMENT == 1
-// Test carrier only. Immutable per-instance choice; ordinary initializer stays OFF.
-@property(nonatomic,readonly) BOOL experimentalDesignedLightEnabled;
-@property(nonatomic,copy,readonly,nullable) NSString *experimentalDesignedLightCaptureDirectoryName;
-@property(nonatomic,copy,readonly,nullable) NSString *experimentalVerifiedShaderSHA256;
-// Finalizer retains only the capture ledger/auxiliary textures, not this view or source leases.
-- (LGDLFixtureCaptureFinalizer)experimentalCaptureSuiteFinalizer;
-- (nullable instancetype)initWithFrame:(CGRect)frame targetView:(UIView *)targetView
-    sourceProvider:(id<LGLocalButtonSourceProvider>)provider
-    allowApproximateSource:(BOOL)allowApproximateSource explicitOptIn:(BOOL)explicitOptIn
-    experimentalDesignedLighting:(BOOL)enabled;
-#endif
 - (instancetype)initWithFrame:(CGRect)frame device:(nullable id<MTLDevice>)device NS_UNAVAILABLE;
 - (instancetype)initWithCoder:(NSCoder *)coder NS_UNAVAILABLE;
 

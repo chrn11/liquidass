@@ -1,5 +1,0 @@
-.theos/
-packages/
-.DS_Store
-.git-pr/*
-install.exp

@@ -1,0 +1,58 @@
+{
+  "generator": "generate_ca_closed_shader.py",
+  "inputs": {
+    "baseline_149_formula_dsl": {
+      "path": "/var/minis/workspace/liquidass-ca-closed-main/stage/validation/ca-closed-profile/frozen149/LGButtonOpticsFormula.inc",
+      "sha256": "1738e779a7e036120ac8729bfaab1d0a5624f2c89d100a702de88b8cbbbb1f8a"
+    },
+    "baseline_raw_kShaderSrc": {
+      "bytes": 20895,
+      "sha256": "1dfad14dac2d0521dbbdd7c9c8b026c8a1315cde015bda3ff8d8a767a85510bd"
+    },
+    "baseline_tweak_mm": {
+      "path": "/var/minis/workspace/liquidass-ca-closed-main/stage/validation/ca-closed-profile/frozen149/Tweak.mm",
+      "sha256": "09d384e83a2ac11cb388d4ba572868bc69af185a113e5a079d2b2c95fd9df53a"
+    },
+    "profile_175_dsl_sha256": {
+      "LGButtonOpticsFormula.inc": "01939cde683f17d32b13bc924a943970d02f92973b2ebedf2d0651d90c38a5ad",
+      "LGDesignedLighting.inc": "a06abb98962093dc9557de6b4f80775d11d3ae55d1920eab825aee19c331bcf0",
+      "LGLocalMinification.inc": "7f317e2edf0b7383c78f137ab6d2fc269a1bc91cecc20fa40e3e8dbd7ade4288"
+    },
+    "profile_175_generator": {
+      "path": "/var/minis/workspace/liquidass-ca-closed-main/stage/validation/ca-closed-profile/pinned-local-math/generate_local_button_shader.py",
+      "sha256": "8e07d4827e8f2fec5b727a0e3c2f06e1455d943afffb573894ff0a407d36dfbf"
+    }
+  },
+  "invariants": {
+    "audit_badbit_mask": "0x80000000u",
+    "audit_counter_requires_full_pixel_count": true,
+    "audit_requires_exact_opaque_alpha": true,
+    "baseline_Uniforms_and_liquidGlassPixel_byte_identical_to_raw": true,
+    "final_starts_with_exact_baseline_metal": true,
+    "finalizer_accept_magic": "0x4c474341u",
+    "finalizer_is_single_threaded": true,
+    "new_overscan_path": false,
+    "new_secondary_environment_path": false,
+    "new_uniform_fields": 0,
+    "profile_gate_buttonCandidate_exactly_2_and_full_shape": true,
+    "supported_mipmap_level_count": 1
+  },
+  "outputs": {
+    "LGCAClosedProfile.helpers.metal": {
+      "bytes": 27402,
+      "sha256": "afc8bcff90130e258d9651642e1ef51c519b4dff6cdb45f591f2462a5f829462"
+    },
+    "LGCAClosedProfileShaderSource.h": {
+      "bytes": 93155,
+      "sha256": "00f62812905ccb951fb809c435ffdd0aebc193141ba42081dddf15ba0489f80b"
+    },
+    "LiquidAssCAClosed.metal": {
+      "bytes": 60032,
+      "sha256": "001058a940642bd3d8c82ab2a8c436b928ff2d806d76d790d26080be6c3802e9"
+    },
+    "baseline.metal": {
+      "bytes": 32630,
+      "sha256": "439acfe188a36601129a1c0c364ac5e3b64371255f7dbdbe7a84ccaca944299f"
+    }
+  }
+}

@@ -10,6 +10,10 @@
 #include "../Shared/LGButtonMaterialCandidate.h"
 #include "../Shared/LGButtonOpticsShaderSource.h"
 #include "../Shared/LGButtonPressureRoute.h"
+#include "../Shared/LGCAClosedProfilePolicy.h"
+#if LG_CA_CLOSED_PROFILE_COMPILED == 1
+#import "../Shared/LGCAClosedProfileRuntime.h"
+#endif
 #include <stdio.h>
 #include <stdarg.h>
 #include <string.h>
@@ -1277,6 +1281,10 @@ static LGHostParams g_hostParams[kHostCount];
 static uint32_t g_darkAtoms[kHostCount];
 static bool         g_hostParamsInit = false;
 static float        g_fresnelGlareStrength = 0.5f;
+#if LG_CA_CLOSED_PROFILE_COMPILED == 1
+static std::atomic<bool> g_caClosedProfileRequested{false};
+static std::atomic<bool> g_caDesignedLightRequested{false};
+#endif
 static float        g_coverSheetCornerRadiusPoints = 64.0f;
 
 struct LGRadiusRoute { int host; float radiusRatio; bool dark; };
@@ -1366,6 +1374,14 @@ static bool lgDecodeTintColor(NSString *hex, simd_float4 *out) {
 
 static void lgReloadHostPrefs(void) {
     NSDictionary *prefs = [NSDictionary dictionaryWithContentsOfFile:lgPrefsPath()];
+#if LG_CA_CLOSED_PROFILE_COMPILED == 1
+    id closedRequest=prefs[@"PrefsButton.CAClosedProfile.Enabled"];
+    id lightRequest=prefs[@"PrefsButton.CADesignedLight.Enabled"];
+    g_caClosedProfileRequested.store([closedRequest isKindOfClass:NSNumber.class] &&
+        [closedRequest boolValue],std::memory_order_release);
+    g_caDesignedLightRequested.store([lightRequest isKindOfClass:NSNumber.class] &&
+        [lightRequest boolValue],std::memory_order_release);
+#endif
     NSNumber *debugLogging = prefs[@"Debug.Logging.Enabled"];
     gLGBackboardDebugLogging = [debugLogging isKindOfClass:NSNumber.class]
         ? debugLogging.boolValue : false;
@@ -1897,6 +1913,26 @@ static void ourCustomRender13(void *self, void *filter, void *layer, void *ctx,
         lglog("ourCustomRender13: no render pipeline, kept stock pass");
         return;
     }
+#if LG_CA_CLOSED_PROFILE_COMPILED == 1
+    LGCAClosedAuditLease *closedAudit=nil;
+    const bool closedRequested=g_caClosedProfileRequested.load(std::memory_order_acquire);
+    if (closedRequested && LGCAClosedProfileMayUse(LG_CA_CLOSED_PROFILE_COMPILED==1,closedRequested,
+        buttonCandidateRequested,lu.buttonCandidate==1.0f,
+        (uint32_t)origTex.pixelFormat,(uint32_t)destTex.pixelFormat,
+        origTex.device==destTex.device,LGCAClosedTexturesAreDisjoint(origTex,destTex),
+        (float)w,(float)h,(float)destTex.width,(float)destTex.height,scale)) {
+        LGCAClosedProfileRuntime *closedRuntime=LGCAClosedRuntimeForDevice(device);
+        if (closedRuntime) closedAudit=[closedRuntime encodeAuditForSource:origTex command:cmdBuf];
+        if (closedAudit) {
+            /* Not a new ABI: value2 marks this distinct opt-in shader branch.
+             * Original value1/old source/library/pipeline remain untouched.
+             * The GPU still requires a full-source positive opaque-audit token. */
+            renderPipeline=closedRuntime.renderPipeline;
+            lu.buttonCandidate=2.0f;
+            lu.fresnelGlareStrength=g_caDesignedLightRequested.load(std::memory_order_acquire)?1.0f:0.0f;
+        }
+    }
+#endif
 
     MTLRenderPassDescriptor *pass = [MTLRenderPassDescriptor renderPassDescriptor];
     pass.colorAttachments[0].texture = destTex;
@@ -1908,6 +1944,9 @@ static void ourCustomRender13(void *self, void *filter, void *layer, void *ctx,
     [enc setFragmentTexture:glassSourceTexture atIndex:0];
     [enc setFragmentTexture:clockMask atIndex:1];
     [enc setFragmentBytes:&lu length:sizeof(lu) atIndex:0];
+#if LG_CA_CLOSED_PROFILE_COMPILED == 1
+    if (closedAudit) [enc setFragmentBuffer:closedAudit.buffer offset:0 atIndex:1];
+#endif
     [enc drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
     [enc endEncoding];
 

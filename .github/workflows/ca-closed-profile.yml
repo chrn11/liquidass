@@ -1,0 +1,44 @@
+name: LiquidAss CA closed body profile validation
+on:
+  push:
+    branches: ['research/ca-closed-body-*']
+permissions:
+  contents: read
+concurrency:
+  group: ca-closed-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  macos-ca-profile:
+    runs-on: macos-15
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Confirm Apple Xcode and fetch pinned iOS SDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(uname -s)" = Darwin
+          xcrun --sdk macosx clang++ --version
+          command -v rg >/dev/null || brew install ripgrep
+          mkdir -p "$RUNNER_TEMP/liquidass-sdk"
+          cd "$RUNNER_TEMP/liquidass-sdk"
+          git init
+          git remote add origin https://github.com/theos/sdks.git
+          git sparse-checkout init --cone
+          git sparse-checkout set iPhoneOS16.5.sdk
+          git fetch --depth 1 --filter=blob:none origin 0222fd5413cf4b9af096f37b4621afa2688572f7
+          git checkout --detach FETCH_HEAD
+          echo "SDK=$RUNNER_TEMP/liquidass-sdk/iPhoneOS16.5.sdk" >> "$GITHUB_ENV"
+      - name: Compile actual CA source and run real Metal regressions
+        shell: bash
+        run: bash validation/ca-closed-profile/build-macos.sh
+      - name: Upload actual output and failed controls as evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: LiquidAss-CA-closed-body-profile-evidence
+          path: ci-artifacts/ca-closed-profile/
+          if-no-files-found: error
+          retention-days: 7

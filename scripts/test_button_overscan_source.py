@@ -11,7 +11,7 @@ metal=(root/'scripts/test_button_contact_metal.mm').read_text()
 c_test=(root/'scripts/test_local_button_source_contract.c').read_text()
 body=re.search(r'R"LGLOCALMSL\((.*?)\)LGLOCALMSL";',shader_h,re.S).group(1)
 sha=hashlib.sha256(body.encode()).hexdigest()
-assert sha=='a2b3e9e685f618b5b91fc57586d9777d41cbbecd8113bf250784923d5cba1975'
+assert sha=='efe6ff61dcc87625ce4664c940ae55de908878b31255fcab9a7167954e4efb2d'
 assert '#define LG_LOCAL_BUTTON_MAX_OVERSCAN_PADDING_POINTS 16.0' in contract
 assert 'sourceOverscanEnabled' in contract and 'LGLocalSourceLayoutForContract' in contract
 assert 'pads[i]<0.0' in contract and 'pads[i]>LG_LOCAL_BUTTON_MAX_OVERSCAN_PADDING_POINTS' in contract
@@ -39,9 +39,7 @@ assert 'offsetof(LGLocalButtonUniforms,buttonSourceTargetOriginPixels)==224' in 
 assert 'offsetof(LGLocalButtonUniforms,buttonSourceOverscanEnabled)==232' in uniforms
 assert 'sizeof(LGLocalButtonUniforms)==240' in uniforms
 assert 'legacyLength!=224u' in uniforms and 'memcpy(out,legacyBytes,224u)' in uniforms
-assert body.count('src.sample(s,')==(
-    body.count('src.sample(s, localButtonSourceUV(src, u,')+
-    body.count('src.sample(s,localButtonSourceUV(src,u,'))
+assert body.count('src.sample(s,')==body.count('src.sample(s, localButtonSourceUV(src, u,')
 assert 'targetPosition>=u.resolution' in body and 'targetGid' in body
 assert 'uint2 targetDimensions=max(uint2(u.resolution),uint2(1))' in body
 assert 'LGButtonCandidateMaxDisplacement(g.sourceWidth,g.sourceHeight)' in uniforms
