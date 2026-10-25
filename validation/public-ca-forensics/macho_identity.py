@@ -4,10 +4,14 @@ import struct,hashlib,uuid,json
 def inspect(path):
  path=Path(path);b=path.read_bytes();magic,cpu,sub,kind,ncmds,cmdbytes,flags,_=struct.unpack_from('<8I',b)
  assert magic==0xfeedfacf and cpu==0x100000c and (sub&0xffffff)==2 and kind==6,'Not a real arm64e Mach-O dylib'
- assert 32+cmdbytes<=len(b);p=32;identity=None;segments=[];text=None
+ assert 32+cmdbytes<=len(b);p=32;identity=None;segments=[];text=None;platforms=[];install=None
  for _ in range(ncmds):
   cmd,n=struct.unpack_from('<II',b,p);assert n>=8 and p+n<=32+cmdbytes
   if cmd==0x1b:identity=str(uuid.UUID(bytes=b[p+8:p+24])).upper()
+  if cmd==0x32:
+   platform,minos,sdk,ntools=struct.unpack_from('<4I',b,p+8);platforms.append({'platform':platform,'minOSRaw':minos,'sdkRaw':sdk})
+  if cmd==0xd:
+   off=struct.unpack_from('<I',b,p+8)[0];assert off<n;install=b[p+off:p+n].split(b'\0')[0].decode()
   if cmd==0x19:
    name=b[p+8:p+24].split(b'\0')[0].decode();addr,vmsize,offset,size=struct.unpack_from('<4Q',b,p+24);count=struct.unpack_from('<I',b,p+64)[0]
    segments.append({'name':name,'vmaddr':addr,'vmsize':vmsize,'fileoff':offset,'filesize':size})
@@ -17,7 +21,8 @@ def inspect(path):
      assert so+ss<=len(b);text={'vmaddr':sa,'fileoff':so,'bytes':ss,'sha256':hashlib.sha256(b[so:so+ss]).hexdigest()}
   p+=n
  assert identity and text and text['bytes']>100000,'Missing UUID or executable instructions (SDK stubs are not acceptable)'
- return {'file':path.name,'bytes':len(b),'sha256':hashlib.sha256(b).hexdigest(),'cpu':'arm64e','cpuSubtypeRaw':sub,'MachOType':'MH_DYLIB','LC_UUID':identity,'text':text,'segments':segments}
+ assert install=='/System/Library/Frameworks/QuartzCore.framework/QuartzCore' and platforms and all(p['platform']==2 for p in platforms),'Wrong framework install name or non-iOS platform'
+ return {'file':path.name,'bytes':len(b),'sha256':hashlib.sha256(b).hexdigest(),'cpu':'arm64e','cpuSubtypeRaw':sub,'MachOType':'MH_DYLIB','LC_UUID':identity,'LC_ID_DYLIB':install,'LC_BUILD_VERSION':platforms,'text':text,'segments':segments}
 if __name__=='__main__':
  import sys
  print(json.dumps(inspect(sys.argv[1]),indent=2))

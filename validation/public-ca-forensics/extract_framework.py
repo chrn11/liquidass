@@ -28,11 +28,14 @@ try:
  for mount in mounts:
   p=run(['rg','--files','-uuu',mount],'mount-file-list-'+str(len(cacheFiles)),60)
   cacheFiles.extend(Path(n) for n in p.stdout.decode().splitlines() if 'dyld_shared_cache_arm64e' in Path(n).name)
- mains=[p for p in cacheFiles if p.name=='dyld_shared_cache_arm64e'];assert len(mains)==1,'Require exact single arm64e shared cache'
- cache=mains[0];layout=[{'name':p.name,'relativePath':str(p.relative_to(next(m for m in mounts if p.is_relative_to(m)))),'bytes':p.stat().st_size} for p in cacheFiles]
+ mains=[p for p in cacheFiles if any(p==m/'System/Library/Caches/com.apple.dyld/dyld_shared_cache_arm64e' for m in mounts)]
+ assert len(mains)==1,'Require exact iOS cache path, not DriverKit same-name cache'
+ cache=mains[0];driverKit=[str(p) for p in cacheFiles if '/System/DriverKit/' in str(p)]
+ selected=[p for p in cacheFiles if p.parent==cache.parent]
+ layout=[{'name':p.name,'relativePath':str(p.relative_to(next(m for m in mounts if p.is_relative_to(m)))),'bytes':p.stat().st_size} for p in selected]
  with cache.open('rb') as f:header=f.read(4096)
  assert header[:16].startswith(b'dyld_v1') and b'arm64e' in header[:16]
- cacheIdentity={'magic':header[:16].decode('ascii').rstrip('\0 '),'cacheHeaderUUID':str(uuid.UUID(bytes=header[88:104])).upper(),'cacheHeaderFirst4096SHA256':hashlib.sha256(header).hexdigest(),'files':layout}
+ cacheIdentity={'selectedCacheRelativePath':str(cache.relative_to(next(m for m in mounts if cache.is_relative_to(m)))),'excludedDriverKitCachePaths':driverKit,'magic':header[:16].decode('ascii').rstrip('\0 '),'cacheHeaderUUID':str(uuid.UUID(bytes=header[88:104])).upper(),'cacheHeaderFirst4096SHA256':hashlib.sha256(header).hexdigest(),'files':layout}
  (O/'cache-identity.json').write_text(json.dumps(cacheIdentity,indent=2))
  run([binary,'dyld','info',cache,'--json'],'cache-info',120,True)
  identities=[]
