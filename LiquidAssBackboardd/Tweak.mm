@@ -11,6 +11,7 @@
 #include "../Shared/LGButtonOpticsShaderSource.h"
 #include "../Shared/LGButtonPressureRoute.h"
 #include "../Shared/LGCAClosedProfilePolicy.h"
+#include "../Shared/LGCAClosedSourceAdmission.h"
 #if LG_CA_CLOSED_PROFILE_COMPILED == 1
 #import "../Shared/LGCAClosedProfileRuntime.h"
 #endif
@@ -1916,7 +1917,10 @@ static void ourCustomRender13(void *self, void *filter, void *layer, void *ctx,
 #if LG_CA_CLOSED_PROFILE_COMPILED == 1
     LGCAClosedAuditLease *closedAudit=nil;
     const bool closedRequested=g_caClosedProfileRequested.load(std::memory_order_acquire);
-    if (closedRequested && LGCAClosedProfileMayUse(LG_CA_CLOSED_PROFILE_COMPILED==1,closedRequested,
+    // No real producer adapter exists yet. Do not let compile/pref switches
+    // turn the current callback's missing upstream provenance into permission.
+    if (closedRequested && LGCAClosedProductionSourceAdmitted() &&
+        LGCAClosedProfileMayUse(LG_CA_CLOSED_PROFILE_COMPILED==1,closedRequested,
         buttonCandidateRequested,lu.buttonCandidate==1.0f,
         (uint32_t)origTex.pixelFormat,(uint32_t)destTex.pixelFormat,
         origTex.device==destTex.device,LGCAClosedTexturesAreDisjoint(origTex,destTex),

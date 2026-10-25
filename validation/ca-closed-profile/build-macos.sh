@@ -7,6 +7,9 @@ exec > >(tee "$O/logs/build.log") 2>&1
 test "$(uname -s)" = Darwin
 V="$R/validation/ca-closed-profile"
 python3 "$V/sourceguard.py" "$R"
+python3 "$V/source_admission_guard.py" "$R" --mutations
+xcrun --sdk macosx clang -std=c11 -Wall -Wextra -Werror -I"$R/Shared" "$V/test_source_admission.c" -framework CoreGraphics -lm -o "$O/source-admission-test"
+"$O/source-admission-test"
 python3 "$V/compile_body_macos.py" "$R" "$O/body-compile" "${SDK:?Pinned iOS SDK required}"
 xcrun --sdk macosx clang -std=c11 -Wall -Wextra -Werror -I"$R/Shared" "$V/test_host_policy.c" -framework CoreGraphics -lm -o "$O/host-policy-test"
 "$O/host-policy-test"

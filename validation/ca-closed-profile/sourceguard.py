@@ -8,7 +8,9 @@ assert raw(b)==raw(s),'Original runtime MSL bytes changed'
 def uniforms(t):return re.search(r'typedef struct \{(.*?)\} LGUniforms;',t,re.S).group(0)
 assert uniforms(b)==uniforms(s),'Original208B system ABI changed'
 assert 'sizeof(lu) atIndex:0' in s and 'closedAudit.buffer offset:0 atIndex:1' in s
-assert 'closedRequested && LGCAClosedProfileMayUse(' in s and 'lu.buttonCandidate==1.0f' in s
+assert 'closedRequested && LGCAClosedProductionSourceAdmitted() &&' in s and 'lu.buttonCandidate==1.0f' in s
+assert 'LGCAClosedProfileMayUse(LG_CA_CLOSED_PROFILE_COMPILED==1,closedRequested,' in s
+subprocess.run([sys.executable,str(V/'source_admission_guard.py'),str(R)],check=True)
 assert 'g_caClosedProfileRequested{false}' in s and 'g_caDesignedLightRequested{false}' in s
 assert 'LG_CA_CLOSED_PROFILE ?= 0' in (R/'LiquidAssBackboardd/Makefile').read_text()
 assert sha(R/'Shared/LGButtonOpticsFormula.inc')==M['baselineFormulaSHA256']
