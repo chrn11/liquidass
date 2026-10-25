@@ -1,0 +1,11 @@
+{
+  "scope": "Single user-authorized cloud-only public Apple firmware extraction,20min limit,64MiB artifact cap; no device access or production changes",
+  "filesSHA256": {
+    ".github/workflows/public-ca-forensics.yml": "605bad5d371e47606a6d4670ba146a1c583f32b50c12468b0776c077dafa7bc1",
+    "validation/public-ca-forensics/expected.json": "8a9d036a344446aa83d05df3f78f5a961891640ddde43e3ea904290c09af4b1a",
+    "validation/public-ca-forensics/macho_identity.py": "9215ef7cbfcd50e88187bfd90a796105b6c0323ee597c70f92cefd10dfa63b8c",
+    "validation/public-ca-forensics/fetch_systemos.py": "c3d81166aa2b433d8c8c06f4438f333a67afad6338f4957bc8898c21c739f810",
+    "validation/public-ca-forensics/check_output_budget.py": "5bd072cd2c4baeaa275cac7ff5e080c6e6f5a6fab89590bfda1c0cf947810526",
+    "validation/public-ca-forensics/extract_framework.py": "36345bea055c1ee447ee8ab3c0f4b96af34358f03fe88322c09b1537d75ee70d"
+  }
+}

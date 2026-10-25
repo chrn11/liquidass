@@ -1,0 +1,52 @@
+name: Public iOS20F66 QuartzCore forensics only
+on:
+  push:
+    branches: ['research/ca-public-forensics-20261025']
+permissions:
+  contents: read
+concurrency:
+  group: public-ca-forensics-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  official-systemos-static-extraction:
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Confirm read-only forensic environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(uname -s)" = Darwin
+          python3 -c 'from pathlib import Path;import hashlib,json;m=json.loads(Path("validation/public-ca-forensics/input-manifest.json").read_text());assert all(hashlib.sha256(Path(n).read_bytes()).hexdigest()==h for n,h in m["filesSHA256"].items())'
+          command -v rg >/dev/null || brew install ripgrep
+          mkdir -p ci-artifacts/public-ca-forensics "$RUNNER_TEMP/liquidass-public-systemos"
+          python3 -c 'import json,os,shutil;from pathlib import Path;e=json.loads(Path("validation/public-ca-forensics/expected.json").read_text());assert shutil.disk_usage(os.environ["RUNNER_TEMP"]).free>e["componentBytes"]+512*1024*1024'
+      - name: Download only verified official SystemOS component via HTTP ranges
+        shell: bash
+        run: python3 validation/public-ca-forensics/fetch_systemos.py ci-artifacts/public-ca-forensics "$RUNNER_TEMP/liquidass-public-systemos"
+      - name: Readonly APFS mount and target framework extraction
+        shell: bash
+        run: python3 validation/public-ca-forensics/extract_framework.py ci-artifacts/public-ca-forensics "$RUNNER_TEMP/liquidass-public-systemos"
+      - name: Enforce authorized output cap even if extraction failed
+        if: always()
+        shell: bash
+        run: python3 validation/public-ca-forensics/check_output_budget.py ci-artifacts/public-ca-forensics validation/public-ca-forensics/expected.json
+      - name: Upload only framework and provenance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Public-20F66-QuartzCore-static-evidence
+          path: ci-artifacts/public-ca-forensics/
+          if-no-files-found: error
+          retention-days: 1
+      - name: Remove owned temporary image and utility
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          T="${RUNNER_TEMP:?}/liquidass-public-systemos"
+          rm -f -- "$T/096-04577-078.dmg" "$T/ipsw-tool.tar.gz" "$T/image-path.txt"
+          rm -rf -- "$T/tool"

@@ -1,0 +1,33 @@
+{
+  "sourceURL": "https://updates.cdn-apple.com/2023SpringFCS/fullrestores/032-85116/446E6CBB-BFFB-4DC4-9F17-7677C5F82382/iPhone14,5_16.5_20F66_Restore.ipsw",
+  "archiveBytes": 6729344333,
+  "device": "iPhone14,5",
+  "deviceClass": "d17ap",
+  "version": "16.5",
+  "build": "20F66",
+  "component": "096-04577-078.dmg",
+  "componentBytes": 2902458368,
+  "componentCompressedBytes": 1123275904,
+  "componentSHA384": "6f45979db25adcbba6158103a7e586cd53e77a07dc8d5336122978a25494fe59783621cfcb436c7aaa931c11f1bb6d42",
+  "manifestSHA256": "f9cbead7a14c8680febdbe5029595f3ad856210ee52039de5f0763b05019314e",
+  "toolTag": "v3.1.739",
+  "tools": {
+    "arm64": {
+      "url": "https://github.com/blacktop/ipsw/releases/download/v3.1.739/ipsw_3.1.739_macOS_arm64.tar.gz",
+      "sha256": "c09e8eba02c332f5b50d15f94383e59dd35646d70f6ea9e78d185e9afda6abc2",
+      "bytes": 28498196
+    },
+    "x86_64": {
+      "url": "https://github.com/blacktop/ipsw/releases/download/v3.1.739/ipsw_3.1.739_macOS_x86_64.tar.gz",
+      "sha256": "7121fce3ff630077d7de0e3e6ff15f49876494b5d54b01f92a3c1787ebe23c0e",
+      "bytes": 30366865
+    }
+  },
+  "budget": {
+    "artifactMaxBytes": 67108864,
+    "workflowMaxMinutes": 20,
+    "temporaryImageExpectedBytes": 2902458368
+  },
+  "authorization": "User explicitly allowed one cloud-only Apple official firmware extraction; no more device reads or any installation/injection/restart",
+  "imagePath": "/System/Library/Frameworks/QuartzCore.framework/QuartzCore"
+}
